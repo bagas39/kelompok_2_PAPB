@@ -1,0 +1,36 @@
+package com.example.cloble.domain.model
+
+data class UserProfile(
+    val id: Long,
+    val name: String,
+    val email: String,
+    val bio: String,
+    val city: String,
+    val latitude: Double,
+    val longitude: Double,
+    val preferredSize: String,
+    val preferredGender: String,
+    val preferredRadiusKm: Int,
+    val createdAt: Long,
+    val averageRating: Double = 0.0,
+    val reviewCount: Int = 0
+) {
+    val isLowCredibility: Boolean
+        get() = reviewCount >= 1 && averageRating < 3.0
+}
+
+data class UserPreferences(
+    val preferredSize: String,
+    val preferredGender: String,
+    val city: String,
+    val latitude: Double,
+    val longitude: Double,
+    val preferredRadiusKm: Int
+)
+
+data class DemoAccountSummary(
+    val id: Long,
+    val name: String,
+    val email: String,
+    val roleDescription: String
+)
