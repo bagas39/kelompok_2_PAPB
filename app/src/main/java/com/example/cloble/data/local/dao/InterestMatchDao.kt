@@ -59,6 +59,18 @@ abstract class InterestMatchDao {
     @Query("SELECT * FROM interests WHERE senderUserId = :senderUserId AND targetItemId = :targetItemId LIMIT 1")
     abstract suspend fun getInterestBySenderAndTarget(senderUserId: Long, targetItemId: Long): InterestEntity?
 
+    @Query(
+        """
+        SELECT * FROM interests
+        WHERE senderUserId = :senderUserId
+          AND receiverUserId = :receiverUserId
+          AND status = 'PENDING'
+        ORDER BY createdAt DESC
+        LIMIT 1
+        """
+    )
+    abstract suspend fun getPendingInterestBetweenUsers(senderUserId: Long, receiverUserId: Long): InterestEntity?
+
     @Query("SELECT * FROM matches WHERE id = :matchId LIMIT 1")
     abstract suspend fun getMatchById(matchId: Long): MatchEntity?
 
@@ -218,6 +230,75 @@ abstract class InterestMatchDao {
         }
         if (targetItem.status != ItemStatus.AVAILABLE || !targetItem.isBarterAllowed || countActiveMatchesUsingItem(targetItemId) > 0) {
             return SendInterestDaoResult.TargetItemNotEligible
+        }
+
+        val reverseInterest = getPendingInterestBetweenUsers(targetItem.ownerId, senderUserId)
+        if (reverseInterest != null) {
+            val reverseItem = getClothingById(reverseInterest.targetItemId)
+            if (reverseItem != null &&
+                reverseItem.ownerId == senderUserId &&
+                reverseItem.status == ItemStatus.AVAILABLE &&
+                reverseItem.isBarterAllowed &&
+                countActiveMatchesUsingItem(reverseItem.id) == 0 &&
+                countActiveOrCompletedMatchForPair(targetItem.id, reverseItem.id) == 0
+            ) {
+                val targetUserName = getUserNameById(targetItem.ownerId) ?: "Pengguna"
+
+                val interestId = insertInterest(
+                    InterestEntity(
+                        senderUserId = senderUserId,
+                        receiverUserId = targetItem.ownerId,
+                        targetItemId = targetItemId,
+                        status = InterestStatus.RESOLVED_BY_MATCH,
+                        createdAt = nowMillis,
+                        respondedAt = nowMillis
+                    )
+                )
+
+                markInterestStatus(reverseInterest.id, InterestStatus.ACCEPTED_MATCHED, nowMillis)
+
+                val matchId = insertMatch(
+                    MatchEntity(
+                        sourceInterestId = reverseInterest.id,
+                        user1Id = targetItem.ownerId,
+                        user1ItemId = targetItem.id,
+                        user2Id = senderUserId,
+                        user2ItemId = reverseItem.id,
+                        status = MatchStatus.ACTIVE,
+                        meetingLocation = null,
+                        createdAt = nowMillis,
+                        updatedAt = nowMillis
+                    )
+                )
+
+                insertNotification(
+                    NotificationEntity(
+                        userId = targetItem.ownerId,
+                        type = NotificationType.MATCH_VERIFIED,
+                        title = "Match terverifikasi dengan ${senderUser.name}",
+                        body = "${targetItem.name} ↔ ${reverseItem.name} siap didiskusikan di ruang Chat.",
+                        relatedInterestId = reverseInterest.id,
+                        relatedMatchId = matchId,
+                        isRead = false,
+                        createdAt = nowMillis
+                    )
+                )
+
+                insertNotification(
+                    NotificationEntity(
+                        userId = senderUserId,
+                        type = NotificationType.MATCH_VERIFIED,
+                        title = "Match terverifikasi dengan $targetUserName",
+                        body = "${reverseItem.name} ↔ ${targetItem.name} siap didiskusikan di ruang Chat.",
+                        relatedInterestId = interestId,
+                        relatedMatchId = matchId,
+                        isRead = false,
+                        createdAt = nowMillis
+                    )
+                )
+
+                return SendInterestDaoResult.Success(interestId, matchId)
+            }
         }
 
         val interestId = insertInterest(

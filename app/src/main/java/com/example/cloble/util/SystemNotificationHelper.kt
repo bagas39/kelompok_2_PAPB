@@ -47,17 +47,28 @@ object SystemNotificationHelper {
         }
     }
 
+    fun hasBeenNotified(context: Context, userId: Long, notificationId: Long): Boolean {
+        val prefs = context.getSharedPreferences("cloble_system_notifs_$userId", Context.MODE_PRIVATE)
+        return prefs.getBoolean("notif_$notificationId", false)
+    }
+
+    fun markAsNotified(context: Context, userId: Long, notificationId: Long) {
+        val prefs = context.getSharedPreferences("cloble_system_notifs_$userId", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("notif_$notificationId", true).apply()
+    }
+
     fun showNotification(
         context: Context,
         id: Int,
         title: String,
         body: String,
-        relatedMatchId: Long? = null
-    ) {
+        relatedMatchId: Long? = null,
+        destination: String = "notifications"
+    ): Boolean {
         initNotificationChannel(context)
 
         if (!hasNotificationPermission(context)) {
-            return
+            return false
         }
 
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -65,7 +76,7 @@ object SystemNotificationHelper {
             if (relatedMatchId != null) {
                 putExtra("matchId", relatedMatchId)
             }
-            putExtra("destination", "notifications")
+            putExtra("destination", destination)
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -76,7 +87,7 @@ object SystemNotificationHelper {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -86,10 +97,11 @@ object SystemNotificationHelper {
             .setContentIntent(pendingIntent)
             .build()
 
-        try {
+        return try {
             NotificationManagerCompat.from(context).notify(id, notification)
+            true
         } catch (_: SecurityException) {
-
+            false
         }
     }
 

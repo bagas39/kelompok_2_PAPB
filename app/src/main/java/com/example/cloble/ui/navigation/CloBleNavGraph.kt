@@ -63,7 +63,9 @@ sealed interface SessionGateState {
 fun CloBleNavGraph(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
-    startDestination: String? = null
+    startDestination: String? = null,
+    pendingRoute: String? = null,
+    onRouteHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as? CloBleApplication
@@ -101,6 +103,15 @@ fun CloBleNavGraph(
             } else {
                 CloBleDestinations.LOGIN
             }
+        }
+    }
+
+    LaunchedEffect(pendingRoute, sessionGateState) {
+        if (pendingRoute != null && sessionGateState is SessionGateState.Authenticated) {
+            navController.navigate(pendingRoute) {
+                launchSingleTop = true
+            }
+            onRouteHandled()
         }
     }
 

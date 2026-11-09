@@ -89,9 +89,16 @@ class DiscoverViewModel(
                 }
                 .collect { candidates ->
                     _uiState.update { current ->
+                        val currentItem = current.currentCandidate
+                        val newIndex = if (currentItem != null) {
+                            val found = candidates.indexOfFirst { it.item.id == currentItem.item.id }
+                            if (found >= 0) found else minOf(current.currentIndex, candidates.size)
+                        } else {
+                            minOf(current.currentIndex, candidates.size)
+                        }
                         current.copy(
                             candidates = candidates,
-                            currentIndex = 0,
+                            currentIndex = newIndex,
                             isLoading = false
                         )
                     }
@@ -125,10 +132,15 @@ class DiscoverViewModel(
             val result = discoveryMatchRepository.sendInterest(userId, candidate.item.id)
             when (result) {
                 is SendInterestResult.Success -> {
+                    val message = if (result.matchId != null) {
+                        "Match terverifikasi! Anda dan ${candidate.ownerName} saling menyukai pakaian barter!"
+                    } else {
+                        "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!"
+                    }
                     _uiState.update {
                         it.copy(
                             currentIndex = it.currentIndex + 1,
-                            bannerMessage = "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!",
+                            bannerMessage = message,
                             requiresBarterItemCta = false
                         )
                     }

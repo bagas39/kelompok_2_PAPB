@@ -2,6 +2,7 @@ package com.example.cloble.ui.screens.notifications
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -128,6 +129,25 @@ fun NotificationsScreen(
                     val bgColor = if (!item.isRead) CloBleColors.SecondarySurface else Color.White
                     val borderColor = if (!item.isRead) CloBleColors.Primary else CloBleColors.Outline
 
+                    val cardClickModifier = when {
+                        item.type == NotificationType.INCOMING_INTEREST && item.counterpartUserId != null && item.relatedInterestId != null -> {
+                            Modifier.clickable {
+                                onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
+                            }
+                        }
+                        item.type == NotificationType.MATCH_VERIFIED && item.relatedMatchId != null -> {
+                            Modifier.clickable {
+                                onNavigateToConversation(item.relatedMatchId)
+                            }
+                        }
+                        item.type == NotificationType.EXCHANGE_COMPLETED && item.relatedMatchId != null && item.counterpartUserId != null -> {
+                            Modifier.clickable {
+                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
+                            }
+                        }
+                        else -> Modifier
+                    }
+
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = bgColor,
@@ -135,6 +155,7 @@ fun NotificationsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
+                            .then(cardClickModifier)
                             .testTag("notification_item_${item.id}")
                     ) {
                         Column(

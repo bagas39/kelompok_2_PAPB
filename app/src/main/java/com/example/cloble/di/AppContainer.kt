@@ -4,14 +4,26 @@ import android.content.Context
 import com.example.cloble.data.local.db.CloBleDatabase
 import com.example.cloble.data.local.session.SessionPreferencesDataSource
 import com.example.cloble.data.local.storage.LocalPhotoStorageManager
+import com.example.cloble.data.remote.SupabaseAuthRepository
+import com.example.cloble.data.remote.SupabaseChatRepository
+import com.example.cloble.data.remote.SupabaseClient
+import com.example.cloble.data.remote.SupabaseConfig
+import com.example.cloble.data.remote.SupabaseDataInvalidator
+import com.example.cloble.data.remote.SupabaseDiscoveryMatchRepository
+import com.example.cloble.data.remote.SupabaseFcmRepository
+import com.example.cloble.data.remote.SupabaseProfileReviewRepository
+import com.example.cloble.data.remote.SupabaseRealtimeClient
+import com.example.cloble.data.remote.SupabaseWardrobeRepository
 import com.example.cloble.data.repository.LocalAuthRepository
 import com.example.cloble.data.repository.LocalChatRepository
 import com.example.cloble.data.repository.LocalDiscoveryMatchRepository
+import com.example.cloble.data.repository.LocalFcmRepository
 import com.example.cloble.data.repository.LocalProfileReviewRepository
 import com.example.cloble.data.repository.LocalWardrobeRepository
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import com.example.cloble.domain.repository.FcmRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 
@@ -24,9 +36,23 @@ interface AppContainer {
     val discoveryMatchRepository: DiscoveryMatchRepository
     val chatRepository: ChatRepository
     val profileReviewRepository: ProfileReviewRepository
+    val fcmRepository: FcmRepository
+    val dataInvalidator: SupabaseDataInvalidator
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
+
+    private val supabaseClient: SupabaseClient by lazy {
+        SupabaseClient(SupabaseConfig)
+    }
+
+    private val supabaseRealtimeClient: SupabaseRealtimeClient by lazy {
+        SupabaseRealtimeClient(SupabaseConfig)
+    }
+
+    override val dataInvalidator: SupabaseDataInvalidator by lazy {
+        SupabaseDataInvalidator()
+    }
 
     override val database: CloBleDatabase by lazy {
         CloBleDatabase.getInstance(context)
@@ -41,29 +67,57 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val authRepository: AuthRepository by lazy {
-        LocalAuthRepository(database, sessionPrefs)
+        if (SupabaseConfig.isConfigured) {
+            SupabaseAuthRepository(supabaseClient, sessionPrefs, dataInvalidator)
+        } else {
+            LocalAuthRepository(database, sessionPrefs)
+        }
     }
 
     override val wardrobeRepository: WardrobeRepository by lazy {
-        LocalWardrobeRepository(database.clothingItemDao(), photoStorageManager)
+        if (SupabaseConfig.isConfigured) {
+            SupabaseWardrobeRepository(supabaseClient, context, dataInvalidator)
+        } else {
+            LocalWardrobeRepository(database.clothingItemDao(), photoStorageManager)
+        }
     }
 
     override val discoveryMatchRepository: DiscoveryMatchRepository by lazy {
-        LocalDiscoveryMatchRepository(
-            discoveryDao = database.discoveryDao(),
-            interestMatchDao = database.interestMatchDao(),
-            notificationDao = database.notificationDao(),
-            clothingDao = database.clothingItemDao(),
-            userDao = database.userDao(),
-            reviewDao = database.reviewDao()
-        )
+        if (SupabaseConfig.isConfigured) {
+            SupabaseDiscoveryMatchRepository(supabaseClient, dataInvalidator)
+        } else {
+            LocalDiscoveryMatchRepository(
+                discoveryDao = database.discoveryDao(),
+                interestMatchDao = database.interestMatchDao(),
+                notificationDao = database.notificationDao(),
+                clothingDao = database.clothingItemDao(),
+                userDao = database.userDao(),
+                reviewDao = database.reviewDao()
+            )
+        }
     }
 
     override val chatRepository: ChatRepository by lazy {
-        LocalChatRepository(database.chatDao(), database.userDao())
+        if (SupabaseConfig.isConfigured) {
+            SupabaseChatRepository(supabaseClient, supabaseRealtimeClient)
+        } else {
+            LocalChatRepository(database.chatDao(), database.userDao())
+        }
     }
 
     override val profileReviewRepository: ProfileReviewRepository by lazy {
-        LocalProfileReviewRepository(database.userDao(), database.reviewDao())
+        if (SupabaseConfig.isConfigured) {
+            SupabaseProfileReviewRepository(supabaseClient, dataInvalidator)
+        } else {
+            LocalProfileReviewRepository(database.userDao(), database.reviewDao())
+        }
+    }
+
+    override val fcmRepository: FcmRepository by lazy {
+        if (SupabaseConfig.isConfigured) {
+            SupabaseFcmRepository(supabaseClient, sessionPrefs)
+        } else {
+            LocalFcmRepository(sessionPrefs)
+        }
     }
 }

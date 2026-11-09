@@ -39,10 +39,10 @@ class MyProfileViewModel(
     init {
         viewModelScope.launch {
             authRepository.observeCurrentUser().collect { user ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    current.copy(
                         userProfile = user,
-                        bioInput = user?.bio ?: "",
+                        bioInput = if (current.isEditingBio) current.bioInput else (user?.bio ?: ""),
                         isLoading = false
                     )
                 }
@@ -64,7 +64,12 @@ class MyProfileViewModel(
     }
 
     fun setEditingBio(editing: Boolean) {
-        _uiState.update { it.copy(isEditingBio = editing) }
+        _uiState.update { current ->
+            current.copy(
+                isEditingBio = editing,
+                bioInput = if (editing) (current.userProfile?.bio ?: "") else current.bioInput
+            )
+        }
     }
 
     fun saveBio() {

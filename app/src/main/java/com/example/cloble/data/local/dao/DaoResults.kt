@@ -4,7 +4,7 @@ import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.MatchStatus
 
 sealed interface SendInterestDaoResult {
-    data class Success(val interestId: Long) : SendInterestDaoResult
+    data class Success(val interestId: Long, val matchId: Long? = null) : SendInterestDaoResult
     data object SenderNotFound : SendInterestDaoResult
     data class AlreadyInterested(val existingStatus: InterestStatus) : SendInterestDaoResult
     data object RequiresBarterableItemInWardrobe : SendInterestDaoResult

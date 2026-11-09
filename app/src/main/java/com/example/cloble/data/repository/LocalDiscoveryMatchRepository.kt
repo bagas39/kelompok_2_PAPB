@@ -150,7 +150,7 @@ class LocalDiscoveryMatchRepository(
             onUnexpectedDatabaseError = { SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
         ) {
             when (val daoResult = interestMatchDao.convertSwipePassToInterest(userId, targetItemId, now)) {
-                is SendInterestDaoResult.Success -> SendInterestResult.Success(daoResult.interestId)
+                is SendInterestDaoResult.Success -> SendInterestResult.Success(daoResult.interestId, daoResult.matchId)
                 is SendInterestDaoResult.SenderNotFound -> SendInterestResult.InvalidOrMissingSenderSession
                 is SendInterestDaoResult.AlreadyInterested -> SendInterestResult.AlreadyInterested(daoResult.existingStatus)
                 is SendInterestDaoResult.RequiresBarterableItemInWardrobe -> SendInterestResult.RequiresBarterableItemInWardrobe
@@ -172,7 +172,7 @@ class LocalDiscoveryMatchRepository(
             onUnexpectedDatabaseError = { SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
         ) {
             when (val daoResult = interestMatchDao.sendInterest(senderId, targetItemId, now)) {
-                is SendInterestDaoResult.Success -> SendInterestResult.Success(daoResult.interestId)
+                is SendInterestDaoResult.Success -> SendInterestResult.Success(daoResult.interestId, daoResult.matchId)
                 is SendInterestDaoResult.SenderNotFound -> SendInterestResult.InvalidOrMissingSenderSession
                 is SendInterestDaoResult.AlreadyInterested -> SendInterestResult.AlreadyInterested(daoResult.existingStatus)
                 is SendInterestDaoResult.RequiresBarterableItemInWardrobe -> SendInterestResult.RequiresBarterableItemInWardrobe

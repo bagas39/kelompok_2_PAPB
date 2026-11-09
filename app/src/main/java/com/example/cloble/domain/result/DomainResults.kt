@@ -29,7 +29,7 @@ sealed interface WardrobeMutationResult {
 }
 
 sealed interface SendInterestResult {
-    data class Success(val interestId: Long) : SendInterestResult
+    data class Success(val interestId: Long, val matchId: Long? = null) : SendInterestResult
     data object InvalidOrMissingSenderSession : SendInterestResult
     data class AlreadyInterested(val existingStatus: InterestStatus) : SendInterestResult
     data object RequiresBarterableItemInWardrobe : SendInterestResult
