@@ -47,6 +47,7 @@ abstract class ChatDao {
             CASE WHEN m.user1Id = :userId THEN m.user2Id ELSE m.user1Id END AS partnerUserId,
             CASE WHEN m.user1Id = :userId THEN u2.name ELSE u1.name END AS partnerName,
             CASE WHEN m.user1Id = :userId THEN u2.city ELSE u1.city END AS partnerCity,
+            CASE WHEN m.user1Id = :userId THEN u2.avatarUri ELSE u1.avatarUri END AS partnerAvatarUri,
             COALESCE((
                 SELECT AVG(r.rating) FROM reviews r
                 WHERE r.revieweeId = (CASE WHEN m.user1Id = :userId THEN m.user2Id ELSE m.user1Id END)

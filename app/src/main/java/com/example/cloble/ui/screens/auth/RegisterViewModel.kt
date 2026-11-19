@@ -19,8 +19,12 @@ data class RegisterUiState(
     val name: String = "",
     val email: String = "",
     val city: String = CityPreset.BANDUNG.displayName,
+    val latitude: Double = CityPreset.BANDUNG.latitude,
+    val longitude: Double = CityPreset.BANDUNG.longitude,
     val password: String = "",
     val confirmPassword: String = "",
+    val isPasswordVisible: Boolean = false,
+    val isConfirmPasswordVisible: Boolean = false,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null
 )
@@ -40,8 +44,15 @@ class RegisterViewModel(
         _uiState.update { it.copy(email = newEmail, errorMessage = null) }
     }
 
-    fun onCityChanged(newCity: String) {
-        _uiState.update { it.copy(city = newCity, errorMessage = null) }
+    fun onLocationSelected(city: String, latitude: Double, longitude: Double) {
+        _uiState.update {
+            it.copy(
+                city = city,
+                latitude = latitude,
+                longitude = longitude,
+                errorMessage = null
+            )
+        }
     }
 
     fun onPasswordChanged(newPassword: String) {
@@ -52,10 +63,19 @@ class RegisterViewModel(
         _uiState.update { it.copy(confirmPassword = newConfirm, errorMessage = null) }
     }
 
+    fun togglePasswordVisibility() {
+        _uiState.update { it.copy(isPasswordVisible = !it.isPasswordVisible) }
+    }
+
+    fun toggleConfirmPasswordVisibility() {
+        _uiState.update { it.copy(isConfirmPasswordVisible = !it.isConfirmPasswordVisible) }
+    }
+
     fun submitRegister(onSuccess: () -> Unit) {
         val s = _uiState.value
         val name = s.name.trim()
         val email = s.email.trim()
+        val city = s.city.trim()
 
         if (name.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Nama lengkap wajib diisi") }
@@ -63,6 +83,10 @@ class RegisterViewModel(
         }
         if (email.isEmpty() || !email.contains("@")) {
             _uiState.update { it.copy(errorMessage = "Format email tidak valid") }
+            return
+        }
+        if (city.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "Lokasi kota wajib dipilih") }
             return
         }
         if (s.password.length < 6) {
@@ -76,7 +100,15 @@ class RegisterViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            when (val result = authRepository.register(name, email, s.password, s.city)) {
+            val result = authRepository.register(
+                name = name,
+                email = email,
+                rawPassword = s.password,
+                city = city,
+                latitude = s.latitude,
+                longitude = s.longitude
+            )
+            when (result) {
                 is AuthResult.Success -> {
                     _uiState.update { it.copy(isSubmitting = false) }
                     onSuccess()

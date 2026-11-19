@@ -23,6 +23,7 @@ object SupabaseMappers {
             name = json.optString("name"),
             email = json.optString("email"),
             bio = json.optString("bio"),
+            avatarUri = json.optStringOrNull("avatarUri"),
             city = json.optString("city", "Bandung, Jawa Barat"),
             latitude = json.optDouble("latitude", -6.9175),
             longitude = json.optDouble("longitude", 107.6191),
@@ -81,6 +82,7 @@ object SupabaseMappers {
             item = item,
             ownerName = ownerJson.optString("name", "Pengguna"),
             ownerCity = ownerJson.optString("city", "Bandung"),
+            ownerAvatarUri = ownerJson.optStringOrNull("avatarUri"),
             ownerAverageRating = ownerAvgRating,
             ownerReviewCount = ownerReviewCount,
             distanceKm = distanceKm

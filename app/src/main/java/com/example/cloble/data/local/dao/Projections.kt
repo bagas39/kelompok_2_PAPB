@@ -43,8 +43,10 @@ data class MatchWithDetailsRow(
     val updatedAt: Long,
     val user1Name: String,
     val user1City: String,
+    val user1AvatarUri: String? = null,
     val user2Name: String,
-    val user2City: String
+    val user2City: String,
+    val user2AvatarUri: String? = null
 )
 
 data class ChatThreadRow(
@@ -52,6 +54,7 @@ data class ChatThreadRow(
     val partnerUserId: Long,
     val partnerName: String,
     val partnerCity: String,
+    val partnerAvatarUri: String? = null,
     val partnerAverageRating: Double,
     val myItemName: String,
     val partnerItemName: String,
@@ -78,6 +81,7 @@ data class RawDiscoverCandidate(
     @Embedded val item: ClothingItemEntity,
     val ownerName: String,
     val ownerCity: String,
+    val ownerAvatarUri: String? = null,
     val ownerAverageRating: Double,
     val ownerReviewCount: Int,
     val ownerLatitude: Double,

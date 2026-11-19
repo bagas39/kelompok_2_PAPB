@@ -9,6 +9,7 @@ import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.domain.model.VerifiedMatchDetail
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
 import com.example.cloble.domain.result.DbFailure
@@ -68,9 +69,26 @@ class SupabaseDiscoveryMatchRepository(
             }
 
             val rawItemsArr = client.getJsonArray(
-                "clothing_items?select=*,users:ownerId(id,name,city,latitude,longitude)" +
+                "clothing_items?select=*,users:ownerId(id,name,city,latitude,longitude,avatarUri)" +
                         "&status=eq.AVAILABLE&isBarterAllowed=eq.true&ownerId=neq.$viewerUserId&order=createdAt.desc"
             )
+
+            val ratingSumsByOwner = mutableMapOf<Long, Pair<Double, Int>>()
+            try {
+                val reviewsArr = client.getJsonArray("reviews?select=revieweeId,rating")
+                for (r in 0 until reviewsArr.length()) {
+                    val rev = reviewsArr.getJSONObject(r)
+                    val rid = rev.optLong("revieweeId")
+                    val rating = rev.optDouble("rating", 0.0)
+                    val prev = ratingSumsByOwner[rid]
+                    if (prev == null) {
+                        ratingSumsByOwner[rid] = rating to 1
+                    } else {
+                        ratingSumsByOwner[rid] = (prev.first + rating) to (prev.second + 1)
+                    }
+                }
+            } catch (_: Exception) {
+            }
 
             val candidates = mutableListOf<DiscoverCandidate>()
             for (i in 0 until rawItemsArr.length()) {
@@ -81,6 +99,7 @@ class SupabaseDiscoveryMatchRepository(
                 if (interestedItemIds.contains(itemId)) continue
 
                 val ownerJson = raw.optJSONObject("users") ?: JSONObject()
+                val ownerId = ownerJson.optLong("id", raw.optLong("ownerId"))
                 val ownerLat = ownerJson.optDouble("latitude", viewerLat)
                 val ownerLon = ownerJson.optDouble("longitude", viewerLon)
 
@@ -108,7 +127,11 @@ class SupabaseDiscoveryMatchRepository(
                     if (!matchGender) continue
                 }
 
-                candidates.add(SupabaseMappers.parseDiscoverCandidate(raw, distanceKm))
+                val stats = ratingSumsByOwner[ownerId]
+                val count = stats?.second ?: 0
+                val avg = if (count > 0 && stats != null) stats.first / count else 0.0
+
+                candidates.add(SupabaseMappers.parseDiscoverCandidate(raw, distanceKm, avg, count))
             }
             candidates
         } catch (_: Exception) {
@@ -131,7 +154,7 @@ class SupabaseDiscoveryMatchRepository(
     ): VerifiedMatchDetail? {
         return try {
             val matchArr = client.getJsonArray(
-                "matches?id=eq.$matchId&select=*,u1:user1Id(name,city),u2:user2Id(name,city)," +
+                "matches?id=eq.$matchId&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri)," +
                         "i1:user1ItemId(*),i2:user2ItemId(*)"
             )
             if (matchArr.length() == 0) return null
@@ -143,6 +166,23 @@ class SupabaseDiscoveryMatchRepository(
             val partnerObj = if (isViewerUser1) m.optJSONObject("u2") else m.optJSONObject("u1")
             val partnerName = partnerObj?.optString("name", "Pengguna") ?: "Pengguna"
             val partnerCity = partnerObj?.optString("city", "Bandung") ?: "Bandung"
+            val partnerAvatarUri = partnerObj?.optString("avatarUri")
+                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+            var partnerAvg = 0.0
+            var partnerCount = 0
+            try {
+                val reviewsArr = client.getJsonArray("reviews?revieweeId=eq.$partnerUserId&select=rating")
+                partnerCount = reviewsArr.length()
+                if (partnerCount > 0) {
+                    var sum = 0.0
+                    for (i in 0 until partnerCount) {
+                        sum += reviewsArr.getJSONObject(i).optDouble("rating", 0.0)
+                    }
+                    partnerAvg = sum / partnerCount
+                }
+            } catch (_: Exception) {
+            }
 
             val myItemObj = if (isViewerUser1) m.optJSONObject("i1") else m.optJSONObject("i2")
             val partnerItemObj = if (isViewerUser1) m.optJSONObject("i2") else m.optJSONObject("i1")
@@ -159,15 +199,18 @@ class SupabaseDiscoveryMatchRepository(
             VerifiedMatchDetail(
                 matchId = matchId,
                 status = matchStatus,
-                meetingLocation = m.optString("meetingLocation").takeIf { it.isNotBlank() },
+                meetingLocation = m.optString("meetingLocation").takeIf {
+                    it.isNotBlank() && !it.equals("null", ignoreCase = true)
+                },
                 createdAt = m.optLong("createdAt"),
                 updatedAt = m.optLong("updatedAt"),
                 myUserId = viewerUserId,
                 partnerUserId = partnerUserId,
                 partnerName = partnerName,
                 partnerCity = partnerCity,
-                partnerAverageRating = 0.0,
-                partnerReviewCount = 0,
+                partnerAvatarUri = partnerAvatarUri,
+                partnerAverageRating = partnerAvg,
+                partnerReviewCount = partnerCount,
                 myItem = myItem,
                 partnerItem = partnerItem
             )
@@ -299,6 +342,39 @@ class SupabaseDiscoveryMatchRepository(
             }
         } catch (e: Exception) {
             SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        }
+    }
+
+    override suspend fun cancelOutgoingInterest(
+        userId: Long,
+        interestId: Long
+    ): CancelInterestResult {
+        return try {
+            val params = JSONObject().apply {
+                put("p_interest_id", interestId)
+                put("p_sender_user_id", userId)
+            }
+            val res = client.rpc("rpc_cancel_outgoing_interest", params)
+            when (res.optString("code")) {
+                "SUCCESS" -> {
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateNotifications()
+                    CancelInterestResult.Success
+                }
+                "INTEREST_NOT_FOUND" -> CancelInterestResult.InterestNotFound
+                "NOT_INTEREST_OWNER" -> CancelInterestResult.NotInterestOwner
+                "INTEREST_ALREADY_PROCESSED" -> {
+                    val status = try {
+                        InterestStatus.valueOf(res.optString("currentStatus", "ACCEPTED_MATCHED"))
+                    } catch (_: Exception) {
+                        InterestStatus.ACCEPTED_MATCHED
+                    }
+                    CancelInterestResult.InterestAlreadyProcessed(status)
+                }
+                else -> CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal membatalkan minat"))
+            }
+        } catch (e: Exception) {
+            CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
         }
     }
 

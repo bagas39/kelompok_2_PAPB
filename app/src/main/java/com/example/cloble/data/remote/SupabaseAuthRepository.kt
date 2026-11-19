@@ -158,7 +158,9 @@ class SupabaseAuthRepository(
         name: String,
         email: String,
         rawPassword: String,
-        city: String
+        city: String,
+        latitude: Double?,
+        longitude: Double?
     ): AuthResult {
         val trimmedEmail = email.trim().lowercase()
         val trimmedName = name.trim()
@@ -168,7 +170,19 @@ class SupabaseAuthRepository(
         if (rawPassword.length < 6) return AuthResult.ValidationFailed("Password minimal 6 karakter")
 
         return try {
-            val preset = CityPreset.fromDisplayName(city)
+            val resolvedCity: String
+            val resolvedLat: Double
+            val resolvedLon: Double
+            if (latitude != null && longitude != null) {
+                resolvedCity = city.trim().ifEmpty { CityPreset.BANDUNG.displayName }
+                resolvedLat = latitude
+                resolvedLon = longitude
+            } else {
+                val preset = CityPreset.fromDisplayName(city)
+                resolvedCity = if (city.isNotBlank() && city != preset.displayName) city.trim() else preset.displayName
+                resolvedLat = preset.latitude
+                resolvedLon = preset.longitude
+            }
             val hash = PasswordHasher.hash(rawPassword)
             val now = System.currentTimeMillis()
 
@@ -176,9 +190,9 @@ class SupabaseAuthRepository(
                 put("p_name", trimmedName)
                 put("p_email", trimmedEmail)
                 put("p_password_hash", hash)
-                put("p_city", preset.displayName)
-                put("p_latitude", preset.latitude)
-                put("p_longitude", preset.longitude)
+                put("p_city", resolvedCity)
+                put("p_latitude", resolvedLat)
+                put("p_longitude", resolvedLon)
                 put("p_now_millis", now)
             }
 

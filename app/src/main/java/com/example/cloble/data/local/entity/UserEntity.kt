@@ -16,6 +16,7 @@ data class UserEntity(
     val email: String,
     val passwordHash: String,
     val bio: String = "",
+    val avatarUri: String? = null,
     val city: String = "Bandung, Jawa Barat",
     val latitude: Double = -6.9175,
     val longitude: Double = 107.6191,

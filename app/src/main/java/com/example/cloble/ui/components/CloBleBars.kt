@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,11 +56,12 @@ fun CloBleTopAppBar(
     modifier: Modifier = Modifier,
     onNavigateBack: (() -> Unit)? = null,
     backContentDescription: String = "Kembali",
+    leadingContent: (@Composable () -> Unit)? = null,
     actions: List<CloBleTopBarAction> = emptyList()
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = CloBleColors.Background
+        color = CloBleColors.Surface
     ) {
         Column(
             modifier = Modifier
@@ -69,14 +72,14 @@ fun CloBleTopAppBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(58.dp)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (onNavigateBack != null) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .clickable(
                                 role = Role.Button,
@@ -87,7 +90,7 @@ fun CloBleTopAppBar(
                                 contentDescription = backContentDescription
                             }
                             .testTag("top_bar_back_button"),
-                        contentAlignment = Alignment.CenterStart
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = CloBleIcons.ArrowLeft,
@@ -96,6 +99,8 @@ fun CloBleTopAppBar(
                             modifier = Modifier.size(20.dp)
                         )
                     }
+                } else if (leadingContent != null) {
+                    leadingContent()
                 }
 
                 Text(
@@ -113,7 +118,7 @@ fun CloBleTopAppBar(
                     IconButton(
                         onClick = action.onClick,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(44.dp)
                             .semantics {
                                 contentDescription = action.contentDescription
                             }
@@ -190,7 +195,7 @@ fun CloBleBottomNavBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = CloBleColors.Background
+        color = CloBleColors.Surface
     ) {
         Column(
             modifier = Modifier
@@ -208,15 +213,15 @@ fun CloBleBottomNavBar(
             ) {
                 tabs.forEach { tab ->
                     val isSelected = tab == selectedTab
-                    val cellBg = if (isSelected) CloBleColors.PrimaryContainer else CloBleColors.Background
-                    val contentTint = if (isSelected) CloBleColors.Primary else CloBleColors.TextPrimary
+                    val cellBg = if (isSelected) CloBleColors.PrimaryContainer else CloBleColors.Surface
+                    val contentTint = if (isSelected) CloBleColors.OnPrimaryContainer else CloBleColors.TextSecondary
                     val textStyle = if (isSelected) {
                         CloBleTextStyles.BottomNavSelected
                     } else {
                         CloBleTextStyles.BottomNavUnselected
                     }
 
-                    Column(
+                    Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -231,21 +236,35 @@ fun CloBleBottomNavBar(
                                 stateDescription = if (isSelected) "Aktif" else "Tidak aktif"
                             }
                             .testTag("bottom_tab_${tab.name.lowercase()}"),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = if (isSelected) tab.filledIcon else tab.outlineIcon,
-                            contentDescription = null,
-                            tint = contentTint,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = tab.label,
-                            style = textStyle,
-                            color = contentTint,
-                            maxLines = 1
-                        )
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .width(36.dp)
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
+                                    .background(CloBleColors.Primary)
+                            )
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
+                        ) {
+                            Icon(
+                                imageVector = if (isSelected) tab.filledIcon else tab.outlineIcon,
+                                contentDescription = null,
+                                tint = contentTint,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = tab.label,
+                                style = textStyle,
+                                color = contentTint,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

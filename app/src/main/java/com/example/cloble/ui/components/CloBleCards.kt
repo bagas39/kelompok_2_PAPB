@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,12 +42,11 @@ import com.example.cloble.ui.theme.CloBleColors
 import com.example.cloble.ui.theme.CloBleTextStyles
 
 enum class CloBleInfoBoxTone {
-
     INFO,
-
     HIGHLIGHT,
-
-    NEUTRAL
+    NEUTRAL,
+    WARNING,
+    SUCCESS
 }
 
 @Composable
@@ -59,13 +59,25 @@ fun CloBleStatusInfoBox(
     val bgColor = when (tone) {
         CloBleInfoBoxTone.INFO, CloBleInfoBoxTone.HIGHLIGHT -> CloBleColors.PrimaryContainer
         CloBleInfoBoxTone.NEUTRAL -> CloBleColors.SecondarySurface
+        CloBleInfoBoxTone.WARNING -> CloBleColors.WarningContainer
+        CloBleInfoBoxTone.SUCCESS -> CloBleColors.SuccessContainer
     }
     val borderColor = when (tone) {
         CloBleInfoBoxTone.HIGHLIGHT -> CloBleColors.Primary
+        CloBleInfoBoxTone.WARNING -> CloBleColors.WarningText
+        CloBleInfoBoxTone.SUCCESS -> CloBleColors.SuccessText
         CloBleInfoBoxTone.INFO, CloBleInfoBoxTone.NEUTRAL -> CloBleColors.Outline
+    }
+    val titleColor = when (tone) {
+        CloBleInfoBoxTone.WARNING -> CloBleColors.WarningText
+        CloBleInfoBoxTone.SUCCESS -> CloBleColors.SuccessText
+        CloBleInfoBoxTone.HIGHLIGHT -> CloBleColors.OnPrimaryContainer
+        else -> CloBleColors.TextPrimary
     }
     val messageColor = when (tone) {
         CloBleInfoBoxTone.NEUTRAL -> CloBleColors.TextSecondary
+        CloBleInfoBoxTone.WARNING -> CloBleColors.TextPrimary
+        CloBleInfoBoxTone.SUCCESS -> CloBleColors.SuccessText
         CloBleInfoBoxTone.INFO, CloBleInfoBoxTone.HIGHLIGHT -> CloBleColors.TextPrimary
     }
 
@@ -87,7 +99,7 @@ fun CloBleStatusInfoBox(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelMedium,
-                    color = CloBleColors.TextPrimary
+                    color = titleColor
                 )
             }
             Text(
@@ -114,7 +126,7 @@ fun BarterEligibilitySwitchCard(
         "Pakaian hanya menjadi koleksi pribadi di Lemari dan tidak ditampilkan sebagai kandidat barter."
     }
 
-    val containerBg = if (isBarterAllowed) CloBleColors.PrimaryContainer else CloBleColors.Background
+    val containerBg = if (isBarterAllowed) CloBleColors.PrimaryContainer else CloBleColors.Surface
     val borderColor = if (isBarterAllowed) CloBleColors.Primary else CloBleColors.Outline
     val badgeBg = if (isBarterAllowed) CloBleColors.Primary else CloBleColors.SecondarySurface
     val badgeBorder = if (isBarterAllowed) CloBleColors.Primary else CloBleColors.Outline
@@ -208,7 +220,7 @@ fun ClothingPhotoSlot(
     onRemoveClick: (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(12.dp)
-    val bgColor = if (isSavedPlaceholder) CloBleColors.PrimaryContainer else CloBleColors.Background
+    val bgColor = if (isSavedPlaceholder) CloBleColors.PrimaryContainer else CloBleColors.Surface
 
     val clickModifier = if (onClick != null) {
         Modifier.clickable(
@@ -239,14 +251,30 @@ fun ClothingPhotoSlot(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(CloBleColors.DarkScrim.copy(alpha = 0.68f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CloBleIcons.ZoomIn,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
             if (onRemoveClick != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(22.dp)
+                        .padding(6.dp)
+                        .size(24.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .background(CloBleColors.DarkScrim.copy(alpha = 0.72f))
                         .clickable(role = Role.Button, onClick = onRemoveClick)
                         .semantics { contentDescription = "Hapus foto $label" },
                     contentAlignment = Alignment.Center
@@ -269,7 +297,7 @@ fun ClothingPhotoSlot(
                     imageVector = CloBleIcons.ImagePlaceholder,
                     contentDescription = null,
                     tint = CloBleColors.Primary,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
                 Text(
                     text = label,
@@ -278,7 +306,7 @@ fun ClothingPhotoSlot(
                     } else {
                         MaterialTheme.typography.bodySmall
                     },
-                    color = CloBleColors.Primary,
+                    color = CloBleColors.OnPrimaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -303,20 +331,23 @@ fun WardrobeItemCard(
     imageModel: Any? = null,
     photoPlaceholderLabel: String = "Foto pakaian",
     photoHeight: Dp = 172.dp,
+    compactGridMode: Boolean = false,
     isSelected: Boolean = false,
     actionButtonText: String? = null,
     onActionClick: (() -> Unit)? = null,
-    onCardClick: (() -> Unit)? = null
+    onCardClick: (() -> Unit)? = null,
+    onPhotoClick: (() -> Unit)? = null
 ) {
+    val cardShape = RoundedCornerShape(16.dp)
     val photoShape = RoundedCornerShape(12.dp)
-    val photoBorderWidth = if (isSelected) 2.dp else 1.dp
-    val photoBorderColor = if (isSelected) CloBleColors.Primary else CloBleColors.Outline
+    val cardBorderWidth = if (isSelected) 2.dp else 1.dp
+    val cardBorderColor = if (isSelected) CloBleColors.Primary else CloBleColors.Outline
 
     val (badgeBg, badgeBorder, badgeTextColor) = when (barterBadge) {
         WardrobeBarterBadge.ALLOWED -> Triple(
             CloBleColors.PrimaryContainer,
-            CloBleColors.Primary,
-            CloBleColors.Primary
+            CloBleColors.PrimarySoft,
+            CloBleColors.OnPrimaryContainer
         )
         WardrobeBarterBadge.NOT_FOR_BARTER -> Triple(
             CloBleColors.SecondarySurface,
@@ -324,109 +355,167 @@ fun WardrobeItemCard(
             CloBleColors.TextSecondary
         )
         WardrobeBarterBadge.IN_ACTIVE_MATCH -> Triple(
-            CloBleColors.SecondarySurface,
-            CloBleColors.Outline,
-            CloBleColors.TextPrimary
+            CloBleColors.WarningContainer,
+            CloBleColors.WarningText,
+            CloBleColors.WarningText
         )
     }
 
-    val clickableModifier = if (onCardClick != null) {
+    val photoRatioModifier = if (compactGridMode) {
         Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(role = Role.Button, onClick = onCardClick)
+            .fillMaxWidth()
+            .aspectRatio(0.82f)
     } else {
         Modifier
+            .fillMaxWidth()
+            .height(photoHeight)
     }
 
-    Column(
+    Surface(
+        shape = cardShape,
+        color = CloBleColors.Surface,
+        border = BorderStroke(cardBorderWidth, cardBorderColor),
         modifier = modifier
             .fillMaxWidth()
-            .then(clickableModifier)
             .semantics {
                 contentDescription = "Kartu pakaian $title, $metadata, ${barterBadge.label}"
                 if (isSelected) {
                     stateDescription = "Terpilih untuk barter"
                 }
-            },
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            }
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(photoHeight)
-                .clip(photoShape)
-                .background(CloBleColors.PrimaryContainer)
-                .border(width = photoBorderWidth, color = photoBorderColor, shape = photoShape),
-            contentAlignment = Alignment.Center
+                .padding(if (compactGridMode) 10.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compactGridMode) 6.dp else 8.dp)
         ) {
-            if (imageModel != null) {
-                AsyncImage(
-                    model = imageModel,
-                    contentDescription = title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = CloBleIcons.ImagePlaceholder,
-                        contentDescription = null,
-                        tint = CloBleColors.Primary,
-                        modifier = Modifier.size(28.dp)
+            Box(
+                modifier = photoRatioModifier
+                    .clip(photoShape)
+                    .background(CloBleColors.SecondarySurface)
+                    .border(width = 1.dp, color = CloBleColors.Outline, shape = photoShape)
+                    .let { base ->
+                        val effectivePhotoClick = if (imageModel != null && onPhotoClick != null) onPhotoClick else onCardClick
+                        if (effectivePhotoClick != null) {
+                            base.clickable(
+                                role = Role.Button,
+                                onClickLabel = if (imageModel != null && onPhotoClick != null) "Lihat foto penuh $title" else title,
+                                onClick = effectivePhotoClick
+                            )
+                        } else {
+                            base
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (imageModel != null) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
+                    if (onPhotoClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(CloBleColors.DarkScrim.copy(alpha = 0.68f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CloBleIcons.ZoomIn,
+                                contentDescription = "Perbesar foto",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = CloBleIcons.ShirtOutline,
+                            contentDescription = null,
+                            tint = CloBleColors.Primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Text(
+                            text = photoPlaceholderLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = CloBleColors.OnPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .let { base ->
+                        if (onCardClick != null) {
+                            base
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(role = Role.Button, onClick = onCardClick)
+                                .padding(vertical = 2.dp)
+                        } else {
+                            base
+                        }
+                    },
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = CloBleColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = metadata,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CloBleColors.TextSecondary,
+                    maxLines = if (compactGridMode) 2 else 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = badgeBg,
+                    border = BorderStroke(1.dp, badgeBorder),
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
                     Text(
-                        text = photoPlaceholderLabel,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CloBleColors.Primary
+                        text = barterBadge.label,
+                        style = CloBleTextStyles.BadgeSemiBold,
+                        color = badgeTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
-        }
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            color = CloBleColors.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+            if (!statusNote.isNullOrBlank()) {
+                CloBleStatusInfoBox(message = statusNote)
+            }
 
-        Text(
-            text = metadata,
-            style = MaterialTheme.typography.bodySmall,
-            color = CloBleColors.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = badgeBg,
-            border = BorderStroke(1.dp, badgeBorder)
-        ) {
-            Text(
-                text = barterBadge.label,
-                style = CloBleTextStyles.BadgeSemiBold,
-                color = badgeTextColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
-
-        if (!statusNote.isNullOrBlank()) {
-            CloBleStatusInfoBox(message = statusNote)
-        }
-
-        if (!actionButtonText.isNullOrBlank() && onActionClick != null) {
-            CloBleOutlinedButton(
-                text = actionButtonText,
-                onClick = onActionClick,
-                accessibilityLabel = "$actionButtonText $title"
-            )
+            if (!actionButtonText.isNullOrBlank() && onActionClick != null) {
+                CloBleOutlinedButton(
+                    text = actionButtonText,
+                    onClick = onActionClick,
+                    accessibilityLabel = "$actionButtonText $title"
+                )
+            }
         }
     }
 }

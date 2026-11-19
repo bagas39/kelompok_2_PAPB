@@ -80,6 +80,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    implementation(libs.osmdroid.android)
 
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,11 +23,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -34,6 +36,15 @@ import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private fun computeInitials(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return when {
+        parts.isEmpty() -> "CB"
+        parts.size == 1 -> parts[0].take(2).uppercase()
+        else -> "${parts[0].first()}${parts[1].first()}".uppercase()
+    }
+}
 
 @Composable
 fun UserSummaryHeader(
@@ -44,42 +55,54 @@ fun UserSummaryHeader(
     isLowCredibility: Boolean,
     photoUri: String? = null,
     modifier: Modifier = Modifier,
+    onAvatarClick: (() -> Unit)? = null,
     onProfileClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .then(
-                if (onProfileClick != null) Modifier.clickable(onClick = onProfileClick)
-                else Modifier
+                if (onProfileClick != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = onProfileClick)
+                } else {
+                    Modifier
+                }
             )
-            .padding(vertical = 8.dp)
+            .padding(vertical = 6.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(54.dp)
                     .clip(CircleShape)
-                    .background(CloBleColors.SecondarySurface)
-                    .border(1.dp, CloBleColors.Outline, CircleShape),
+                    .background(CloBleColors.PrimaryContainer)
+                    .border(1.5.dp, CloBleColors.Outline, CircleShape)
+                    .let { base ->
+                        if (!photoUri.isNullOrBlank() && onAvatarClick != null) {
+                            base.clickable(role = Role.Button, onClick = onAvatarClick)
+                        } else {
+                            base
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                if (!photoUri.isNullOrEmpty()) {
+                if (!photoUri.isNullOrBlank()) {
                     AsyncImage(
                         model = photoUri,
-                        contentDescription = "Avatar $name",
-                        modifier = Modifier.size(52.dp)
+                        contentDescription = "Foto profil $name",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Icon(
-                        imageVector = CloBleIcons.UserOutline,
-                        contentDescription = "Avatar $name",
-                        tint = CloBleColors.TextSecondary,
-                        modifier = Modifier.size(28.dp)
+                    Text(
+                        text = computeInitials(name),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = CloBleColors.OnPrimaryContainer
                     )
                 }
             }
@@ -88,17 +111,33 @@ fun UserSummaryHeader(
                 Text(
                     text = name,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = CloBleColors.TextPrimary
-                )
-                Text(
-                    text = city,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CloBleColors.TextSecondary
+                    color = CloBleColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = CloBleIcons.MapPin,
+                        contentDescription = null,
+                        tint = CloBleColors.TextSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = city,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CloBleColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 3.dp)
                 ) {
                     Icon(
                         imageVector = CloBleIcons.StarFilled,
@@ -110,7 +149,7 @@ fun UserSummaryHeader(
                         text = if (reviewCount > 0) {
                             String.format(Locale.US, "%.1f (%d ulasan)", averageRating, reviewCount)
                         } else {
-                            "Belum ada ulasan"
+                            "Pengguna baru · belum ada ulasan"
                         },
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                         color = CloBleColors.TextSecondary
@@ -122,7 +161,7 @@ fun UserSummaryHeader(
         if (isLowCredibility) {
             Spacer(modifier = Modifier.height(8.dp))
             CloBleStatusInfoBox(
-                tone = CloBleInfoBoxTone.HIGHLIGHT,
+                tone = CloBleInfoBoxTone.WARNING,
                 title = "Peringatan Kredibilitas Rendah",
                 message = "Pengguna ini memiliki rata-rata rating di bawah 3.0 bintang. Berhati-hatilah saat melakukan pertukaran.",
                 modifier = Modifier.fillMaxWidth()
@@ -147,7 +186,7 @@ fun ChatBubbleItem(
         RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
     }
 
-    val bubbleBackground = if (isFromMe) CloBleColors.Primary else CloBleColors.IncomingBubbleSurface
+    val bubbleBackground = if (isFromMe) CloBleColors.Primary else CloBleColors.Surface
     val textColor = if (isFromMe) CloBleColors.OnPrimary else CloBleColors.TextPrimary
     val timeColor = if (isFromMe) CloBleColors.OnPrimaryMuted else CloBleColors.TextSecondary
 
@@ -162,6 +201,13 @@ fun ChatBubbleItem(
                 .widthIn(max = 280.dp)
                 .clip(bubbleShape)
                 .background(bubbleBackground)
+                .then(
+                    if (!isFromMe) {
+                        Modifier.border(1.dp, CloBleColors.Outline, bubbleShape)
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column {
@@ -201,7 +247,7 @@ fun StarRatingSelector(
 
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .then(
                         if (enabled) {

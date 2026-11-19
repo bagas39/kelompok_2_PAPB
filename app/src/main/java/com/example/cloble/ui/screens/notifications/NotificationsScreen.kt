@@ -1,9 +1,9 @@
 package com.example.cloble.ui.screens.notifications
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,10 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -39,9 +39,7 @@ import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleTopAppBar
-import com.example.cloble.ui.components.CloBleTopBarAction
 import com.example.cloble.ui.theme.CloBleColors
-import com.example.cloble.util.SystemNotificationHelper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -59,31 +57,19 @@ fun NotificationsScreen(
 
     Scaffold(
         topBar = {
-            val context = LocalContext.current
             CloBleTopAppBar(
                 title = "Notifikasi",
-                onNavigateBack = onNavigateBack,
-                actions = listOf(
-                    CloBleTopBarAction(
-                        icon = CloBleIcons.Bell,
-                        contentDescription = "Kirim Notifikasi Uji Coba",
-                        onClick = {
-                            SystemNotificationHelper.postTestNotification(context)
-                        },
-                        testTag = "btn_test_system_notification"
-                    )
-                )
+                onNavigateBack = onNavigateBack
             )
         },
-        containerColor = Color.White
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         if (uiState.isLoading) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = CloBleColors.Primary)
             }
@@ -113,7 +99,7 @@ fun NotificationsScreen(
                     text = "Tawaran barter baru, verifikasi match, dan aktivitas lainnya akan muncul di sini.",
                     style = MaterialTheme.typography.bodySmall,
                     color = CloBleColors.TextSecondary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         } else {
@@ -122,12 +108,12 @@ fun NotificationsScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .testTag("list_notifications"),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.notifications, key = { it.id }) { item ->
-                    val bgColor = if (!item.isRead) CloBleColors.SecondarySurface else Color.White
-                    val borderColor = if (!item.isRead) CloBleColors.Primary else CloBleColors.Outline
+                    val bgColor = if (!item.isRead) CloBleColors.PrimaryContainer else CloBleColors.Surface
+                    val borderColor = if (!item.isRead) CloBleColors.PrimarySoft else CloBleColors.Outline
 
                     val cardClickModifier = when {
                         item.type == NotificationType.INCOMING_INTEREST && item.counterpartUserId != null && item.relatedInterestId != null -> {
@@ -149,12 +135,12 @@ fun NotificationsScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(16.dp),
                         color = bgColor,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                        border = BorderStroke(1.dp, borderColor),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(16.dp))
                             .then(cardClickModifier)
                             .testTag("notification_item_${item.id}")
                     ) {
@@ -166,13 +152,16 @@ fun NotificationsScreen(
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.Top
                             ) {
                                 Text(
                                     text = item.title,
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = CloBleColors.TextPrimary
+                                    color = CloBleColors.TextPrimary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
                                 )
                                 Text(
                                     text = dateFormat.format(Date(item.createdAt)),
@@ -183,20 +172,22 @@ fun NotificationsScreen(
 
                             Text(
                                 text = item.body,
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = CloBleColors.TextSecondary
                             )
 
                             when (item.type) {
                                 NotificationType.INCOMING_INTEREST -> {
                                     if (item.canReplyToInterest && item.counterpartUserId != null && item.relatedInterestId != null) {
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         CloBlePrimaryButton(
                                             text = "Pilih Pakaian Barter",
                                             onClick = {
                                                 onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
                                             },
-                                            modifier = Modifier.fillMaxWidth().testTag("btn_reply_interest_${item.id}")
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("btn_reply_interest_${item.id}")
                                         )
                                     } else if (!item.disabledReasonText.isNullOrEmpty()) {
                                         Text(
@@ -208,31 +199,33 @@ fun NotificationsScreen(
                                 }
                                 NotificationType.MATCH_VERIFIED -> {
                                     if (item.relatedMatchId != null) {
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         CloBlePrimaryButton(
                                             text = "Buka Ruang Obrolan",
                                             onClick = {
                                                 onNavigateToConversation(item.relatedMatchId)
                                             },
-                                            modifier = Modifier.fillMaxWidth().testTag("btn_open_chat_${item.id}")
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("btn_open_chat_${item.id}")
                                         )
                                     }
                                 }
                                 NotificationType.EXCHANGE_COMPLETED -> {
                                     if (item.relatedMatchId != null && item.counterpartUserId != null) {
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         CloBleOutlinedButton(
                                             text = "Beri Ulasan",
                                             onClick = {
                                                 onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
                                             },
-                                            modifier = Modifier.fillMaxWidth().testTag("btn_rate_user_${item.id}")
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("btn_rate_user_${item.id}")
                                         )
                                     }
                                 }
-                                NotificationType.MATCH_CANCELLED -> {
-
-                                }
+                                NotificationType.MATCH_CANCELLED -> {}
                             }
                         }
                     }

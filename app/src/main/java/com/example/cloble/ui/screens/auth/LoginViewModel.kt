@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
-import com.example.cloble.domain.model.DemoAccountSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,9 +17,9 @@ import kotlinx.coroutines.launch
 data class LoginUiState(
     val email: String = "",
     val password: String = "",
+    val isPasswordVisible: Boolean = false,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null,
-    val demoAccounts: List<DemoAccountSummary> = emptyList()
+    val errorMessage: String? = null
 )
 
 class LoginViewModel(
@@ -30,20 +29,16 @@ class LoginViewModel(
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            authRepository.getDemoAccounts().collect { demos ->
-                _uiState.update { it.copy(demoAccounts = demos) }
-            }
-        }
-    }
-
     fun onEmailChanged(newEmail: String) {
         _uiState.update { it.copy(email = newEmail, errorMessage = null) }
     }
 
     fun onPasswordChanged(newPassword: String) {
         _uiState.update { it.copy(password = newPassword, errorMessage = null) }
+    }
+
+    fun togglePasswordVisibility() {
+        _uiState.update { it.copy(isPasswordVisible = !it.isPasswordVisible) }
     }
 
     fun submitLogin(onSuccess: () -> Unit) {
@@ -72,21 +67,6 @@ class LoginViewModel(
                 }
                 is AuthResult.DatabaseError -> {
                     _uiState.update { it.copy(isLoading = false, errorMessage = result.failure.message ?: "Terjadi kesalahan database") }
-                }
-            }
-        }
-    }
-
-    fun quickLoginDemo(userId: Long, onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            when (val result = authRepository.loginDemoAccount(userId)) {
-                is AuthResult.Success -> {
-                    _uiState.update { it.copy(isLoading = false) }
-                    onSuccess()
-                }
-                else -> {
-                    _uiState.update { it.copy(isLoading = false, errorMessage = "Gagal login akun demo") }
                 }
             }
         }

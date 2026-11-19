@@ -105,7 +105,7 @@ fun CloBleOutlinedButton(
         border = BorderStroke(1.dp, borderColor),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = CloBleColors.Background,
+            containerColor = CloBleColors.Surface,
             contentColor = CloBleColors.Primary,
             disabledContainerColor = CloBleColors.SecondarySurface,
             disabledContentColor = CloBleColors.TextSecondary

@@ -90,6 +90,7 @@ object EntityMappers {
             item = toDomainClothingItem(raw.item),
             ownerName = raw.ownerName,
             ownerCity = raw.ownerCity,
+            ownerAvatarUri = raw.ownerAvatarUri,
             ownerAverageRating = raw.ownerAverageRating,
             ownerReviewCount = raw.ownerReviewCount,
             distanceKm = distanceKm
@@ -123,6 +124,7 @@ object EntityMappers {
             partnerUserId = row.partnerUserId,
             partnerName = row.partnerName,
             partnerCity = row.partnerCity,
+            partnerAvatarUri = row.partnerAvatarUri,
             partnerAverageRating = row.partnerAverageRating,
             myItemName = row.myItemName,
             partnerItemName = row.partnerItemName,
@@ -171,6 +173,7 @@ object EntityMappers {
             name = user.name,
             email = user.email,
             bio = user.bio,
+            avatarUri = user.avatarUri,
             city = user.city,
             latitude = user.latitude,
             longitude = user.longitude,

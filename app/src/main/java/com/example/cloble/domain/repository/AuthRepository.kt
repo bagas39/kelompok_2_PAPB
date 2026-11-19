@@ -16,7 +16,9 @@ interface AuthRepository {
         name: String,
         email: String,
         rawPassword: String,
-        city: String = "Bandung, Jawa Barat"
+        city: String = "Bandung, Jawa Barat",
+        latitude: Double? = null,
+        longitude: Double? = null
     ): AuthResult
 
     suspend fun logout()

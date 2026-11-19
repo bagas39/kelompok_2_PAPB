@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,29 +20,33 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -49,12 +54,14 @@ import com.example.cloble.domain.model.ActivityHistoryTab
 import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
+import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
+import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +75,10 @@ fun ActivityHistoryScreen(
     viewModel: ActivityHistoryViewModel = viewModel(factory = ActivityHistoryViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var interestPendingCancel by remember { mutableStateOf<OutgoingInterestSummary?>(null) }
+    var viewerPhoto by remember { mutableStateOf<LabeledPhoto?>(null) }
+
+    val selectedTabIndex = if (uiState.selectedTab == ActivityHistoryTab.TERTARIK) 0 else 1
 
     Scaffold(
         topBar = {
@@ -76,14 +87,13 @@ fun ActivityHistoryScreen(
                 onNavigateBack = onNavigateBack
             )
         },
-        containerColor = Color.White
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-
             if (uiState.actionMessage != null) {
                 Box(
                     modifier = Modifier
@@ -91,7 +101,7 @@ fun ActivityHistoryScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     CloBleStatusInfoBox(
-                        tone = CloBleInfoBoxTone.HIGHLIGHT,
+                        tone = CloBleInfoBoxTone.SUCCESS,
                         title = "Berhasil",
                         message = uiState.actionMessage!!,
                         modifier = Modifier
@@ -107,7 +117,7 @@ fun ActivityHistoryScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     CloBleStatusInfoBox(
-                        tone = CloBleInfoBoxTone.NEUTRAL,
+                        tone = CloBleInfoBoxTone.WARNING,
                         title = "Perhatian",
                         message = uiState.errorMessage!!,
                         modifier = Modifier
@@ -117,16 +127,14 @@ fun ActivityHistoryScreen(
                 }
             }
 
-            TabRow(
-                selectedTabIndex = if (uiState.selectedTab == ActivityHistoryTab.TERTARIK) 0 else 1,
-                containerColor = Color.White,
+            PrimaryTabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = CloBleColors.Surface,
                 contentColor = CloBleColors.Primary,
-                indicator = { tabPositions ->
-                    val index = if (uiState.selectedTab == ActivityHistoryTab.TERTARIK) 0 else 1
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[index]),
-                        color = CloBleColors.Primary,
-                        height = 3.dp
+                indicator = {
+                    TabRowDefaults.PrimaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(selectedTabIndex, matchContentSize = false),
+                        color = CloBleColors.Primary
                     )
                 }
             ) {
@@ -170,8 +178,11 @@ fun ActivityHistoryScreen(
                     ActivityHistoryTab.TERTARIK -> {
                         OutgoingInterestsList(
                             interests = uiState.outgoingInterests,
+                            cancellingInterestId = uiState.cancellingInterestId,
                             onItemClick = onNavigateToItemDetail,
                             onViewMatchClick = onNavigateToMatchDetail,
+                            onCancelInterestRequest = { interestPendingCancel = it },
+                            onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .weight(1f)
@@ -183,6 +194,7 @@ fun ActivityHistoryScreen(
                             onItemClick = onNavigateToItemDetail,
                             onConvertToInterest = viewModel::convertPassToInterest,
                             onRestoreToDiscover = viewModel::restorePassToDiscover,
+                            onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .weight(1f)
@@ -192,13 +204,74 @@ fun ActivityHistoryScreen(
             }
         }
     }
+
+    val pendingCancel = interestPendingCancel
+    if (pendingCancel != null) {
+        AlertDialog(
+            onDismissRequest = { interestPendingCancel = null },
+            containerColor = CloBleColors.Surface,
+            title = {
+                Text(
+                    text = "Batalkan Minat?",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = CloBleColors.TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Tawaran tertarik pada \"${pendingCancel.targetItemName}\" akan ditarik dan notifikasi ke ${pendingCancel.ownerName} akan dihapus. Pakaian akan muncul kembali di Jelajah.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CloBleColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.cancelOutgoingInterest(pendingCancel.interestId)
+                        interestPendingCancel = null
+                    },
+                    modifier = Modifier.testTag("btn_confirm_cancel_interest")
+                ) {
+                    Text(
+                        text = "Ya, Batalkan",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = CloBleColors.DangerText
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { interestPendingCancel = null },
+                    modifier = Modifier.testTag("btn_dismiss_cancel_interest")
+                ) {
+                    Text(
+                        text = "Kembali",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = CloBleColors.TextSecondary
+                    )
+                }
+            }
+        )
+    }
+
+    val activePhoto = viewerPhoto
+    if (activePhoto != null) {
+        CloBleFullscreenImageViewer(
+            photos = listOf(activePhoto),
+            initialIndex = 0,
+            onDismiss = { viewerPhoto = null }
+        )
+    }
 }
 
 @Composable
 private fun OutgoingInterestsList(
     interests: List<OutgoingInterestSummary>,
+    cancellingInterestId: Long?,
     onItemClick: (Long) -> Unit,
     onViewMatchClick: (Long) -> Unit,
+    onCancelInterestRequest: (OutgoingInterestSummary) -> Unit,
+    onPhotoClick: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (interests.isEmpty()) {
@@ -214,7 +287,7 @@ private fun OutgoingInterestsList(
                 imageVector = CloBleIcons.HeartFilled,
                 contentDescription = null,
                 tint = CloBleColors.Outline,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(56.dp)
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
@@ -224,7 +297,7 @@ private fun OutgoingInterestsList(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Pakaian yang kamu tandai tertarik saat menjelajahi feed Discover akan tercatat di sini.",
+                text = "Pakaian yang kamu tandai tertarik saat menjelajahi feed Jelajah akan tercatat di sini.",
                 style = MaterialTheme.typography.bodySmall,
                 color = CloBleColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -243,8 +316,11 @@ private fun OutgoingInterestsList(
                 OutgoingInterestCard(
                     item = item,
                     dateFormat = dateFormat,
+                    isCancelling = cancellingInterestId == item.interestId,
                     onItemClick = onItemClick,
-                    onViewMatchClick = onViewMatchClick
+                    onViewMatchClick = onViewMatchClick,
+                    onCancelClick = { onCancelInterestRequest(item) },
+                    onPhotoClick = onPhotoClick
                 )
             }
         }
@@ -255,8 +331,11 @@ private fun OutgoingInterestsList(
 private fun OutgoingInterestCard(
     item: OutgoingInterestSummary,
     dateFormat: SimpleDateFormat,
+    isCancelling: Boolean,
     onItemClick: (Long) -> Unit,
-    onViewMatchClick: (Long) -> Unit
+    onViewMatchClick: (Long) -> Unit,
+    onCancelClick: () -> Unit,
+    onPhotoClick: (String, String) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -265,7 +344,7 @@ private fun OutgoingInterestCard(
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
             .clickable { onItemClick(item.targetItemId) }
             .testTag("outgoing_interest_card_${item.interestId}"),
-        color = Color.White
+        color = CloBleColors.Surface
     ) {
         Column(
             modifier = Modifier
@@ -276,13 +355,20 @@ private fun OutgoingInterestCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(72.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(CloBleColors.SecondarySurface)
-                        .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp)),
+                        .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp))
+                        .let { base ->
+                            val photo = item.targetItemPhotoUri
+                            if (!photo.isNullOrBlank()) {
+                                base.clickable { onPhotoClick(photo, item.targetItemName) }
+                            } else {
+                                base
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (!item.targetItemPhotoUri.isNullOrEmpty()) {
@@ -297,7 +383,7 @@ private fun OutgoingInterestCard(
                             imageVector = CloBleIcons.ShirtOutline,
                             contentDescription = null,
                             tint = CloBleColors.Primary,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(30.dp)
                         )
                     }
                 }
@@ -312,7 +398,7 @@ private fun OutgoingInterestCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${item.targetItemCategory} • Milik ${item.ownerName} (${item.ownerCity})",
+                        text = "${item.targetItemCategory} · Milik ${item.ownerName} (${item.ownerCity})",
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary,
                         maxLines = 1,
@@ -335,11 +421,11 @@ private fun OutgoingInterestCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val (statusText, badgeBg, badgeTextColor) = when (item.interestStatus) {
-                    InterestStatus.PENDING -> Triple("Menunggu Respon", Color(0xFFFEF3C7), Color(0xFFD97706))
-                    InterestStatus.ACCEPTED_MATCHED -> Triple("Berhasil Match!", Color(0xFFD1FAE5), Color(0xFF059669))
-                    InterestStatus.RESOLVED_BY_MATCH -> Triple("Selesai di Match Lain", Color(0xFFF3F4F6), Color(0xFF4B5563))
-                    InterestStatus.DECLINED -> Triple("Ditolak", Color(0xFFFEE2E2), Color(0xFFDC2626))
-                    InterestStatus.INVALIDATED -> Triple("Tidak Tersedia", Color(0xFFF3F4F6), Color(0xFF9CA3AF))
+                    InterestStatus.PENDING -> Triple("Menunggu Respon", CloBleColors.WarningContainer, CloBleColors.WarningText)
+                    InterestStatus.ACCEPTED_MATCHED -> Triple("Berhasil Match", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
+                    InterestStatus.RESOLVED_BY_MATCH -> Triple("Selesai di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
+                    InterestStatus.DECLINED -> Triple("Ditolak", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                    InterestStatus.INVALIDATED -> Triple("Tidak Tersedia", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                 }
 
                 Surface(
@@ -350,16 +436,43 @@ private fun OutgoingInterestCard(
                         text = statusText,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = badgeTextColor,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                     )
                 }
 
-                if (item.matchId != null) {
+                if (item.interestStatus == InterestStatus.PENDING) {
+                    OutlinedButton(
+                        onClick = onCancelClick,
+                        enabled = !isCancelling,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, CloBleColors.DangerText),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = CloBleColors.DangerText
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 40.dp)
+                            .testTag("btn_cancel_interest_${item.interestId}")
+                    ) {
+                        if (isCancelling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = CloBleColors.DangerText
+                            )
+                        } else {
+                            Text(
+                                text = "Batalkan Minat",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                } else if (item.matchId != null) {
                     CloBlePrimaryButton(
                         text = "Lihat Match",
                         onClick = { onViewMatchClick(item.matchId) },
                         modifier = Modifier
-                            .width(130.dp)
+                            .width(136.dp)
                             .testTag("btn_view_match_${item.interestId}")
                     )
                 }
@@ -374,6 +487,7 @@ private fun PassedClothingList(
     onItemClick: (Long) -> Unit,
     onConvertToInterest: (Long) -> Unit,
     onRestoreToDiscover: (Long) -> Unit,
+    onPhotoClick: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (passedItems.isEmpty()) {
@@ -389,7 +503,7 @@ private fun PassedClothingList(
                 imageVector = CloBleIcons.XClose,
                 contentDescription = null,
                 tint = CloBleColors.Outline,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(56.dp)
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
@@ -399,7 +513,7 @@ private fun PassedClothingList(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Pakaian yang kamu swipe lewati di feed Discover akan tercatat di sini dan dapat dikembalikan ke feed kapan saja.",
+                text = "Pakaian yang kamu lewati di feed Jelajah akan tercatat di sini dan dapat dikembalikan ke feed kapan saja.",
                 style = MaterialTheme.typography.bodySmall,
                 color = CloBleColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -420,7 +534,8 @@ private fun PassedClothingList(
                     dateFormat = dateFormat,
                     onItemClick = onItemClick,
                     onConvertToInterest = onConvertToInterest,
-                    onRestoreToDiscover = onRestoreToDiscover
+                    onRestoreToDiscover = onRestoreToDiscover,
+                    onPhotoClick = onPhotoClick
                 )
             }
         }
@@ -433,7 +548,8 @@ private fun PassedClothingCard(
     dateFormat: SimpleDateFormat,
     onItemClick: (Long) -> Unit,
     onConvertToInterest: (Long) -> Unit,
-    onRestoreToDiscover: (Long) -> Unit
+    onRestoreToDiscover: (Long) -> Unit,
+    onPhotoClick: (String, String) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -442,7 +558,7 @@ private fun PassedClothingCard(
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
             .clickable { onItemClick(item.clothingId) }
             .testTag("passed_clothing_card_${item.clothingId}"),
-        color = Color.White
+        color = CloBleColors.Surface
     ) {
         Column(
             modifier = Modifier
@@ -453,13 +569,20 @@ private fun PassedClothingCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(72.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(CloBleColors.SecondarySurface)
-                        .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp)),
+                        .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp))
+                        .let { base ->
+                            val photo = item.clothingPhotoUri
+                            if (!photo.isNullOrBlank()) {
+                                base.clickable { onPhotoClick(photo, item.clothingName) }
+                            } else {
+                                base
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (!item.clothingPhotoUri.isNullOrEmpty()) {
@@ -474,7 +597,7 @@ private fun PassedClothingCard(
                             imageVector = CloBleIcons.ShirtOutline,
                             contentDescription = null,
                             tint = CloBleColors.Primary,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(30.dp)
                         )
                     }
                 }
@@ -489,7 +612,7 @@ private fun PassedClothingCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${item.clothingCategory} • Milik ${item.ownerName} (${item.ownerCity})",
+                        text = "${item.clothingCategory} · Milik ${item.ownerName} (${item.ownerCity})",
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary,
                         maxLines = 1,

@@ -6,6 +6,7 @@ import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.SendMessageResult
+import com.example.cloble.domain.util.ChatThreadDeduplicator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -17,7 +18,8 @@ import org.json.JSONObject
 
 class SupabaseChatRepository(
     private val client: SupabaseClient,
-    private val realtimeClient: SupabaseRealtimeClient
+    private val realtimeClient: SupabaseRealtimeClient,
+    private val invalidator: SupabaseDataInvalidator
 ) : ChatRepository {
 
     override fun observeChatThreads(userId: Long): Flow<List<ChatThreadSummary>> = channelFlow {
@@ -27,8 +29,25 @@ class SupabaseChatRepository(
         suspend fun fetchThreads(): List<ChatThreadSummary> {
             return try {
                 val matchesArr = client.getJsonArray(
-                    "matches?status=eq.ACTIVE&or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=*,u1:user1Id(name,city),u2:user2Id(name,city),i1:user1ItemId(name,mainPhotoUri),i2:user2ItemId(name,mainPhotoUri)&order=updatedAt.desc"
+                    "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri),i1:user1ItemId(name,mainPhotoUri),i2:user2ItemId(name,mainPhotoUri)&order=updatedAt.desc"
                 )
+
+                val ratingsByUserId = mutableMapOf<Long, Pair<Double, Int>>()
+                try {
+                    val reviewsArr = client.getJsonArray("reviews?select=revieweeId,rating")
+                    for (r in 0 until reviewsArr.length()) {
+                        val rev = reviewsArr.getJSONObject(r)
+                        val rid = rev.optLong("revieweeId")
+                        val rating = rev.optDouble("rating", 0.0)
+                        val prev = ratingsByUserId[rid]
+                        if (prev == null) {
+                            ratingsByUserId[rid] = rating to 1
+                        } else {
+                            ratingsByUserId[rid] = (prev.first + rating) to (prev.second + 1)
+                        }
+                    }
+                } catch (_: Exception) {
+                }
 
                 val list = mutableListOf<ChatThreadSummary>()
                 for (i in 0 until matchesArr.length()) {
@@ -40,6 +59,15 @@ class SupabaseChatRepository(
                     val partnerObj = if (isViewerUser1) m.optJSONObject("u2") else m.optJSONObject("u1")
                     val partnerName = partnerObj?.optString("name", "Pengguna") ?: "Pengguna"
                     val partnerCity = partnerObj?.optString("city", "Bandung") ?: "Bandung"
+                    val partnerAvatarUri = partnerObj?.optString("avatarUri")
+                        ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+                    val ratingStats = ratingsByUserId[partnerUserId]
+                    val partnerAvgRating = if (ratingStats != null && ratingStats.second > 0) {
+                        ratingStats.first / ratingStats.second
+                    } else {
+                        0.0
+                    }
 
                     val myItemObj = if (isViewerUser1) m.optJSONObject("i1") else m.optJSONObject("i2")
                     val partnerItemObj = if (isViewerUser1) m.optJSONObject("i2") else m.optJSONObject("i1")
@@ -65,7 +93,8 @@ class SupabaseChatRepository(
                             partnerUserId = partnerUserId,
                             partnerName = partnerName,
                             partnerCity = partnerCity,
-                            partnerAverageRating = 0.0,
+                            partnerAvatarUri = partnerAvatarUri,
+                            partnerAverageRating = partnerAvgRating,
                             myItemName = myItemName,
                             partnerItemName = partnerItemName,
                             status = matchStatus,
@@ -76,7 +105,7 @@ class SupabaseChatRepository(
                         )
                     )
                 }
-                list
+                ChatThreadDeduplicator.deduplicateByPartner(list)
             } catch (_: Exception) {
                 emptyList()
             }
@@ -84,7 +113,7 @@ class SupabaseChatRepository(
 
         send(fetchThreads())
 
-        val job = launch {
+        val realtimeJob = launch {
             realtimeClient.incomingMessages.collect { (incomingTopic, _) ->
                 if (incomingTopic == userTopic || incomingTopic.startsWith("realtime:match_")) {
                     send(fetchThreads())
@@ -92,8 +121,15 @@ class SupabaseChatRepository(
             }
         }
 
+        val invalidatorJob = launch {
+            invalidator.discoveryTrigger.collect {
+                send(fetchThreads())
+            }
+        }
+
         awaitClose {
-            job.cancel()
+            realtimeJob.cancel()
+            invalidatorJob.cancel()
             realtimeClient.unsubscribeTopic(userTopic)
         }
     }.flowOn(Dispatchers.IO)

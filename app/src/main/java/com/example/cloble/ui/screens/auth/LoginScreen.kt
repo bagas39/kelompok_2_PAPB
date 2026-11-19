@@ -1,9 +1,8 @@
 package com.example.cloble.ui.screens.auth
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,30 +11,37 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLogoMark
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.theme.CloBleColors
@@ -49,7 +55,7 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
-        containerColor = Color.White
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -57,10 +63,17 @@ fun LoginScreen(
                 .padding(innerPadding)
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .padding(horizontal = 24.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(24.dp))
+
+            CloBleLogoMark(
+                size = 68.dp,
+                showWordmark = false
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
                 text = "CloBle",
@@ -68,61 +81,106 @@ fun LoginScreen(
                 color = CloBleColors.Primary,
                 modifier = Modifier.testTag("app_brand_title")
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Tukar pakaian preloved mudah dan ramah lingkungan",
-                style = MaterialTheme.typography.bodyLarge,
-                color = CloBleColors.TextSecondary
+                text = "Tukar pakaian preloved dengan aman di sekitarmu",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CloBleColors.TextSecondary,
+                textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            if (uiState.errorMessage != null) {
-                CloBleStatusInfoBox(
-                    tone = CloBleInfoBoxTone.HIGHLIGHT,
-                    title = "Gagal Masuk",
-                    message = uiState.errorMessage!!,
-                    modifier = Modifier.fillMaxWidth().testTag("login_error_box")
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = CloBleColors.Surface,
+                border = BorderStroke(1.dp, CloBleColors.Outline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    if (uiState.errorMessage != null) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.WARNING,
+                            title = "Gagal Masuk",
+                            message = uiState.errorMessage!!,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_error_box")
+                        )
+                    }
+
+                    CloBleLabeledTextField(
+                        label = "Email",
+                        value = uiState.email,
+                        onValueChange = viewModel::onEmailChanged,
+                        placeholder = "nama@email.com",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth(),
+                        inputTestTag = "input_login_email"
+                    )
+
+                    CloBleLabeledTextField(
+                        label = "Password",
+                        value = uiState.password,
+                        onValueChange = viewModel::onPasswordChanged,
+                        placeholder = "Masukkan password",
+                        visualTransformation = if (uiState.isPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = viewModel::togglePasswordVisibility,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_login_password")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                    contentDescription = if (uiState.isPasswordVisible) "Sembunyikan password" else "Tampilkan password",
+                                    tint = CloBleColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        inputTestTag = "input_login_password"
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (uiState.isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = CloBleColors.Primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    } else {
+                        CloBlePrimaryButton(
+                            text = "Masuk",
+                            onClick = { viewModel.submitLogin(onLoginSuccess) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_submit_login")
+                        )
+                    }
+                }
             }
 
-            CloBleLabeledTextField(
-                label = "Email",
-                value = uiState.email,
-                onValueChange = viewModel::onEmailChanged,
-                placeholder = "nama@email.com",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
-                inputTestTag = "input_login_email"
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            CloBleLabeledTextField(
-                label = "Password",
-                value = uiState.password,
-                onValueChange = viewModel::onPasswordChanged,
-                placeholder = "Masukkan password",
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-                inputTestTag = "input_login_password"
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (uiState.isLoading) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            } else {
-                CloBlePrimaryButton(
-                    text = "Masuk",
-                    onClick = { viewModel.submitLogin(onLoginSuccess) },
-                    modifier = Modifier.fillMaxWidth().testTag("btn_submit_login")
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -130,55 +188,19 @@ fun LoginScreen(
             ) {
                 Text(
                     text = "Belum punya akun?",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = CloBleColors.TextSecondary
                 )
                 TextButton(
                     onClick = onNavigateToRegister,
+                    shape = CircleShape,
                     modifier = Modifier.testTag("btn_go_to_register")
                 ) {
                     Text(
                         text = "Daftar sekarang",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.labelLarge,
                         color = CloBleColors.Primary
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            if (uiState.demoAccounts.isNotEmpty()) {
-                Text(
-                    text = "Masuk Cepat Akun Demo",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = CloBleColors.TextPrimary,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                uiState.demoAccounts.forEach { demo ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp))
-                            .background(CloBleColors.SecondarySurface)
-                            .clickable { viewModel.quickLoginDemo(demo.id, onLoginSuccess) }
-                            .padding(12.dp)
-                            .testTag("demo_account_${demo.name.lowercase().replace(" ", "_")}")
-                    ) {
-                        Text(
-                            text = demo.name,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                            color = CloBleColors.TextPrimary
-                        )
-                        Text(
-                            text = demo.roleDescription,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CloBleColors.TextSecondary
-                        )
-                    }
                 }
             }
         }

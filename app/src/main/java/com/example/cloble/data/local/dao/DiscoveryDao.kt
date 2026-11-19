@@ -16,6 +16,7 @@ interface DiscoveryDao {
             c.*,
             u.name AS ownerName,
             u.city AS ownerCity,
+            u.avatarUri AS ownerAvatarUri,
             COALESCE((SELECT AVG(r.rating) FROM reviews r WHERE r.revieweeId = u.id), 0.0) AS ownerAverageRating,
             COALESCE((SELECT COUNT(r.id) FROM reviews r WHERE r.revieweeId = u.id), 0) AS ownerReviewCount,
             u.latitude AS ownerLatitude,

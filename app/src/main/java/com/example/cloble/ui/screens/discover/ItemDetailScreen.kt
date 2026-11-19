@@ -1,6 +1,11 @@
 package com.example.cloble.ui.screens.discover
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,27 +13,42 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.example.cloble.ui.components.CloBleFullscreenImageViewer
+import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
-import com.example.cloble.ui.components.ClothingPhotoSlot
+import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.components.UserSummaryHeader
 import com.example.cloble.ui.theme.CloBleColors
 
@@ -40,6 +60,8 @@ fun ItemDetailScreen(
     viewModel: ItemDetailViewModel = viewModel(factory = ItemDetailViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
+    var viewerInitialIndex by remember { mutableStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -48,15 +70,14 @@ fun ItemDetailScreen(
                 onNavigateBack = onNavigateBack
             )
         },
-        containerColor = Color.White
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         if (uiState.isLoading) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = CloBleColors.Primary)
             }
@@ -69,102 +90,282 @@ fun ItemDetailScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (item != null) {
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ClothingPhotoSlot(
-                            label = "Foto Utama",
-                            imageModel = item.mainPhotoUri,
-                            height = 200.dp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        ClothingPhotoSlot(
-                            label = "Tampak Belakang",
-                            imageModel = item.detailPhotoUri,
-                            height = 200.dp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        ClothingPhotoSlot(
-                            label = "Detail Label",
-                            imageModel = item.extraPhotoUri,
-                            height = 200.dp,
-                            modifier = Modifier.weight(1f)
-                        )
+                    val itemPhotos = remember(item.mainPhotoUri, item.detailPhotoUri, item.extraPhotoUri, item.name) {
+                        buildList {
+                            item.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "${item.name} · Foto Utama"))
+                            }
+                            item.detailPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "${item.name} · Tampak Belakang"))
+                            }
+                            item.extraPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "${item.name} · Detail Label"))
+                            }
+                        }
                     }
 
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = CloBleColors.TextPrimary,
-                        modifier = Modifier.testTag("detail_clothing_title")
-                    )
+                    if (itemPhotos.isNotEmpty()) {
+                        val pagerState = rememberPagerState(pageCount = { itemPhotos.size })
 
-                    Text(
-                        text = "${item.category} • Ukuran ${item.size} • ${item.gender} • Warna ${item.color} • Kondisi ${item.condition}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = CloBleColors.TextSecondary
-                    )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(340.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(CloBleColors.SecondarySurface)
+                                    .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
+                            ) {
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) { page ->
+                                    AsyncImage(
+                                        model = itemPhotos[page].uri,
+                                        contentDescription = itemPhotos[page].label,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable {
+                                                viewerInitialIndex = page
+                                                viewerPhotos = itemPhotos
+                                            }
+                                    )
+                                }
 
-                    if (item.description.isNotEmpty()) {
-                        Text(
-                            text = "Deskripsi",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = CloBleColors.TextPrimary
-                        )
-                        Text(
-                            text = item.description,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = CloBleColors.TextSecondary
-                        )
+                                Surface(
+                                    shape = RoundedCornerShape(99.dp),
+                                    color = CloBleColors.DarkScrim.copy(alpha = 0.72f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        text = "${pagerState.currentPage + 1} / ${itemPhotos.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(12.dp)
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(CloBleColors.DarkScrim.copy(alpha = 0.72f))
+                                        .clickable {
+                                            viewerInitialIndex = pagerState.currentPage
+                                            viewerPhotos = itemPhotos
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = CloBleIcons.ZoomIn,
+                                        contentDescription = "Perbesar foto",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            if (itemPhotos.size > 1) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+                                ) {
+                                    repeat(itemPhotos.size) { index ->
+                                        val isActive = pagerState.currentPage == index
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = if (isActive) 18.dp else 7.dp, height = 7.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isActive) CloBleColors.Primary else CloBleColors.Outline)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(CloBleColors.SecondarySurface)
+                                .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = CloBleIcons.ShirtOutline,
+                                    contentDescription = null,
+                                    tint = CloBleColors.Primary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Text(
+                                    text = "Belum ada foto pakaian",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = CloBleColors.Surface,
+                        border = BorderStroke(1.dp, CloBleColors.Outline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                                color = CloBleColors.TextPrimary,
+                                modifier = Modifier.testTag("detail_clothing_title")
+                            )
+
+                            val specs = listOf(
+                                "Kategori" to item.category,
+                                "Ukuran" to item.size,
+                                "Pengguna" to item.gender,
+                                "Warna" to item.color,
+                                "Kondisi" to item.condition,
+                                "Status Barter" to if (item.isBarterAllowed) "Siap Barter" else "Koleksi Pribadi"
+                            )
+
+                            specs.chunked(2).forEach { pair ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    pair.forEach { (label, value) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = CloBleColors.SecondarySurface,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = CloBleColors.TextSecondary
+                                                )
+                                                Text(
+                                                    text = value,
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    color = CloBleColors.TextPrimary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (item.description.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "Deskripsi",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = CloBleColors.TextPrimary
+                                    )
+                                    Text(
+                                        text = item.description,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = CloBleColors.TextSecondary
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     if (owner != null) {
-                        Text(
-                            text = "Pemilik Pakaian",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = CloBleColors.TextPrimary
-                        )
-                        UserSummaryHeader(
-                            name = owner.name,
-                            city = owner.city,
-                            averageRating = owner.averageRating,
-                            reviewCount = owner.reviewCount,
-                            isLowCredibility = owner.isLowCredibility,
-                            onProfileClick = { onNavigateToOtherUserProfile(owner.id) },
-                            modifier = Modifier.testTag("detail_owner_summary")
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Pemilik Pakaian",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = CloBleColors.TextPrimary
+                                )
+                                UserSummaryHeader(
+                                    name = owner.name,
+                                    city = owner.city,
+                                    averageRating = owner.averageRating,
+                                    reviewCount = owner.reviewCount,
+                                    isLowCredibility = owner.isLowCredibility,
+                                    photoUri = owner.avatarUri,
+                                    onAvatarClick = if (!owner.avatarUri.isNullOrBlank()) {
+                                        {
+                                            viewerInitialIndex = 0
+                                            viewerPhotos = listOf(LabeledPhoto(owner.avatarUri, owner.name))
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    onProfileClick = { onNavigateToOtherUserProfile(owner.id) },
+                                    modifier = Modifier.testTag("detail_owner_summary")
+                                )
+                            }
+                        }
                     }
 
                     if (uiState.interestSentSuccess) {
                         CloBleStatusInfoBox(
-                            tone = CloBleInfoBoxTone.INFO,
+                            tone = CloBleInfoBoxTone.SUCCESS,
                             title = "Tawaran Terkirim",
                             message = "Tawaran interest berhasil disampaikan kepada pemilik pakaian. Anda akan mendapat notifikasi ketika pemilik merespons.",
-                            modifier = Modifier.fillMaxWidth().testTag("detail_interest_success_box")
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("detail_interest_success_box")
                         )
                     } else if (uiState.errorMessage != null) {
                         CloBleStatusInfoBox(
-                            tone = CloBleInfoBoxTone.HIGHLIGHT,
+                            tone = CloBleInfoBoxTone.WARNING,
                             title = "Perhatian",
                             message = uiState.errorMessage!!,
-                            modifier = Modifier.fillMaxWidth().testTag("detail_error_box")
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("detail_error_box")
                         )
                         if (uiState.requiresBarterItemCta) {
                             CloBlePrimaryButton(
                                 text = "Buka Lemari & Aktifkan Barter",
                                 onClick = onNavigateToWardrobe,
-                                modifier = Modifier.fillMaxWidth().testTag("btn_go_to_wardrobe_from_detail")
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_go_to_wardrobe_from_detail")
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     if (uiState.isOwnItem) {
                         CloBlePrimaryButton(
@@ -185,11 +386,21 @@ fun ItemDetailScreen(
                             text = if (uiState.isSendingInterest) "Mengirim Tawaran..." else "Kirim Tawaran Barter",
                             onClick = viewModel::sendInterest,
                             enabled = !uiState.isSendingInterest,
-                            modifier = Modifier.fillMaxWidth().testTag("btn_send_interest_from_detail")
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_send_interest_from_detail")
                         )
                     }
                 }
             }
+        }
+
+        if (viewerPhotos.isNotEmpty()) {
+            CloBleFullscreenImageViewer(
+                photos = viewerPhotos,
+                initialIndex = viewerInitialIndex,
+                onDismiss = { viewerPhotos = emptyList() }
+            )
         }
     }
 }

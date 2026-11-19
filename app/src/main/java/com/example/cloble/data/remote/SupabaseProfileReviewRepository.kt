@@ -1,7 +1,10 @@
 package com.example.cloble.data.remote
 
+import android.content.Context
+import android.net.Uri
 import com.example.cloble.domain.model.UserPreferences
 import com.example.cloble.domain.model.UserProfile
+import com.example.cloble.domain.model.UserProfileUpdate
 import com.example.cloble.domain.model.UserReview
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.result.DbFailure
@@ -11,10 +14,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.UUID
 
 class SupabaseProfileReviewRepository(
     private val client: SupabaseClient,
+    private val context: Context,
     private val invalidator: SupabaseDataInvalidator
 ) : ProfileReviewRepository {
 
@@ -102,6 +108,55 @@ class SupabaseProfileReviewRepository(
             client.patch("users?id=eq.$userId", body.toString())
             invalidator.invalidateUser()
         } catch (_: Exception) {
+        }
+    }
+
+    override suspend fun updateProfile(userId: Long, update: UserProfileUpdate): Boolean {
+        val cleanName = update.name.trim()
+        if (cleanName.isEmpty()) return false
+        return try {
+            val body = JSONObject().apply {
+                put("name", cleanName)
+                put("bio", update.bio.trim())
+                put("avatarUri", update.avatarUri ?: JSONObject.NULL)
+                put("city", update.city.trim())
+                put("latitude", update.latitude)
+                put("longitude", update.longitude)
+                put("preferredSize", update.preferredSize)
+                put("preferredGender", update.preferredGender)
+                put("preferredRadiusKm", update.preferredRadiusKm)
+            }
+            client.patch("users?id=eq.$userId", body.toString())
+            invalidator.invalidateUser()
+            invalidator.invalidateDiscovery()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    override suspend fun persistAvatarPhoto(sourceUriString: String): String? = withContext(Dispatchers.IO) {
+        if (sourceUriString.startsWith("http://") || sourceUriString.startsWith("https://")) {
+            return@withContext sourceUriString
+        }
+        try {
+            val uri = Uri.parse(sourceUriString)
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return@withContext null
+            val ext = when (context.contentResolver.getType(uri)) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val mime = when (ext) {
+                "png" -> "image/png"
+                "webp" -> "image/webp"
+                else -> "image/jpeg"
+            }
+            val filename = "avatar_${UUID.randomUUID()}.$ext"
+            client.uploadPhoto(bytes, filename, mime)
+        } catch (_: Exception) {
+            null
         }
     }
 

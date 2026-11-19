@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 data class PreferencesUiState(
     val isOnboarding: Boolean = false,
     val selectedCity: String = CityPreset.BANDUNG.displayName,
+    val selectedLatitude: Double = CityPreset.BANDUNG.latitude,
+    val selectedLongitude: Double = CityPreset.BANDUNG.longitude,
     val selectedRadiusKm: Int = 10,
     val selectedSize: String = "M",
     val selectedGender: String = "Uniseks",
@@ -49,6 +51,8 @@ class PreferencesViewModel(
                     it.copy(
                         currentUserId = user.id,
                         selectedCity = user.city,
+                        selectedLatitude = user.latitude,
+                        selectedLongitude = user.longitude,
                         selectedRadiusKm = user.preferredRadiusKm,
                         selectedSize = user.preferredSize,
                         selectedGender = user.preferredGender
@@ -58,8 +62,14 @@ class PreferencesViewModel(
         }
     }
 
-    fun onCitySelected(city: String) {
-        _uiState.update { it.copy(selectedCity = city) }
+    fun onLocationSelected(city: String, latitude: Double, longitude: Double) {
+        _uiState.update {
+            it.copy(
+                selectedCity = city,
+                selectedLatitude = latitude,
+                selectedLongitude = longitude
+            )
+        }
     }
 
     fun onRadiusSelected(radiusKm: Int) {
@@ -77,16 +87,15 @@ class PreferencesViewModel(
     fun savePreferences(onSuccess: () -> Unit) {
         val s = _uiState.value
         val userId = s.currentUserId ?: return
-        val preset = CityPreset.fromDisplayName(s.selectedCity)
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true) }
             val prefs = UserPreferences(
                 preferredSize = s.selectedSize,
                 preferredGender = s.selectedGender,
-                city = preset.displayName,
-                latitude = preset.latitude,
-                longitude = preset.longitude,
+                city = s.selectedCity.trim(),
+                latitude = s.selectedLatitude,
+                longitude = s.selectedLongitude,
                 preferredRadiusKm = s.selectedRadiusKm
             )
             profileReviewRepository.updatePreferences(userId, prefs)

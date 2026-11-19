@@ -19,6 +19,7 @@ object CloBleDestinations {
     const val CONVERSATION = "conversation/{matchId}"
 
     const val MY_PROFILE = "my_profile"
+    const val EDIT_PROFILE = "edit_profile"
     const val ACTIVITY_HISTORY = "activity_history"
     const val WARDROBE = "wardrobe"
     const val ADD_CLOTHING = "add_clothing"

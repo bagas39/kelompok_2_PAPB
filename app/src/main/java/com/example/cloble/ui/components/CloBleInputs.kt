@@ -57,6 +57,7 @@ fun CloBleLabeledTextField(
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingIcon: (@Composable () -> Unit)? = null,
     inputTestTag: String? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -66,17 +67,19 @@ fun CloBleLabeledTextField(
         isFocused -> CloBleColors.Primary
         else -> CloBleColors.Outline
     }
-    val containerColor = if (enabled) CloBleColors.Background else CloBleColors.SecondarySurface
+    val containerColor = if (enabled) CloBleColors.Surface else CloBleColors.SecondarySurface
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = CloBleColors.TextPrimary
-        )
+        if (label.isNotBlank()) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = CloBleColors.TextPrimary
+            )
+        }
 
         BasicTextField(
             value = value,
@@ -92,27 +95,36 @@ fun CloBleLabeledTextField(
                 .onFocusChanged { focusState -> isFocused = focusState.isFocused }
                 .then(if (inputTestTag != null) Modifier.testTag(inputTestTag) else Modifier)
                 .semantics {
-                    contentDescription = "Input $label"
+                    contentDescription = if (label.isNotBlank()) "Input $label" else placeholder.ifBlank { "Input teks" }
                 },
             decorationBox = { innerTextField ->
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = minHeight)
                         .clip(shape)
                         .background(containerColor)
-                        .border(width = 1.dp, color = borderColor, shape = shape)
-                        .padding(12.dp),
-                    contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart
+                        .border(width = if (isFocused) 1.5.dp else 1.dp, color = borderColor, shape = shape)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (value.isEmpty() && placeholder.isNotEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = CloBleColors.TextSecondary
-                        )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart
+                    ) {
+                        if (value.isEmpty() && placeholder.isNotEmpty()) {
+                            Text(
+                                text = placeholder,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = CloBleColors.TextSecondary
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
+                    if (trailingIcon != null) {
+                        trailingIcon()
+                    }
                 }
             }
         )
@@ -155,7 +167,7 @@ fun CloBleDropdownField(
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 48.dp)
                     .clip(shape)
-                    .background(if (enabled) CloBleColors.Background else CloBleColors.SecondarySurface)
+                    .background(if (enabled) CloBleColors.Surface else CloBleColors.SecondarySurface)
                     .border(width = 1.dp, color = borderColor, shape = shape)
                     .clickable(
                         enabled = enabled,
@@ -191,7 +203,7 @@ fun CloBleDropdownField(
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                containerColor = CloBleColors.Background
+                containerColor = CloBleColors.Surface
             ) {
                 options.forEach { option ->
                     DropdownMenuItem(
@@ -250,7 +262,7 @@ fun CloBleChoiceChipRow(
         ) {
             options.forEach { option ->
                 val isSelected = option in selectedOptions
-                val bgColor = if (isSelected) CloBleColors.Primary else CloBleColors.Background
+                val bgColor = if (isSelected) CloBleColors.Primary else CloBleColors.Surface
                 val borderColor = if (isSelected) CloBleColors.Primary else CloBleColors.Outline
                 val textColor = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary
 
@@ -271,7 +283,7 @@ fun CloBleChoiceChipRow(
                         }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {

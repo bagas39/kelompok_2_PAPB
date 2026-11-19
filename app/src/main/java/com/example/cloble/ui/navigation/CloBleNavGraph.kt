@@ -43,6 +43,7 @@ import com.example.cloble.ui.screens.history.ActivityHistoryScreen
 import com.example.cloble.ui.screens.matched.MatchedScreen
 import com.example.cloble.ui.screens.notifications.NotificationsScreen
 import com.example.cloble.ui.screens.preferences.PreferencesScreen
+import com.example.cloble.ui.screens.profile.EditProfileScreen
 import com.example.cloble.ui.screens.profile.MyProfileScreen
 import com.example.cloble.ui.screens.profile.OtherUserProfileScreen
 import com.example.cloble.ui.screens.review.RateUserScreen
@@ -192,6 +193,9 @@ fun CloBleNavGraph(
 
             composable(route = CloBleDestinations.MY_PROFILE) {
                 MyProfileScreen(
+                    onNavigateToEditProfile = {
+                        navController.navigate(CloBleDestinations.EDIT_PROFILE)
+                    },
                     onNavigateToPreferences = {
                         navController.navigate(CloBleDestinations.preferencesRoute(isOnboarding = false))
                     },
@@ -227,6 +231,13 @@ fun CloBleNavGraph(
                             popUpTo(navController.graph.id) { inclusive = true }
                         }
                     }
+                )
+            }
+
+            composable(route = CloBleDestinations.EDIT_PROFILE) {
+                EditProfileScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onSaveSuccess = { navController.popBackStack() }
                 )
             }
 
@@ -347,9 +358,7 @@ fun CloBleNavGraph(
         composable(route = CloBleDestinations.FILTER) {
             FilterScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onApplyFilter = { _ ->
-
-                }
+                onApplyFilter = { }
             )
         }
 

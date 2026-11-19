@@ -4,6 +4,7 @@ import com.example.cloble.domain.model.ItemStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +17,7 @@ class SupabaseMappersUnitTest {
             put("name", "Raka Pratama")
             put("email", "raka@cloble.demo")
             put("bio", "Penggemar linen")
+            put("avatarUri", "https://example.com/avatar.jpg")
             put("city", "Bandung, Jawa Barat")
             put("latitude", -6.9175)
             put("longitude", 107.6191)
@@ -28,8 +30,18 @@ class SupabaseMappersUnitTest {
         val profile = SupabaseMappers.parseUserProfile(json, 4.5, 10)
         assertEquals(1L, profile.id)
         assertEquals("Raka Pratama", profile.name)
+        assertEquals("https://example.com/avatar.jpg", profile.avatarUri)
         assertEquals(4.5, profile.averageRating, 0.001)
         assertEquals(10, profile.reviewCount)
+
+        val jsonWithoutAvatar = JSONObject().apply {
+            put("id", 2L)
+            put("name", "Naya")
+            put("email", "naya@cloble.demo")
+            put("bio", "")
+            put("avatarUri", JSONObject.NULL)
+        }
+        assertNull(SupabaseMappers.parseUserProfile(jsonWithoutAvatar).avatarUri)
     }
 
     @Test

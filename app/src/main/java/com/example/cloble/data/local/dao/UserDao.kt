@@ -34,6 +34,34 @@ interface UserDao {
     @Query(
         """
         UPDATE users
+        SET name = :name,
+            bio = :bio,
+            avatarUri = :avatarUri,
+            city = :city,
+            latitude = :latitude,
+            longitude = :longitude,
+            preferredSize = :preferredSize,
+            preferredGender = :preferredGender,
+            preferredRadiusKm = :preferredRadiusKm
+        WHERE id = :userId
+        """
+    )
+    suspend fun updateFullProfile(
+        userId: Long,
+        name: String,
+        bio: String,
+        avatarUri: String?,
+        city: String,
+        latitude: Double,
+        longitude: Double,
+        preferredSize: String,
+        preferredGender: String,
+        preferredRadiusKm: Int
+    )
+
+    @Query(
+        """
+        UPDATE users
         SET preferredSize = :preferredSize, preferredGender = :preferredGender,
             city = :city, latitude = :latitude, longitude = :longitude,
             preferredRadiusKm = :preferredRadiusKm

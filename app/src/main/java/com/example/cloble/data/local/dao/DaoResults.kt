@@ -64,3 +64,10 @@ sealed interface WardrobeMutationDaoResult {
     data object LockedInActiveMatch : WardrobeMutationDaoResult
     data object InvalidOwnership : WardrobeMutationDaoResult
 }
+
+sealed interface CancelInterestDaoResult {
+    data object Success : CancelInterestDaoResult
+    data object InterestNotFound : CancelInterestDaoResult
+    data object NotInterestOwner : CancelInterestDaoResult
+    data class InterestAlreadyProcessed(val currentStatus: InterestStatus) : CancelInterestDaoResult
+}

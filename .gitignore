@@ -20,3 +20,4 @@ app/*firebase-adminsdk*.json
 *firebase-adminsdk*.json
 supabase/.temp/
 scripts/
+*.local.md

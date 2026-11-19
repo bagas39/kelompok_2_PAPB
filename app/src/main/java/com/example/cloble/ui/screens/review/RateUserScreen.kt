@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -24,13 +27,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleOutlinedButton
@@ -60,7 +63,8 @@ fun RateUserScreen(
                 onNavigateBack = onNavigateBack,
                 backContentDescription = "Kembali ke percakapan"
             )
-        }
+        },
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -100,20 +104,31 @@ fun RateUserScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .imePadding()
+                            .navigationBarsPadding()
                             .verticalScroll(scrollState)
-                            .padding(20.dp)
+                            .padding(16.dp)
                             .testTag("rate_user_screen_content"),
-                        verticalArrangement = Arrangement.spacedBy(18.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-
-                        UserSummaryHeader(
-                            name = detail.partnerName,
-                            city = detail.partnerCity,
-                            averageRating = detail.partnerAverageRating,
-                            reviewCount = detail.partnerReviewCount,
-                            isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
-                            onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(modifier = Modifier.padding(16.dp)) {
+                                UserSummaryHeader(
+                                    name = detail.partnerName,
+                                    city = detail.partnerCity,
+                                    averageRating = detail.partnerAverageRating,
+                                    reviewCount = detail.partnerReviewCount,
+                                    isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
+                                    photoUri = detail.partnerAvatarUri,
+                                    onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
+                                )
+                            }
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -121,20 +136,30 @@ fun RateUserScreen(
                             border = BorderStroke(1.dp, CloBleColors.Outline),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = "Pertukaran: ${detail.myItem.name} ↔ ${detail.partnerItem.name}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = CloBleColors.Primary,
-                                modifier = Modifier.padding(12.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = CloBleIcons.SwapHorizontal,
+                                    contentDescription = null,
+                                    tint = CloBleColors.OnPrimaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${detail.myItem.name} - ${detail.partnerItem.name}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = CloBleColors.OnPrimaryContainer
+                                )
+                            }
                         }
 
                         if (uiState.isSuccess) {
-
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFE6F4EA),
-                                border = BorderStroke(1.dp, Color(0xFF137333)),
+                                shape = RoundedCornerShape(14.dp),
+                                color = CloBleColors.SuccessContainer,
+                                border = BorderStroke(1.dp, CloBleColors.SuccessText),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("rate_success_box")
@@ -143,20 +168,31 @@ fun RateUserScreen(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = "✓ Ulasan Berhasil Dikirim!",
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = Color(0xFF137333)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = CloBleIcons.CheckCircle,
+                                            contentDescription = null,
+                                            tint = CloBleColors.SuccessText,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = "Ulasan Berhasil Dikirim",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = CloBleColors.SuccessText
+                                        )
+                                    }
                                     Text(
                                         text = "Terima kasih telah memberikan ulasan. Ulasan Anda membantu membangun reputasi dan keamanan komunitas CloBle.",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFF137333)
+                                        color = CloBleColors.SuccessText
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             CloBlePrimaryButton(
                                 text = "Lihat Profil ${detail.partnerName}",
@@ -172,10 +208,9 @@ fun RateUserScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
-
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = CloBleColors.Background,
+                                shape = RoundedCornerShape(16.dp),
+                                color = CloBleColors.Surface,
                                 border = BorderStroke(1.dp, CloBleColors.Outline),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -248,12 +283,12 @@ fun RateUserScreen(
                                 CloBleStatusInfoBox(
                                     title = "Peringatan",
                                     message = uiState.errorMessage!!,
-                                    tone = CloBleInfoBoxTone.HIGHLIGHT,
+                                    tone = CloBleInfoBoxTone.WARNING,
                                     modifier = Modifier.testTag("rate_user_error_banner")
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             val canSubmit = uiState.selectedRating in 1..5 && !uiState.alreadyReviewed && !uiState.isSubmitting
 

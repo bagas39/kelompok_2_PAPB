@@ -2,6 +2,7 @@ package com.example.cloble.domain.repository
 
 import com.example.cloble.domain.model.UserPreferences
 import com.example.cloble.domain.model.UserProfile
+import com.example.cloble.domain.model.UserProfileUpdate
 import com.example.cloble.domain.model.UserReview
 import com.example.cloble.domain.result.ReviewSubmitResult
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +14,8 @@ interface ProfileReviewRepository {
 
     suspend fun updatePreferences(userId: Long, prefs: UserPreferences)
     suspend fun updateBio(userId: Long, bio: String)
+    suspend fun updateProfile(userId: Long, update: UserProfileUpdate): Boolean
+    suspend fun persistAvatarPhoto(sourceUriString: String): String?
     suspend fun submitReview(
         matchId: Long,
         reviewerId: Long,

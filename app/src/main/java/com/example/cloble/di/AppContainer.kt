@@ -20,12 +20,14 @@ import com.example.cloble.data.repository.LocalDiscoveryMatchRepository
 import com.example.cloble.data.repository.LocalFcmRepository
 import com.example.cloble.data.repository.LocalProfileReviewRepository
 import com.example.cloble.data.repository.LocalWardrobeRepository
+import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.FcmRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 
 interface AppContainer {
     val database: CloBleDatabase
@@ -38,6 +40,7 @@ interface AppContainer {
     val profileReviewRepository: ProfileReviewRepository
     val fcmRepository: FcmRepository
     val dataInvalidator: SupabaseDataInvalidator
+    val discoverFilterFlow: MutableStateFlow<DiscoverFilter>
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -52,6 +55,10 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val dataInvalidator: SupabaseDataInvalidator by lazy {
         SupabaseDataInvalidator()
+    }
+
+    override val discoverFilterFlow: MutableStateFlow<DiscoverFilter> by lazy {
+        MutableStateFlow(DiscoverFilter())
     }
 
     override val database: CloBleDatabase by lazy {
@@ -99,7 +106,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val chatRepository: ChatRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseChatRepository(supabaseClient, supabaseRealtimeClient)
+            SupabaseChatRepository(supabaseClient, supabaseRealtimeClient, dataInvalidator)
         } else {
             LocalChatRepository(database.chatDao(), database.userDao())
         }
@@ -107,9 +114,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val profileReviewRepository: ProfileReviewRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseProfileReviewRepository(supabaseClient, dataInvalidator)
+            SupabaseProfileReviewRepository(supabaseClient, context, dataInvalidator)
         } else {
-            LocalProfileReviewRepository(database.userDao(), database.reviewDao())
+            LocalProfileReviewRepository(database.userDao(), database.reviewDao(), photoStorageManager)
         }
     }
 

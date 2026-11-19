@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.cloble.data.local.converter.CloBleTypeConverters
 import com.example.cloble.data.local.dao.ChatDao
 import com.example.cloble.data.local.dao.ClothingItemDao
@@ -33,7 +35,7 @@ import com.example.cloble.data.local.entity.UserEntity
         ReviewEntity::class,
         NotificationEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(CloBleTypeConverters::class)
@@ -50,6 +52,12 @@ abstract class CloBleDatabase : RoomDatabase() {
     companion object {
         const val DATABASE_NAME = "cloble_poc.db"
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN avatarUri TEXT")
+            }
+        }
+
         @Volatile
         private var INSTANCE: CloBleDatabase? = null
 
@@ -59,7 +67,9 @@ abstract class CloBleDatabase : RoomDatabase() {
                     context.applicationContext,
                     CloBleDatabase::class.java,
                     DATABASE_NAME
-                ).build()
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
                 INSTANCE = instance
                 instance
             }

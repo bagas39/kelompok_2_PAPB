@@ -1,5 +1,6 @@
 package com.example.cloble.data.repository
 
+import com.example.cloble.data.local.dao.CancelInterestDaoResult
 import com.example.cloble.data.local.dao.CancelMatchDaoResult
 import com.example.cloble.data.local.dao.ClothingItemDao
 import com.example.cloble.data.local.dao.CompleteMatchDaoResult
@@ -19,6 +20,7 @@ import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.domain.model.VerifiedMatchDetail
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
 import com.example.cloble.domain.result.DbFailure
@@ -183,6 +185,24 @@ class LocalDiscoveryMatchRepository(
         }
     }
 
+    override suspend fun cancelOutgoingInterest(
+        userId: Long,
+        interestId: Long
+    ): CancelInterestResult {
+        return EntityMappers.runCatchingSqlite(
+            onBusyOrLocked = { CancelInterestResult.DatabaseError(DbFailure.DatabaseBusyOrLocked(it)) },
+            onConstraintViolation = { CancelInterestResult.DatabaseError(DbFailure.DuplicateOrConstraintViolation(it)) },
+            onUnexpectedDatabaseError = { CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
+        ) {
+            when (val daoResult = interestMatchDao.cancelOutgoingInterest(interestId, userId)) {
+                is CancelInterestDaoResult.Success -> CancelInterestResult.Success
+                is CancelInterestDaoResult.InterestNotFound -> CancelInterestResult.InterestNotFound
+                is CancelInterestDaoResult.NotInterestOwner -> CancelInterestResult.NotInterestOwner
+                is CancelInterestDaoResult.InterestAlreadyProcessed -> CancelInterestResult.InterestAlreadyProcessed(daoResult.currentStatus)
+            }
+        }
+    }
+
     override suspend fun respondToInterestAndCreateMatch(
         actorUserId: Long,
         interestId: Long,
@@ -274,6 +294,7 @@ class LocalDiscoveryMatchRepository(
         val partnerUserId = if (isUser1) row.user2Id else row.user1Id
         val partnerName = if (isUser1) row.user2Name else row.user1Name
         val partnerCity = if (isUser1) row.user2City else row.user1City
+        val partnerAvatarUri = if (isUser1) row.user2AvatarUri else row.user1AvatarUri
 
         val partnerAvg = reviewDao.getAverageRatingForUser(partnerUserId) ?: 0.0
         val partnerCount = reviewDao.getReviewCountForUser(partnerUserId)
@@ -299,6 +320,7 @@ class LocalDiscoveryMatchRepository(
             partnerUserId = partnerUserId,
             partnerName = partnerName,
             partnerCity = partnerCity,
+            partnerAvatarUri = partnerAvatarUri,
             partnerAverageRating = partnerAvg,
             partnerReviewCount = partnerCount,
             myItem = myItem,

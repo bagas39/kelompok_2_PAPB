@@ -93,7 +93,9 @@ class LocalAuthRepository(
         name: String,
         email: String,
         rawPassword: String,
-        city: String
+        city: String,
+        latitude: Double?,
+        longitude: Double?
     ): AuthResult {
         val trimmedEmail = email.trim().lowercase()
         val trimmedName = name.trim()
@@ -113,7 +115,19 @@ class LocalAuthRepository(
             return AuthResult.EmailAlreadyRegistered
         }
 
-        val preset = CityPreset.fromDisplayName(city)
+        val resolvedCity: String
+        val resolvedLat: Double
+        val resolvedLon: Double
+        if (latitude != null && longitude != null) {
+            resolvedCity = city.trim().ifEmpty { CityPreset.BANDUNG.displayName }
+            resolvedLat = latitude
+            resolvedLon = longitude
+        } else {
+            val preset = CityPreset.fromDisplayName(city)
+            resolvedCity = if (city.isNotBlank() && city != preset.displayName) city.trim() else preset.displayName
+            resolvedLat = preset.latitude
+            resolvedLon = preset.longitude
+        }
         val passwordHash = PasswordHasher.hash(rawPassword)
 
         return EntityMappers.runCatchingSqlite(
@@ -127,9 +141,9 @@ class LocalAuthRepository(
                     email = trimmedEmail,
                     passwordHash = passwordHash,
                     bio = "",
-                    city = preset.displayName,
-                    latitude = preset.latitude,
-                    longitude = preset.longitude,
+                    city = resolvedCity,
+                    latitude = resolvedLat,
+                    longitude = resolvedLon,
                     preferredSize = "M",
                     preferredGender = "Uniseks",
                     preferredRadiusKm = 10,

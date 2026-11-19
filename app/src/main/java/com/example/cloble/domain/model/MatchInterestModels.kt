@@ -29,6 +29,7 @@ data class VerifiedMatchDetail(
     val partnerUserId: Long,
     val partnerName: String,
     val partnerCity: String,
+    val partnerAvatarUri: String? = null,
     val partnerAverageRating: Double,
     val partnerReviewCount: Int,
     val myItem: ClothingItem,
@@ -43,6 +44,7 @@ data class ChatThreadSummary(
     val partnerUserId: Long,
     val partnerName: String,
     val partnerCity: String,
+    val partnerAvatarUri: String? = null,
     val partnerAverageRating: Double,
     val myItemName: String,
     val partnerItemName: String,
@@ -50,5 +52,6 @@ data class ChatThreadSummary(
     val lastMessageText: String?,
     val lastMessageSentAt: Long?,
     val unreadCount: Int,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val totalMatchesWithPartner: Int = 1
 )

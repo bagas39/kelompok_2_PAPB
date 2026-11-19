@@ -11,6 +11,7 @@ import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -27,6 +28,7 @@ data class ActivityHistoryUiState(
     val outgoingInterests: List<OutgoingInterestSummary> = emptyList(),
     val passedItems: List<PassedClothingSummary> = emptyList(),
     val isLoading: Boolean = true,
+    val cancellingInterestId: Long? = null,
     val actionMessage: String? = null,
     val errorMessage: String? = null,
     val currentUserId: Long? = null
@@ -83,6 +85,60 @@ class ActivityHistoryViewModel(
 
     fun selectTab(tab: ActivityHistoryTab) {
         _uiState.update { it.copy(selectedTab = tab) }
+    }
+
+    fun cancelOutgoingInterest(interestId: Long) {
+        val userId = _uiState.value.currentUserId ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(cancellingInterestId = interestId, errorMessage = null) }
+            when (val result = discoveryMatchRepository.cancelOutgoingInterest(userId, interestId)) {
+                is CancelInterestResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            cancellingInterestId = null,
+                            actionMessage = "Minat berhasil dibatalkan. Pakaian kembali tersedia di Jelajah.",
+                            errorMessage = null
+                        )
+                    }
+                }
+                is CancelInterestResult.InterestAlreadyProcessed -> {
+                    _uiState.update {
+                        it.copy(
+                            cancellingInterestId = null,
+                            errorMessage = "Minat ini sudah diproses oleh pemilik sehingga tidak dapat dibatalkan.",
+                            actionMessage = null
+                        )
+                    }
+                }
+                is CancelInterestResult.InterestNotFound -> {
+                    _uiState.update {
+                        it.copy(
+                            cancellingInterestId = null,
+                            errorMessage = "Data minat tidak ditemukan atau sudah dibatalkan.",
+                            actionMessage = null
+                        )
+                    }
+                }
+                is CancelInterestResult.NotInterestOwner -> {
+                    _uiState.update {
+                        it.copy(
+                            cancellingInterestId = null,
+                            errorMessage = "Anda tidak memiliki izin membatalkan minat ini.",
+                            actionMessage = null
+                        )
+                    }
+                }
+                is CancelInterestResult.DatabaseError -> {
+                    _uiState.update {
+                        it.copy(
+                            cancellingInterestId = null,
+                            errorMessage = result.failure.message ?: "Gagal membatalkan minat.",
+                            actionMessage = null
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun convertPassToInterest(targetItemId: Long) {

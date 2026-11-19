@@ -88,3 +88,11 @@ sealed interface ReviewSubmitResult {
     data object InvalidRating : ReviewSubmitResult
     data class DatabaseError(val failure: DbFailure) : ReviewSubmitResult
 }
+
+sealed interface CancelInterestResult {
+    data object Success : CancelInterestResult
+    data object InterestNotFound : CancelInterestResult
+    data object NotInterestOwner : CancelInterestResult
+    data class InterestAlreadyProcessed(val currentStatus: InterestStatus) : CancelInterestResult
+    data class DatabaseError(val failure: DbFailure) : CancelInterestResult
+}

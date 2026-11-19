@@ -109,7 +109,7 @@ object SystemNotificationHelper {
         showNotification(
             context = context,
             id = 9999,
-            title = "CloBle — Notifikasi Sistem Aktif",
+            title = "CloBle: Notifikasi Sistem Aktif",
             body = "Notifikasi barter CloBle berhasil masuk ke bilah status Android Anda!"
         )
     }

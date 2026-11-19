@@ -37,8 +37,18 @@ data class DiscoverUiState(
     val currentCandidate: DiscoverCandidate?
         get() = if (currentIndex in candidates.indices) candidates[currentIndex] else null
 
+    val nextCandidate: DiscoverCandidate?
+        get() = if (currentIndex + 1 in candidates.indices) candidates[currentIndex + 1] else null
+
     val hasMoreCards: Boolean
         get() = currentIndex < candidates.size
+
+    val activeFilterCount: Int
+        get() = (if (filter.maxRadiusKm != null) 1 else 0) +
+            filter.selectedCategories.size +
+            filter.selectedSizes.size +
+            filter.selectedGenders.size +
+            filter.selectedColors.size
 }
 
 sealed interface DiscoverNavigationEvent {
@@ -51,13 +61,12 @@ sealed interface DiscoverNavigationEvent {
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiscoverViewModel(
     private val authRepository: AuthRepository,
-    private val discoveryMatchRepository: DiscoveryMatchRepository
+    private val discoveryMatchRepository: DiscoveryMatchRepository,
+    private val discoverFilterFlow: MutableStateFlow<DiscoverFilter> = MutableStateFlow(DiscoverFilter())
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(DiscoverUiState())
+    private val _uiState = MutableStateFlow(DiscoverUiState(filter = discoverFilterFlow.value))
     val uiState: StateFlow<DiscoverUiState> = _uiState.asStateFlow()
-
-    private val _filterFlow = MutableStateFlow(DiscoverFilter())
 
     private val _events = MutableSharedFlow<DiscoverNavigationEvent>()
     val events: SharedFlow<DiscoverNavigationEvent> = _events.asSharedFlow()
@@ -79,11 +88,17 @@ class DiscoverViewModel(
         }
 
         viewModelScope.launch {
+            discoverFilterFlow.collect { latestFilter ->
+                _uiState.update { it.copy(filter = latestFilter, currentIndex = 0, isLoading = true) }
+            }
+        }
+
+        viewModelScope.launch {
             authRepository.observeLoggedInUserId()
                 .filterNotNull()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    _filterFlow.flatMapLatest { filter ->
+                    discoverFilterFlow.flatMapLatest { filter ->
                         discoveryMatchRepository.observeDiscoverCandidates(userId, filter)
                     }
                 }
@@ -193,8 +208,11 @@ class DiscoverViewModel(
     }
 
     fun updateFilter(newFilter: DiscoverFilter) {
-        _filterFlow.value = newFilter
-        _uiState.update { it.copy(filter = newFilter, isLoading = true) }
+        discoverFilterFlow.value = newFilter
+    }
+
+    fun resetFilter() {
+        discoverFilterFlow.value = DiscoverFilter()
     }
 
     fun clearBanner() {
@@ -207,7 +225,8 @@ class DiscoverViewModel(
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as CloBleApplication
                 DiscoverViewModel(
                     authRepository = app.container.authRepository,
-                    discoveryMatchRepository = app.container.discoveryMatchRepository
+                    discoveryMatchRepository = app.container.discoveryMatchRepository,
+                    discoverFilterFlow = app.container.discoverFilterFlow
                 )
             }
         }

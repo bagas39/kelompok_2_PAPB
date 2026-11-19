@@ -8,8 +8,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.model.UserReview
+import com.example.cloble.domain.model.WardrobeItemSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
+import com.example.cloble.domain.repository.WardrobeRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,15 +24,15 @@ import kotlinx.coroutines.launch
 data class MyProfileUiState(
     val userProfile: UserProfile? = null,
     val reviews: List<UserReview> = emptyList(),
-    val bioInput: String = "",
-    val isEditingBio: Boolean = false,
+    val wardrobePreview: List<WardrobeItemSummary> = emptyList(),
     val isLoading: Boolean = true
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MyProfileViewModel(
     private val authRepository: AuthRepository,
-    private val profileReviewRepository: ProfileReviewRepository
+    private val profileReviewRepository: ProfileReviewRepository,
+    private val wardrobeRepository: WardrobeRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MyProfileUiState())
@@ -42,7 +44,6 @@ class MyProfileViewModel(
                 _uiState.update { current ->
                     current.copy(
                         userProfile = user,
-                        bioInput = if (current.isEditingBio) current.bioInput else (user?.bio ?: ""),
                         isLoading = false
                     )
                 }
@@ -57,27 +58,14 @@ class MyProfileViewModel(
                 _uiState.update { it.copy(reviews = reviewsList) }
             }
         }
-    }
 
-    fun onBioInputChanged(newBio: String) {
-        _uiState.update { it.copy(bioInput = newBio) }
-    }
-
-    fun setEditingBio(editing: Boolean) {
-        _uiState.update { current ->
-            current.copy(
-                isEditingBio = editing,
-                bioInput = if (editing) (current.userProfile?.bio ?: "") else current.bioInput
-            )
-        }
-    }
-
-    fun saveBio() {
-        val user = _uiState.value.userProfile ?: return
-        val newBio = _uiState.value.bioInput
         viewModelScope.launch {
-            profileReviewRepository.updateBio(user.id, newBio)
-            _uiState.update { it.copy(isEditingBio = false) }
+            authRepository.observeLoggedInUserId().flatMapLatest { userId ->
+                if (userId == null) flowOf(emptyList())
+                else wardrobeRepository.observeMyWardrobe(userId)
+            }.collect { items ->
+                _uiState.update { it.copy(wardrobePreview = items.take(4)) }
+            }
         }
     }
 
@@ -94,7 +82,8 @@ class MyProfileViewModel(
                 val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as CloBleApplication)
                 MyProfileViewModel(
                     authRepository = app.container.authRepository,
-                    profileReviewRepository = app.container.profileReviewRepository
+                    profileReviewRepository = app.container.profileReviewRepository,
+                    wardrobeRepository = app.container.wardrobeRepository
                 )
             }
         }

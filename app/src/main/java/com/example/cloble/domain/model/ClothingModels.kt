@@ -43,6 +43,7 @@ data class DiscoverCandidate(
     val item: ClothingItem,
     val ownerName: String,
     val ownerCity: String,
+    val ownerAvatarUri: String? = null,
     val ownerAverageRating: Double,
     val ownerReviewCount: Int,
     val distanceKm: Int

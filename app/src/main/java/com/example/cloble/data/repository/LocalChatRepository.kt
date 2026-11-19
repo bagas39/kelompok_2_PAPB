@@ -8,6 +8,7 @@ import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.SendMessageResult
+import com.example.cloble.domain.util.ChatThreadDeduplicator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -18,7 +19,9 @@ class LocalChatRepository(
 
     override fun observeChatThreads(userId: Long): Flow<List<ChatThreadSummary>> {
         return chatDao.getChatThreadsFlow(userId).map { rows ->
-            rows.map { EntityMappers.toDomainChatThread(it) }
+            ChatThreadDeduplicator.deduplicateByPartner(
+                rows.map { EntityMappers.toDomainChatThread(it) }
+            )
         }
     }
 

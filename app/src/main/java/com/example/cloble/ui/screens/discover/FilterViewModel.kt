@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.DiscoverFilter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +18,20 @@ data class FilterUiState(
     val selectedRadiusKm: Int? = null
 )
 
-class FilterViewModel : ViewModel() {
+class FilterViewModel(
+    private val discoverFilterFlow: MutableStateFlow<DiscoverFilter> = MutableStateFlow(DiscoverFilter())
+) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(FilterUiState())
+    private val _uiState = MutableStateFlow(
+        discoverFilterFlow.value.let { current ->
+            FilterUiState(
+                selectedSizes = current.selectedSizes,
+                selectedGenders = current.selectedGenders,
+                selectedCategories = current.selectedCategories,
+                selectedRadiusKm = current.maxRadiusKm
+            )
+        }
+    )
     val uiState: StateFlow<FilterUiState> = _uiState.asStateFlow()
 
     fun toggleCategory(category: String) {
@@ -52,6 +64,13 @@ class FilterViewModel : ViewModel() {
 
     fun reset() {
         _uiState.value = FilterUiState()
+        discoverFilterFlow.value = DiscoverFilter()
+    }
+
+    fun applyFilter(): DiscoverFilter {
+        val built = buildFilter()
+        discoverFilterFlow.value = built
+        return built
     }
 
     fun buildFilter(): DiscoverFilter {
@@ -67,7 +86,8 @@ class FilterViewModel : ViewModel() {
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                FilterViewModel()
+                val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as CloBleApplication
+                FilterViewModel(app.container.discoverFilterFlow)
             }
         }
     }

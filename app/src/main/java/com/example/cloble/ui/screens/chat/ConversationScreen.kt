@@ -2,15 +2,17 @@ package com.example.cloble.ui.screens.chat
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,20 +34,24 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.ChatBubbleItem
+import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
@@ -52,6 +59,7 @@ import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
+import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.components.UserSummaryHeader
 import com.example.cloble.ui.theme.CloBleColors
 import com.example.cloble.ui.theme.CloBleTextStyles
@@ -66,6 +74,8 @@ fun ConversationScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
+    var viewerStartIndex by remember { mutableStateOf(0) }
 
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -81,7 +91,8 @@ fun ConversationScreen(
                 onNavigateBack = onNavigateBack,
                 backContentDescription = "Kembali ke daftar chat"
             )
-        }
+        },
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -117,141 +128,202 @@ fun ConversationScreen(
 
                 else -> {
                     val detail = uiState.matchDetail!!
+                    val itemPairPhotos = remember(detail.myItem, detail.partnerItem) {
+                        buildList {
+                            detail.myItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "Pakaian Anda · ${detail.myItem.name}"))
+                            }
+                            detail.partnerItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "Milik ${detail.partnerName} · ${detail.partnerItem.name}"))
+                            }
+                        }
+                    }
 
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .navigationBarsPadding()
+                            .imePadding()
                             .testTag("conversation_screen_content")
                     ) {
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(CloBleColors.Background)
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            UserSummaryHeader(
-                                name = detail.partnerName,
-                                city = detail.partnerCity,
-                                averageRating = detail.partnerAverageRating,
-                                reviewCount = detail.partnerReviewCount,
-                                isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
-                                onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
-                            )
-
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = CloBleColors.PrimaryContainer,
-                                border = BorderStroke(1.dp, CloBleColors.Outline),
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .testTag("conversation_items_badge")
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Column(
+                                UserSummaryHeader(
+                                    name = detail.partnerName,
+                                    city = detail.partnerCity,
+                                    averageRating = detail.partnerAverageRating,
+                                    reviewCount = detail.partnerReviewCount,
+                                    isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
+                                    photoUri = detail.partnerAvatarUri,
+                                    onAvatarClick = if (!detail.partnerAvatarUri.isNullOrBlank()) {
+                                        {
+                                            viewerStartIndex = 0
+                                            viewerPhotos = listOf(LabeledPhoto(detail.partnerAvatarUri, detail.partnerName))
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = CloBleColors.PrimaryContainer,
+                                    border = BorderStroke(1.dp, CloBleColors.Outline),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        .testTag("conversation_items_badge")
                                 ) {
-                                    Text(
-                                        text = "✓ Pertukaran Terverifikasi",
-                                        style = CloBleTextStyles.BadgeSemiBold,
-                                        color = CloBleColors.Primary
-                                    )
-                                    Text(
-                                        text = "${detail.myItem.name} ↔ ${detail.partnerItem.name}",
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = CloBleColors.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (!detail.meetingLocation.isNullOrBlank()) {
-                                        Text(
-                                            text = "Lokasi temu: ${detail.meetingLocation}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = CloBleColors.TextSecondary
-                                        )
-                                    }
-                                }
-                            }
-
-                            when (detail.status) {
-                                MatchStatus.ACTIVE -> {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        CloBlePrimaryButton(
-                                            text = "Selesaikan Pertukaran",
-                                            onClick = viewModel::openCompleteDialog,
-                                            enabled = !uiState.isActionInProgress,
-                                            modifier = Modifier
-                                                .weight(1.3f)
-                                                .testTag("complete_match_button")
+                                        MiniSwapThumb(
+                                            uri = detail.myItem.mainPhotoUri,
+                                            label = detail.myItem.name,
+                                            onClick = if (itemPairPhotos.isNotEmpty() && !detail.myItem.mainPhotoUri.isNullOrBlank()) {
+                                                {
+                                                    viewerStartIndex = 0
+                                                    viewerPhotos = itemPairPhotos
+                                                }
+                                            } else {
+                                                null
+                                            }
                                         )
-                                        CloBleOutlinedButton(
-                                            text = "Batalkan",
-                                            onClick = viewModel::openCancelDialog,
-                                            enabled = !uiState.isActionInProgress,
-                                            modifier = Modifier
-                                                .weight(0.9f)
-                                                .testTag("cancel_match_button")
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = CloBleIcons.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = CloBleColors.OnPrimaryContainer,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Text(
+                                                    text = "Pertukaran Terverifikasi",
+                                                    style = CloBleTextStyles.BadgeSemiBold,
+                                                    color = CloBleColors.OnPrimaryContainer
+                                                )
+                                            }
+                                            Text(
+                                                text = "${detail.myItem.name} - ${detail.partnerItem.name}",
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = CloBleColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (!detail.meetingLocation.isNullOrBlank()) {
+                                                Text(
+                                                    text = "Lokasi temu: ${detail.meetingLocation}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = CloBleColors.TextSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        MiniSwapThumb(
+                                            uri = detail.partnerItem.mainPhotoUri,
+                                            label = detail.partnerItem.name,
+                                            onClick = if (itemPairPhotos.isNotEmpty() && !detail.partnerItem.mainPhotoUri.isNullOrBlank()) {
+                                                {
+                                                    viewerStartIndex = (itemPairPhotos.size - 1).coerceAtLeast(0)
+                                                    viewerPhotos = itemPairPhotos
+                                                }
+                                            } else {
+                                                null
+                                            }
                                         )
                                     }
                                 }
 
-                                MatchStatus.COMPLETED -> {
-                                    CloBleStatusInfoBox(
-                                        title = "Pertukaran Selesai",
-                                        message = "Pertukaran pakaian telah berhasil diselesaikan. Ruang obrolan ditutup sebagai arsip riwayat (Read-Only).",
-                                        tone = CloBleInfoBoxTone.INFO,
-                                        modifier = Modifier.testTag("completed_status_info_box")
-                                    )
-
-                                    if (uiState.canRatePartner) {
-                                        CloBlePrimaryButton(
-                                            text = "★ Beri Rating & Ulasan",
-                                            onClick = { onNavigateToRateUser(detail.matchId) },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .testTag("rate_partner_button")
-                                        )
-                                    } else if (uiState.hasReviewed) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFFE6F4EA),
-                                            border = BorderStroke(1.dp, Color(0xFF137333)),
-                                            modifier = Modifier.fillMaxWidth()
+                                when (detail.status) {
+                                    MatchStatus.ACTIVE -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Text(
-                                                text = "✓ Anda sudah memberikan ulasan untuk pertukaran ini.",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                                color = Color(0xFF137333),
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)
+                                            CloBlePrimaryButton(
+                                                text = "Selesaikan Pertukaran",
+                                                onClick = viewModel::openCompleteDialog,
+                                                enabled = !uiState.isActionInProgress,
+                                                modifier = Modifier
+                                                    .weight(1.3f)
+                                                    .testTag("complete_match_button")
+                                            )
+                                            CloBleOutlinedButton(
+                                                text = "Batalkan",
+                                                onClick = viewModel::openCancelDialog,
+                                                enabled = !uiState.isActionInProgress,
+                                                modifier = Modifier
+                                                    .weight(0.9f)
+                                                    .testTag("cancel_match_button")
                                             )
                                         }
                                     }
+
+                                    MatchStatus.COMPLETED -> {
+                                        CloBleStatusInfoBox(
+                                            title = "Pertukaran Selesai",
+                                            message = "Pertukaran pakaian telah berhasil diselesaikan. Ruang obrolan ditutup sebagai arsip riwayat.",
+                                            tone = CloBleInfoBoxTone.INFO,
+                                            modifier = Modifier.testTag("completed_status_info_box")
+                                        )
+
+                                        if (uiState.canRatePartner) {
+                                            CloBlePrimaryButton(
+                                                text = "Beri Rating & Ulasan",
+                                                leadingIcon = CloBleIcons.StarFilled,
+                                                onClick = { onNavigateToRateUser(detail.matchId) },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("rate_partner_button")
+                                            )
+                                        } else if (uiState.hasReviewed) {
+                                            CloBleStatusInfoBox(
+                                                message = "Anda sudah memberikan ulasan untuk pertukaran ini.",
+                                                tone = CloBleInfoBoxTone.SUCCESS
+                                            )
+                                        }
+                                    }
+
+                                    MatchStatus.CANCELLED -> {
+                                        CloBleStatusInfoBox(
+                                            title = "Pertukaran Dibatalkan",
+                                            message = "Pertukaran ini telah dibatalkan oleh salah satu pihak. Pakaian dikembalikan ke Lemari.",
+                                            tone = CloBleInfoBoxTone.NEUTRAL,
+                                            modifier = Modifier.testTag("cancelled_status_info_box")
+                                        )
+                                    }
                                 }
 
-                                MatchStatus.CANCELLED -> {
+                                if (uiState.errorMessage != null) {
                                     CloBleStatusInfoBox(
-                                        title = "Pertukaran Dibatalkan",
-                                        message = "Pertukaran ini telah dibatalkan oleh salah satu pihak. Pakaian telah dikembalikan ke Lemari dan ruang obrolan ditutup sebagai arsip riwayat (Read-Only).",
-                                        tone = CloBleInfoBoxTone.NEUTRAL,
-                                        modifier = Modifier.testTag("cancelled_status_info_box")
+                                        title = "Pemberitahuan",
+                                        message = uiState.errorMessage!!,
+                                        tone = CloBleInfoBoxTone.WARNING,
+                                        modifier = Modifier.testTag("conversation_error_banner")
                                     )
                                 }
-                            }
-
-                            if (uiState.errorMessage != null) {
-                                CloBleStatusInfoBox(
-                                    title = "Pemberitahuan",
-                                    message = uiState.errorMessage!!,
-                                    tone = CloBleInfoBoxTone.HIGHLIGHT,
-                                    modifier = Modifier.testTag("conversation_error_banner")
-                                )
                             }
                         }
 
@@ -304,7 +376,7 @@ fun ConversationScreen(
                                 border = BorderStroke(1.dp, CloBleColors.Outline)
                             ) {
                                 Text(
-                                    text = "Ruang obrolan read-only karena status pertukaran telah selesai/dibatalkan.",
+                                    text = "Ruang obrolan read-only karena status pertukaran telah selesai atau dibatalkan.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = CloBleColors.TextSecondary,
                                     textAlign = TextAlign.Center,
@@ -314,7 +386,7 @@ fun ConversationScreen(
                         } else {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = CloBleColors.Background,
+                                color = CloBleColors.Surface,
                                 border = BorderStroke(1.dp, CloBleColors.Outline)
                             ) {
                                 Row(
@@ -336,6 +408,12 @@ fun ConversationScreen(
                                         },
                                         shape = RoundedCornerShape(24.dp),
                                         singleLine = true,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedContainerColor = CloBleColors.Background,
+                                            unfocusedContainerColor = CloBleColors.Background,
+                                            focusedBorderColor = CloBleColors.Primary,
+                                            unfocusedBorderColor = CloBleColors.Outline
+                                        ),
                                         modifier = Modifier
                                             .weight(1f)
                                             .testTag("chat_input_text_field")
@@ -369,15 +447,17 @@ fun ConversationScreen(
             if (uiState.showCancelDialog) {
                 AlertDialog(
                     onDismissRequest = viewModel::dismissCancelDialog,
+                    containerColor = CloBleColors.Surface,
                     title = {
                         Text(
                             text = "Batalkan Pertukaran?",
-                            style = MaterialTheme.typography.titleLarge
+                            style = MaterialTheme.typography.titleLarge,
+                            color = CloBleColors.TextPrimary
                         )
                     },
                     text = {
                         Text(
-                            text = "Apakah Anda yakin ingin membatalkan pertukaran ini? Kedua pakaian akan dikembalikan ke status bebas di Lemari dan obrolan akan dikunci sebagai read-only.",
+                            text = "Apakah Anda yakin ingin membatalkan pertukaran ini? Kedua pakaian akan dikembalikan ke status bebas di Lemari dan obrolan akan dikunci.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = CloBleColors.TextSecondary
                         )
@@ -387,7 +467,7 @@ fun ConversationScreen(
                             onClick = viewModel::confirmCancelMatch,
                             modifier = Modifier.testTag("dialog_confirm_cancel_button")
                         ) {
-                            Text(text = "Ya, Batalkan", color = Color(0xFFD93025))
+                            Text(text = "Ya, Batalkan", color = CloBleColors.DangerText)
                         }
                     },
                     dismissButton = {
@@ -404,16 +484,18 @@ fun ConversationScreen(
             if (uiState.showCompleteDialog) {
                 AlertDialog(
                     onDismissRequest = viewModel::dismissCompleteDialog,
+                    containerColor = CloBleColors.Surface,
                     title = {
                         Text(
                             text = "Selesaikan Pertukaran",
-                            style = MaterialTheme.typography.titleLarge
+                            style = MaterialTheme.typography.titleLarge,
+                            color = CloBleColors.TextPrimary
                         )
                     },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = "Pastikan Anda dan rekan barter telah bertemu dan bertukar pakaian. Status pakaian akan diperbarui menjadi 'Sudah ditukar'.",
+                                text = "Pastikan Anda dan rekan barter telah bertemu dan bertukar pakaian. Status pakaian akan diperbarui menjadi Sudah Ditukar.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = CloBleColors.TextSecondary
                             )
@@ -444,6 +526,49 @@ fun ConversationScreen(
                     }
                 )
             }
+
+            if (viewerPhotos.isNotEmpty()) {
+                CloBleFullscreenImageViewer(
+                    photos = viewerPhotos,
+                    initialIndex = viewerStartIndex,
+                    onDismiss = { viewerPhotos = emptyList() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniSwapThumb(
+    uri: String?,
+    label: String,
+    onClick: (() -> Unit)?
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(CloBleColors.Surface)
+            .border(1.dp, CloBleColors.Outline, RoundedCornerShape(10.dp))
+            .let { base ->
+                if (onClick != null) base.clickable(onClick = onClick) else base
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (!uri.isNullOrBlank()) {
+            AsyncImage(
+                model = uri,
+                contentDescription = label,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = CloBleIcons.ShirtOutline,
+                contentDescription = label,
+                tint = CloBleColors.OnPrimaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }

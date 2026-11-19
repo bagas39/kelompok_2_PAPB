@@ -101,6 +101,15 @@ abstract class InterestMatchDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM matches
+        WHERE status = 'ACTIVE'
+          AND ((user1Id = :userA AND user2Id = :userB) OR (user1Id = :userB AND user2Id = :userA))
+        """
+    )
+    abstract suspend fun countActiveMatchBetweenUsers(userA: Long, userB: Long): Int
+
+    @Query(
+        """
         SELECT COUNT(*) FROM clothing_items c
         WHERE c.ownerId = :userId
           AND c.status = 'AVAILABLE'
@@ -168,8 +177,10 @@ abstract class InterestMatchDao {
             m.updatedAt AS updatedAt,
             u1.name AS user1Name,
             u1.city AS user1City,
+            u1.avatarUri AS user1AvatarUri,
             u2.name AS user2Name,
-            u2.city AS user2City
+            u2.city AS user2City,
+            u2.avatarUri AS user2AvatarUri
         FROM matches m
         JOIN users u1 ON m.user1Id = u1.id
         JOIN users u2 ON m.user2Id = u2.id
@@ -194,8 +205,10 @@ abstract class InterestMatchDao {
             m.updatedAt AS updatedAt,
             u1.name AS user1Name,
             u1.city AS user1City,
+            u1.avatarUri AS user1AvatarUri,
             u2.name AS user2Name,
-            u2.city AS user2City
+            u2.city AS user2City,
+            u2.avatarUri AS user2AvatarUri
         FROM matches m
         JOIN users u1 ON m.user1Id = u1.id
         JOIN users u2 ON m.user2Id = u2.id
@@ -240,7 +253,8 @@ abstract class InterestMatchDao {
                 reverseItem.status == ItemStatus.AVAILABLE &&
                 reverseItem.isBarterAllowed &&
                 countActiveMatchesUsingItem(reverseItem.id) == 0 &&
-                countActiveOrCompletedMatchForPair(targetItem.id, reverseItem.id) == 0
+                countActiveOrCompletedMatchForPair(targetItem.id, reverseItem.id) == 0 &&
+                countActiveMatchBetweenUsers(senderUserId, targetItem.ownerId) == 0
             ) {
                 val targetUserName = getUserNameById(targetItem.ownerId) ?: "Pengguna"
 
@@ -372,6 +386,9 @@ abstract class InterestMatchDao {
             return RespondInterestDaoResult.ItemAlreadyInActiveMatch
         }
         if (countActiveOrCompletedMatchForPair(targetItem.id, chosenSenderItem.id) > 0) {
+            return RespondInterestDaoResult.PairAlreadyMatched
+        }
+        if (countActiveMatchBetweenUsers(actorUserId, interest.senderUserId) > 0) {
             return RespondInterestDaoResult.PairAlreadyMatched
         }
 
@@ -534,6 +551,29 @@ abstract class InterestMatchDao {
 
     @Query("DELETE FROM swipe_passes WHERE userId = :userId AND targetItemId = :targetItemId")
     abstract suspend fun deleteSpecificSwipePass(userId: Long, targetItemId: Long): Int
+
+    @Query("DELETE FROM notifications WHERE relatedInterestId = :interestId AND type = 'INCOMING_INTEREST'")
+    abstract suspend fun deleteIncomingNotificationForInterest(interestId: Long)
+
+    @Query("DELETE FROM interests WHERE id = :interestId")
+    abstract suspend fun deleteInterestById(interestId: Long)
+
+    @Transaction
+    open suspend fun cancelOutgoingInterest(
+        interestId: Long,
+        senderUserId: Long
+    ): CancelInterestDaoResult {
+        val interest = getInterestById(interestId) ?: return CancelInterestDaoResult.InterestNotFound
+        if (interest.senderUserId != senderUserId) {
+            return CancelInterestDaoResult.NotInterestOwner
+        }
+        if (interest.status != InterestStatus.PENDING) {
+            return CancelInterestDaoResult.InterestAlreadyProcessed(interest.status)
+        }
+        deleteIncomingNotificationForInterest(interestId)
+        deleteInterestById(interestId)
+        return CancelInterestDaoResult.Success
+    }
 
     @Transaction
     open suspend fun convertSwipePassToInterest(

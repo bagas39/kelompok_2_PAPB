@@ -30,7 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.CloBleBottomNavBar
@@ -89,12 +90,13 @@ fun ChatListScreen(
                     when (tab) {
                         CloBleBottomTab.DISCOVER -> onNavigateToDiscover()
                         CloBleBottomTab.WARDROBE -> onNavigateToWardrobe()
-                        CloBleBottomTab.CHAT -> {  }
+                        CloBleBottomTab.CHAT -> {}
                         CloBleBottomTab.PROFILE -> onNavigateToProfile()
                     }
                 }
             )
-        }
+        },
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -134,7 +136,7 @@ fun ChatListScreen(
                             Icon(
                                 imageVector = CloBleIcons.ChatOutline,
                                 contentDescription = null,
-                                tint = CloBleColors.Primary,
+                                tint = CloBleColors.OnPrimaryContainer,
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -169,7 +171,7 @@ fun ChatListScreen(
                     ) {
                         items(
                             items = uiState.threads,
-                            key = { it.matchId }
+                            key = { it.partnerUserId }
                         ) { thread ->
                             ChatThreadCard(
                                 thread = thread,
@@ -193,18 +195,24 @@ private fun ChatThreadCard(
     val formattedTime = thread.lastMessageSentAt?.let { timeFormat.format(Date(it)) } ?: ""
 
     val (statusLabel, statusBg, statusTextColor) = when (thread.status) {
-        MatchStatus.ACTIVE -> Triple("Aktif", CloBleColors.PrimaryContainer, CloBleColors.Primary)
-        MatchStatus.COMPLETED -> Triple("Selesai", Color(0xFFE6F4EA), Color(0xFF137333))
+        MatchStatus.ACTIVE -> Triple("Aktif", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+        MatchStatus.COMPLETED -> Triple("Selesai", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
         MatchStatus.CANCELLED -> Triple("Dibatalkan", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
     }
 
+    val statusBorderColor = when (thread.status) {
+        MatchStatus.ACTIVE -> CloBleColors.PrimarySoft
+        MatchStatus.COMPLETED -> CloBleColors.SuccessText
+        MatchStatus.CANCELLED -> CloBleColors.Outline
+    }
+
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = CloBleColors.Background,
+        shape = RoundedCornerShape(16.dp),
+        color = CloBleColors.Surface,
         border = BorderStroke(1.dp, CloBleColors.Outline),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .testTag("chat_item_${thread.matchId}")
             .semantics(mergeDescendants = true) {
@@ -217,7 +225,6 @@ private fun ChatThreadCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -225,22 +232,31 @@ private fun ChatThreadCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(CloBleColors.SecondarySurface)
+                        .background(CloBleColors.PrimaryContainer)
                         .border(1.dp, CloBleColors.Outline, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = CloBleIcons.UserOutline,
-                        contentDescription = null,
-                        tint = CloBleColors.TextSecondary,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    if (!thread.partnerAvatarUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = thread.partnerAvatarUri,
+                            contentDescription = "Foto profil ${thread.partnerName}",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            text = computeChatInitials(thread.partnerName),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = CloBleColors.OnPrimaryContainer
+                        )
+                    }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -256,13 +272,13 @@ private fun ChatThreadCard(
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = statusBg,
-                            border = BorderStroke(1.dp, if (thread.status == MatchStatus.ACTIVE) CloBleColors.Primary else CloBleColors.Outline)
+                            border = BorderStroke(1.dp, statusBorderColor)
                         ) {
                             Text(
                                 text = statusLabel,
                                 style = CloBleTextStyles.BadgeSemiBold.copy(fontSize = 11.sp),
                                 color = statusTextColor,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -275,12 +291,15 @@ private fun ChatThreadCard(
                         Text(
                             text = thread.partnerCity,
                             style = MaterialTheme.typography.bodySmall,
-                            color = CloBleColors.TextSecondary
+                            color = CloBleColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
 
                         if (thread.partnerAverageRating > 0.0) {
                             Text(
-                                text = "•",
+                                text = "·",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = CloBleColors.TextSecondary
                             )
@@ -301,6 +320,14 @@ private fun ChatThreadCard(
                                 )
                             }
                         }
+
+                        if (thread.totalMatchesWithPartner > 1) {
+                            Text(
+                                text = "· ${thread.totalMatchesWithPartner} riwayat",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CloBleColors.Primary
+                            )
+                        }
                     }
                 }
             }
@@ -311,14 +338,28 @@ private fun ChatThreadCard(
                 border = BorderStroke(1.dp, CloBleColors.Outline),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "✓ Match · ${thread.myItemName} ↔ ${thread.partnerItemName}",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                    color = CloBleColors.Primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = CloBleIcons.SwapHorizontal,
+                        contentDescription = null,
+                        tint = CloBleColors.OnPrimaryContainer,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "${thread.myItemName} - ${thread.partnerItemName}",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        color = CloBleColors.OnPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
             Row(
@@ -348,7 +389,7 @@ private fun ChatThreadCard(
                     Box(
                         modifier = Modifier
                             .padding(start = 8.dp)
-                            .size(20.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(CloBleColors.Primary),
                         contentAlignment = Alignment.Center
@@ -365,5 +406,14 @@ private fun ChatThreadCard(
                 }
             }
         }
+    }
+}
+
+private fun computeChatInitials(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return when {
+        parts.isEmpty() -> "CB"
+        parts.size == 1 -> parts[0].take(2).uppercase()
+        else -> "${parts[0].first()}${parts[1].first()}".uppercase()
     }
 }

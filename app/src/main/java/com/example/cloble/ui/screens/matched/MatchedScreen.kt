@@ -1,7 +1,7 @@
 package com.example.cloble.ui.screens.matched
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,20 +24,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.ClothingPhotoSlot
+import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.theme.CloBleColors
 import java.util.Locale
 
@@ -48,17 +53,18 @@ fun MatchedScreen(
     viewModel: MatchedViewModel = viewModel(factory = MatchedViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
+    var viewerStartIndex by remember { mutableStateOf(0) }
 
     Scaffold(
-        containerColor = Color.White
+        containerColor = CloBleColors.Background
     ) { innerPadding ->
         if (uiState.isLoading) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = CloBleColors.Primary)
             }
@@ -73,7 +79,6 @@ fun MatchedScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -85,11 +90,11 @@ fun MatchedScreen(
                         imageVector = CloBleIcons.HeartFilled,
                         contentDescription = "Match",
                         tint = CloBleColors.Primary,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(42.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
                     text = "Kalian saling tertarik!",
@@ -107,24 +112,33 @@ fun MatchedScreen(
                     } else {
                         "Match terbentuk. Lanjutkan ke ruang obrolan untuk koordinasi."
                     },
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = CloBleColors.TextSecondary,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 if (detail != null) {
+                    val pairPhotos = remember(detail.myItem, detail.partnerItem) {
+                        buildList {
+                            detail.myItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "Pakaian Anda · ${detail.myItem.name}"))
+                            }
+                            detail.partnerItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                                add(LabeledPhoto(it, "Milik ${detail.partnerName} · ${detail.partnerItem.name}"))
+                            }
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = CloBleColors.SecondarySurface,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CloBleColors.Outline),
+                            shape = RoundedCornerShape(16.dp),
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("matched_my_item")
@@ -136,21 +150,30 @@ fun MatchedScreen(
                                 Text(
                                     text = "Pakaian Anda",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = CloBleColors.Primary
+                                    color = CloBleColors.OnPrimaryContainer
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.myItem.name,
                                     imageModel = detail.myItem.mainPhotoUri,
-                                    height = 130.dp,
+                                    height = 136.dp,
+                                    onClick = if (pairPhotos.isNotEmpty() && !detail.myItem.mainPhotoUri.isNullOrBlank()) {
+                                        {
+                                            viewerStartIndex = 0
+                                            viewerPhotos = pairPhotos
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = detail.myItem.name,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = CloBleColors.TextPrimary,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = "Ukuran ${detail.myItem.size}",
@@ -161,9 +184,9 @@ fun MatchedScreen(
                         }
 
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             color = CloBleColors.PrimaryContainer,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CloBleColors.Primary),
+                            border = BorderStroke(1.dp, CloBleColors.PrimarySoft),
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("matched_partner_item")
@@ -175,21 +198,32 @@ fun MatchedScreen(
                                 Text(
                                     text = "Milik ${detail.partnerName}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = CloBleColors.Primary
+                                    color = CloBleColors.OnPrimaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.partnerItem.name,
                                     imageModel = detail.partnerItem.mainPhotoUri,
-                                    height = 130.dp,
+                                    height = 136.dp,
+                                    onClick = if (pairPhotos.isNotEmpty() && !detail.partnerItem.mainPhotoUri.isNullOrBlank()) {
+                                        {
+                                            viewerStartIndex = (pairPhotos.size - 1).coerceAtLeast(0)
+                                            viewerPhotos = pairPhotos
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = detail.partnerItem.name,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = CloBleColors.TextPrimary,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = "Ukuran ${detail.partnerItem.size}",
@@ -219,19 +253,25 @@ fun MatchedScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = String.format(Locale.US, " %.1f (%d)", detail.partnerAverageRating, detail.partnerReviewCount),
+                            text = if (detail.partnerReviewCount > 0) {
+                                String.format(Locale.US, " %.1f (%d)", detail.partnerAverageRating, detail.partnerReviewCount)
+                            } else {
+                                " Baru"
+                            },
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = CloBleColors.TextPrimary
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(36.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 CloBlePrimaryButton(
                     text = "Buka Obrolan",
                     onClick = { onNavigateToConversation(uiState.matchId) },
-                    modifier = Modifier.fillMaxWidth().testTag("btn_open_chat_from_matched")
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_open_chat_from_matched")
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -239,9 +279,19 @@ fun MatchedScreen(
                 CloBleOutlinedButton(
                     text = "Kembali ke Jelajah",
                     onClick = onNavigateToDiscover,
-                    modifier = Modifier.fillMaxWidth().testTag("btn_back_to_discover_from_matched")
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_back_to_discover_from_matched")
                 )
             }
+        }
+
+        if (viewerPhotos.isNotEmpty()) {
+            CloBleFullscreenImageViewer(
+                photos = viewerPhotos,
+                initialIndex = viewerStartIndex,
+                onDismiss = { viewerPhotos = emptyList() }
+            )
         }
     }
 }

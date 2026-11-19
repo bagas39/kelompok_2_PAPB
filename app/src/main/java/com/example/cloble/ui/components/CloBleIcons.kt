@@ -648,4 +648,312 @@ object CloBleIcons {
             }
         }.build()
     }
+
+    val MapPin: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "MapPin",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(20f, 10f)
+                curveTo(20f, 14.99f, 14.46f, 20.19f, 12.6f, 21.8f)
+                curveTo(12.25f, 22.09f, 11.75f, 22.09f, 11.4f, 21.8f)
+                curveTo(9.54f, 20.19f, 4f, 14.99f, 4f, 10f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 20f, 10f)
+                close()
+                moveTo(15f, 10f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 9f, 10f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 15f, 10f)
+                close()
+            }
+        }.build()
+    }
+
+    val Search: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Search",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(19f, 11f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 3f, 11f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 19f, 11f)
+                close()
+                moveTo(21f, 21f)
+                lineTo(16.65f, 16.65f)
+            }
+        }.build()
+    }
+
+    val Eye: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Eye",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(2f, 12f)
+                curveTo(3.6f, 7.9f, 7.33f, 5f, 12f, 5f)
+                curveTo(16.67f, 5f, 20.4f, 7.9f, 22f, 12f)
+                curveTo(20.4f, 16.1f, 16.67f, 19f, 12f, 19f)
+                curveTo(7.33f, 19f, 3.6f, 16.1f, 2f, 12f)
+                close()
+                moveTo(15f, 12f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 9f, 12f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 15f, 12f)
+                close()
+            }
+        }.build()
+    }
+
+    val EyeOff: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "EyeOff",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(9.88f, 9.88f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = false, 14.12f, 14.12f)
+                moveTo(10.73f, 5.08f)
+                curveTo(11.15f, 5.03f, 11.57f, 5f, 12f, 5f)
+                curveTo(16.67f, 5f, 20.4f, 7.9f, 22f, 12f)
+                curveTo(21.48f, 13.34f, 20.66f, 14.58f, 19.62f, 15.63f)
+                moveTo(6.61f, 6.61f)
+                curveTo(4.62f, 7.96f, 3.0f, 9.82f, 2f, 12f)
+                curveTo(3.6f, 16.1f, 7.33f, 19f, 12f, 19f)
+                curveTo(13.94f, 19f, 15.72f, 18.49f, 17.24f, 17.6f)
+                moveTo(2f, 2f)
+                lineTo(22f, 22f)
+            }
+        }.build()
+    }
+
+    val ZoomIn: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "ZoomIn",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(19f, 11f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 3f, 11f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 19f, 11f)
+                close()
+                moveTo(21f, 21f)
+                lineTo(16.65f, 16.65f)
+                moveTo(11f, 8f)
+                lineTo(11f, 14f)
+                moveTo(8f, 11f)
+                lineTo(14f, 11f)
+            }
+        }.build()
+    }
+
+    val EditPencil: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "EditPencil",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(12f, 20f)
+                lineTo(21f, 20f)
+                moveTo(16.5f, 3.5f)
+                arcTo(2.12f, 2.12f, 0f, isMoreThanHalf = false, isPositiveArc = true, 19.5f, 6.5f)
+                lineTo(7f, 19f)
+                lineTo(3f, 20f)
+                lineTo(4f, 16f)
+                close()
+            }
+        }.build()
+    }
+
+    val Trash: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Trash",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(3f, 6f)
+                lineTo(21f, 6f)
+                moveTo(19f, 6f)
+                lineTo(19f, 20f)
+                curveTo(19f, 21f, 18f, 22f, 17f, 22f)
+                lineTo(7f, 22f)
+                curveTo(6f, 22f, 5f, 21f, 5f, 20f)
+                lineTo(5f, 6f)
+                moveTo(8f, 6f)
+                lineTo(8f, 4f)
+                curveTo(8f, 3f, 9f, 2f, 10f, 2f)
+                lineTo(14f, 2f)
+                curveTo(15f, 2f, 16f, 3f, 16f, 4f)
+                lineTo(16f, 6f)
+            }
+        }.build()
+    }
+
+    val Crosshair: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Crosshair",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(22f, 12f)
+                arcTo(10f, 10f, 0f, isMoreThanHalf = true, isPositiveArc = true, 2f, 12f)
+                arcTo(10f, 10f, 0f, isMoreThanHalf = true, isPositiveArc = true, 22f, 12f)
+                close()
+                moveTo(22f, 12f)
+                lineTo(18f, 12f)
+                moveTo(6f, 12f)
+                lineTo(2f, 12f)
+                moveTo(12f, 6f)
+                lineTo(12f, 2f)
+                moveTo(12f, 22f)
+                lineTo(12f, 18f)
+            }
+        }.build()
+    }
+
+    val ChevronRight: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "ChevronRight",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(9f, 18f)
+                lineTo(15f, 12f)
+                lineTo(9f, 6f)
+            }
+        }.build()
+    }
+
+    val Camera: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Camera",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(14.5f, 4f)
+                lineTo(9.5f, 4f)
+                lineTo(7f, 7f)
+                lineTo(4f, 7f)
+                curveTo(2.9f, 7f, 2f, 7.9f, 2f, 9f)
+                lineTo(2f, 19f)
+                curveTo(2f, 20.1f, 2.9f, 21f, 4f, 21f)
+                lineTo(20f, 21f)
+                curveTo(21.1f, 21f, 22f, 20.1f, 22f, 19f)
+                lineTo(22f, 9f)
+                curveTo(22f, 7.9f, 21.1f, 7f, 20f, 7f)
+                lineTo(17f, 7f)
+                close()
+                moveTo(15f, 13f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 9f, 13f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, 15f, 13f)
+                close()
+            }
+        }.build()
+    }
+
+    val SwapHorizontal: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "SwapHorizontal",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(7f, 16f)
+                lineTo(3f, 12f)
+                lineTo(7f, 8f)
+                moveTo(3f, 12f)
+                lineTo(21f, 12f)
+                moveTo(17f, 8f)
+                lineTo(21f, 12f)
+                lineTo(17f, 16f)
+            }
+        }.build()
+    }
 }
