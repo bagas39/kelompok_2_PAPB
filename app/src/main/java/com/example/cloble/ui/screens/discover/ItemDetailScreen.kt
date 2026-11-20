@@ -42,9 +42,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.cloble.domain.model.InterestStatus
+import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -57,6 +60,7 @@ fun ItemDetailScreen(
     onNavigateBack: () -> Unit,
     onNavigateToOtherUserProfile: (Long) -> Unit,
     onNavigateToWardrobe: () -> Unit,
+    onNavigateToMatch: (Long) -> Unit = {},
     viewModel: ItemDetailViewModel = viewModel(factory = ItemDetailViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -93,7 +97,36 @@ fun ItemDetailScreen(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (item != null) {
+                if (item != null && !uiState.isOwnItem && uiState.isLockedByOtherMatch) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = CloBleColors.Surface,
+                        border = BorderStroke(1.dp, CloBleColors.Outline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("detail_locked_privacy_card")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CloBleStatusInfoBox(
+                                tone = CloBleInfoBoxTone.WARNING,
+                                title = "Detail Pakaian Tidak Tersedia",
+                                message = "Pakaian ini sudah terikat atau selesai ditukar dalam match pengguna lain, sehingga detail item dan profil pemilik tidak lagi ditampilkan.",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            CloBleOutlinedButton(
+                                text = "Kembali",
+                                onClick = onNavigateBack,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                } else if (item != null) {
                     val itemPhotos = remember(item.mainPhotoUri, item.detailPhotoUri, item.extraPhotoUri, item.name) {
                         buildList {
                             item.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
@@ -239,6 +272,27 @@ fun ItemDetailScreen(
                                 modifier = Modifier.testTag("detail_clothing_title")
                             )
 
+                            val distanceKm = uiState.distanceKm
+                            if (!uiState.isOwnItem && distanceKm != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = CloBleIcons.MapPin,
+                                        contentDescription = null,
+                                        tint = CloBleColors.Primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "Sekitar ${DistanceCalculator.formatDistanceLabel(distanceKm)} dari lokasi Anda",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = CloBleColors.TextSecondary,
+                                        modifier = Modifier.testTag("detail_distance_label")
+                                    )
+                                }
+                            }
+
                             val specs = listOf(
                                 "Kategori" to item.category,
                                 "Ukuran" to item.size,
@@ -336,7 +390,16 @@ fun ItemDetailScreen(
                         }
                     }
 
-                    if (uiState.interestSentSuccess) {
+                    if (uiState.actionMessage != null) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.SUCCESS,
+                            title = "Informasi",
+                            message = uiState.actionMessage!!,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("detail_action_box")
+                        )
+                    } else if (uiState.interestSentSuccess) {
                         CloBleStatusInfoBox(
                             tone = CloBleInfoBoxTone.SUCCESS,
                             title = "Tawaran Terkirim",
@@ -367,6 +430,8 @@ fun ItemDetailScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    val existingStatus = uiState.existingInterestStatus
+                    val matchId = uiState.relatedMatchId
                     if (uiState.isOwnItem) {
                         CloBlePrimaryButton(
                             text = "Pakaian Ini Milik Anda",
@@ -374,12 +439,58 @@ fun ItemDetailScreen(
                             enabled = false,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    } else if (uiState.interestSentSuccess) {
+                    } else if (matchId != null) {
                         CloBlePrimaryButton(
-                            text = "Interest Sudah Terkirim",
+                            text = "Lihat Match",
+                            onClick = { onNavigateToMatch(matchId) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_view_match_from_detail")
+                        )
+                    } else if (existingStatus == InterestStatus.PENDING || uiState.interestSentSuccess) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CloBlePrimaryButton(
+                                text = "Menunggu Respon Pemilik",
+                                onClick = {},
+                                enabled = false,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_pending_interest_status")
+                            )
+                            if (uiState.existingInterestId != null) {
+                                CloBleOutlinedButton(
+                                    text = if (uiState.isCancellingInterest) "Membatalkan..." else "Batalkan Minat",
+                                    onClick = viewModel::cancelPendingInterest,
+                                    enabled = !uiState.isCancellingInterest,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("btn_cancel_interest_from_detail")
+                                )
+                            }
+                        }
+                    } else if (existingStatus == InterestStatus.DECLINED) {
+                        CloBlePrimaryButton(
+                            text = "Tawaran Sebelumnya Ditolak",
                             onClick = {},
                             enabled = false,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_declined_interest_from_detail")
+                        )
+                    } else if (uiState.isItemUnavailable ||
+                        existingStatus == InterestStatus.RESOLVED_BY_MATCH ||
+                        existingStatus == InterestStatus.INVALIDATED
+                    ) {
+                        CloBlePrimaryButton(
+                            text = "Pakaian Tidak Tersedia",
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_unavailable_from_detail")
                         )
                     } else {
                         CloBlePrimaryButton(

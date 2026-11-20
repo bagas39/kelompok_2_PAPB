@@ -200,7 +200,8 @@ object EntityMappers {
             interestStatus = row.interestStatus,
             createdAt = row.createdAt,
             matchId = row.matchId,
-            matchStatus = row.matchStatus
+            matchStatus = row.matchStatus,
+            isLockedByOtherMatch = row.isLockedByOtherMatch
         )
     }
 
@@ -216,7 +217,8 @@ object EntityMappers {
             ownerId = row.ownerId,
             ownerName = row.ownerName,
             ownerCity = row.ownerCity,
-            passedAt = row.passedAt
+            passedAt = row.passedAt,
+            isInActiveMatch = row.isInActiveMatch
         )
     }
 }

@@ -11,11 +11,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+private val PRESET_RADII_KM = setOf(5, 10, 25, 50, 100)
+
 data class FilterUiState(
     val selectedSizes: Set<String> = emptySet(),
     val selectedGenders: Set<String> = emptySet(),
     val selectedCategories: Set<String> = emptySet(),
-    val selectedRadiusKm: Int? = null
+    val selectedRadiusKm: Int? = null,
+    val isCustomRadius: Boolean = false,
+    val customRadiusText: String = ""
 )
 
 class FilterViewModel(
@@ -24,11 +28,15 @@ class FilterViewModel(
 
     private val _uiState = MutableStateFlow(
         discoverFilterFlow.value.let { current ->
+            val radius = current.maxRadiusKm
+            val isCustom = radius != null && !PRESET_RADII_KM.contains(radius)
             FilterUiState(
                 selectedSizes = current.selectedSizes,
                 selectedGenders = current.selectedGenders,
                 selectedCategories = current.selectedCategories,
-                selectedRadiusKm = current.maxRadiusKm
+                selectedRadiusKm = radius,
+                isCustomRadius = isCustom,
+                customRadiusText = if (isCustom) radius.toString() else ""
             )
         }
     )
@@ -58,8 +66,48 @@ class FilterViewModel(
         }
     }
 
+    fun selectPresetRadius(km: Int) {
+        _uiState.update { current ->
+            if (!current.isCustomRadius && current.selectedRadiusKm == km) {
+                current.copy(selectedRadiusKm = null, isCustomRadius = false)
+            } else {
+                current.copy(selectedRadiusKm = km, isCustomRadius = false)
+            }
+        }
+    }
+
+    fun toggleCustomRadiusMode() {
+        _uiState.update { current ->
+            if (current.isCustomRadius) {
+                current.copy(isCustomRadius = false, selectedRadiusKm = null)
+            } else {
+                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }
+                current.copy(isCustomRadius = true, selectedRadiusKm = parsed)
+            }
+        }
+    }
+
+    fun onCustomRadiusTextChanged(raw: String) {
+        val digitsOnly = raw.filter { it.isDigit() }.take(5)
+        val parsed = digitsOnly.toIntOrNull()?.coerceIn(1, 20000)
+        _uiState.update {
+            it.copy(
+                isCustomRadius = true,
+                customRadiusText = digitsOnly,
+                selectedRadiusKm = parsed
+            )
+        }
+    }
+
     fun setRadius(radius: Int?) {
-        _uiState.update { it.copy(selectedRadiusKm = radius) }
+        val isCustom = radius != null && !PRESET_RADII_KM.contains(radius)
+        _uiState.update {
+            it.copy(
+                selectedRadiusKm = radius,
+                isCustomRadius = isCustom,
+                customRadiusText = if (isCustom) radius.toString() else it.customRadiusText
+            )
+        }
     }
 
     fun reset() {
@@ -75,11 +123,16 @@ class FilterViewModel(
 
     fun buildFilter(): DiscoverFilter {
         val state = _uiState.value
+        val effectiveRadius = if (state.isCustomRadius) {
+            state.customRadiusText.toIntOrNull()?.coerceIn(1, 20000)
+        } else {
+            state.selectedRadiusKm
+        }
         return DiscoverFilter(
             selectedSizes = state.selectedSizes,
             selectedGenders = state.selectedGenders,
             selectedCategories = state.selectedCategories,
-            maxRadiusKm = state.selectedRadiusKm
+            maxRadiusKm = effectiveRadius
         )
     }
 

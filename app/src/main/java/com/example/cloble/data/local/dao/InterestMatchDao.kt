@@ -269,6 +269,8 @@ abstract class InterestMatchDao {
                     )
                 )
 
+                deleteSpecificSwipePass(senderUserId, targetItemId)
+
                 markInterestStatus(reverseInterest.id, InterestStatus.ACCEPTED_MATCHED, nowMillis)
 
                 val matchId = insertMatch(
@@ -325,6 +327,8 @@ abstract class InterestMatchDao {
                 respondedAt = null
             )
         )
+
+        deleteSpecificSwipePass(senderUserId, targetItemId)
 
         insertNotification(
             NotificationEntity(
@@ -537,8 +541,48 @@ abstract class InterestMatchDao {
             u.city AS ownerCity,
             i.status AS interestStatus,
             i.createdAt AS createdAt,
-            m.id AS matchId,
-            m.status AS matchStatus
+            COALESCE(
+                m.id,
+                CASE WHEN i.status IN ('ACCEPTED_MATCHED', 'RESOLVED_BY_MATCH') THEN (
+                    SELECT m2.id FROM matches m2
+                    WHERE (m2.user1ItemId = i.targetItemId OR m2.user2ItemId = i.targetItemId)
+                      AND ((m2.user1Id = i.senderUserId AND m2.user2Id = c.ownerId)
+                        OR (m2.user2Id = i.senderUserId AND m2.user1Id = c.ownerId))
+                    ORDER BY m2.updatedAt DESC
+                    LIMIT 1
+                ) ELSE NULL END
+            ) AS matchId,
+            COALESCE(
+                m.status,
+                CASE WHEN i.status IN ('ACCEPTED_MATCHED', 'RESOLVED_BY_MATCH') THEN (
+                    SELECT m2.status FROM matches m2
+                    WHERE (m2.user1ItemId = i.targetItemId OR m2.user2ItemId = i.targetItemId)
+                      AND ((m2.user1Id = i.senderUserId AND m2.user2Id = c.ownerId)
+                        OR (m2.user2Id = i.senderUserId AND m2.user1Id = c.ownerId))
+                    ORDER BY m2.updatedAt DESC
+                    LIMIT 1
+                ) ELSE NULL END
+            ) AS matchStatus,
+            CASE WHEN (
+                m.id IS NULL
+                AND (
+                    SELECT m2.id FROM matches m2
+                    WHERE (m2.user1ItemId = i.targetItemId OR m2.user2ItemId = i.targetItemId)
+                      AND ((m2.user1Id = i.senderUserId AND m2.user2Id = c.ownerId)
+                        OR (m2.user2Id = i.senderUserId AND m2.user1Id = c.ownerId))
+                    LIMIT 1
+                ) IS NULL
+                AND (
+                    i.status IN ('RESOLVED_BY_MATCH', 'INVALIDATED')
+                    OR c.status != 'AVAILABLE'
+                    OR (
+                        SELECT COUNT(*) FROM matches m3
+                        WHERE m3.status = 'ACTIVE'
+                          AND (m3.user1ItemId = c.id OR m3.user2ItemId = c.id)
+                          AND m3.user1Id != :userId AND m3.user2Id != :userId
+                    ) > 0
+                )
+            ) THEN 1 ELSE 0 END AS isLockedByOtherMatch
         FROM interests i
         JOIN clothing_items c ON i.targetItemId = c.id
         JOIN users u ON c.ownerId = u.id

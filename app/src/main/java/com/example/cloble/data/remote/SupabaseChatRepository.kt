@@ -127,9 +127,23 @@ class SupabaseChatRepository(
             }
         }
 
+        val chatInvalidatorJob = launch {
+            invalidator.chatTrigger.collect {
+                send(fetchThreads())
+            }
+        }
+
+        val userInvalidatorJob = launch {
+            invalidator.userTrigger.collect {
+                send(fetchThreads())
+            }
+        }
+
         awaitClose {
             realtimeJob.cancel()
             invalidatorJob.cancel()
+            chatInvalidatorJob.cancel()
+            userInvalidatorJob.cancel()
             realtimeClient.unsubscribeTopic(userTopic)
         }
     }.flowOn(Dispatchers.IO)
@@ -143,18 +157,27 @@ class SupabaseChatRepository(
 
         val currentMessages = mutableListOf<ChatMessage>()
 
-        try {
-            val arr = client.getJsonArray("chat_messages?matchId=eq.$matchId&select=*,users:senderId(name)&order=sentAt.asc")
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val senderObj = obj.optJSONObject("users")
-                val senderName = senderObj?.optString("name", "Pengguna") ?: "Pengguna"
-                currentMessages.add(SupabaseMappers.parseChatMessage(obj, viewerUserId, senderName))
+        suspend fun reloadMessagesFromServer() {
+            try {
+                val arr = client.getJsonArray("chat_messages?matchId=eq.$matchId&select=*,users:senderId(name)&order=sentAt.asc")
+                val fetched = mutableListOf<ChatMessage>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val senderObj = obj.optJSONObject("users")
+                    val senderName = senderObj?.optString("name", "Pengguna") ?: "Pengguna"
+                    fetched.add(SupabaseMappers.parseChatMessage(obj, viewerUserId, senderName))
+                }
+                currentMessages.clear()
+                currentMessages.addAll(fetched)
+                send(currentMessages.toList())
+            } catch (_: Exception) {
+                if (currentMessages.isEmpty()) {
+                    send(emptyList())
+                }
             }
-            send(currentMessages.toList())
-        } catch (_: Exception) {
-            send(emptyList())
         }
+
+        reloadMessagesFromServer()
 
         val job = launch {
             realtimeClient.incomingMessages.collect { (incomingTopic, data) ->
@@ -185,8 +208,15 @@ class SupabaseChatRepository(
             }
         }
 
+        val chatRefreshJob = launch {
+            invalidator.chatTrigger.collect {
+                reloadMessagesFromServer()
+            }
+        }
+
         awaitClose {
             job.cancel()
+            chatRefreshJob.cancel()
             realtimeClient.unsubscribeTopic(topic)
         }
     }.flowOn(Dispatchers.IO)
@@ -244,6 +274,7 @@ class SupabaseChatRepository(
 
                 val recipientId = if (senderId == user1Id) user2Id else user1Id
                 realtimeClient.broadcast("realtime:user_threads_$recipientId", "thread_updated", broadcastData)
+                invalidator.invalidateChat()
 
                 SendMessageResult.Success(newId)
             } else {
@@ -258,6 +289,7 @@ class SupabaseChatRepository(
         try {
             val body = JSONObject().put("isRead", true)
             client.patch("chat_messages?matchId=eq.$matchId&senderId=neq.$viewerUserId&isRead=eq.false", body.toString())
+            invalidator.invalidateChat()
         } catch (_: Exception) {
         }
     }

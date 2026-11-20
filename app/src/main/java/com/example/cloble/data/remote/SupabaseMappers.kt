@@ -166,7 +166,12 @@ object SupabaseMappers {
         )
     }
 
-    fun parseOutgoingInterest(json: JSONObject): OutgoingInterestSummary {
+    fun parseOutgoingInterest(
+        json: JSONObject,
+        resolvedMatchId: Long? = null,
+        resolvedMatchStatus: MatchStatus? = null,
+        isLockedByOtherMatch: Boolean = false
+    ): OutgoingInterestSummary {
         val targetItemJson = json.optJSONObject("clothing_items") ?: JSONObject()
         val ownerJson = targetItemJson.optJSONObject("users") ?: JSONObject()
         val matchArr = json.optJSONArray("matches")
@@ -184,7 +189,8 @@ object SupabaseMappers {
             ItemStatus.AVAILABLE
         }
 
-        val matchStatus = matchJson?.optString("status")?.let {
+        val finalMatchId = resolvedMatchId ?: matchJson?.optLongOrNull("id")
+        val finalMatchStatus = resolvedMatchStatus ?: matchJson?.optString("status")?.let {
             try { MatchStatus.valueOf(it) } catch (_: Exception) { null }
         }
 
@@ -200,12 +206,16 @@ object SupabaseMappers {
             ownerCity = ownerJson.optString("city", "Bandung"),
             interestStatus = interestStatus,
             createdAt = json.optLong("createdAt", System.currentTimeMillis()),
-            matchId = matchJson?.optLongOrNull("id"),
-            matchStatus = matchStatus
+            matchId = finalMatchId,
+            matchStatus = finalMatchStatus,
+            isLockedByOtherMatch = isLockedByOtherMatch
         )
     }
 
-    fun parsePassedClothing(json: JSONObject): PassedClothingSummary {
+    fun parsePassedClothing(
+        json: JSONObject,
+        isInActiveMatch: Boolean = false
+    ): PassedClothingSummary {
         val itemJson = json.optJSONObject("clothing_items") ?: JSONObject()
         val ownerJson = itemJson.optJSONObject("users") ?: JSONObject()
         val itemStatus = try {
@@ -225,7 +235,8 @@ object SupabaseMappers {
             ownerId = itemJson.optLong("ownerId"),
             ownerName = ownerJson.optString("name", "Pengguna"),
             ownerCity = ownerJson.optString("city", "Bandung"),
-            passedAt = json.optLong("createdAt", System.currentTimeMillis())
+            passedAt = json.optLong("createdAt", System.currentTimeMillis()),
+            isInActiveMatch = isInActiveMatch
         )
     }
 

@@ -110,6 +110,15 @@ class WardrobeViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    fun showLockedItemWarning(itemName: String, isInActiveMatch: Boolean) {
+        val reason = if (isInActiveMatch) {
+            "Pakaian \"$itemName\" sedang terikat Match aktif sehingga tidak dapat diubah atau dihapus sebelum Match selesai/dibatalkan."
+        } else {
+            "Pakaian \"$itemName\" sudah selesai ditukar sehingga tidak dapat diubah lagi."
+        }
+        _uiState.update { it.copy(errorMessage = reason) }
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {

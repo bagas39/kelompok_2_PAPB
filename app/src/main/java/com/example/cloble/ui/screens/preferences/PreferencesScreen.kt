@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -22,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,6 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.CloBleChoiceChipRow
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleLocationPickerDialog
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -52,8 +56,20 @@ fun PreferencesScreen(
     viewModel: PreferencesViewModel = viewModel(factory = PreferencesViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km")
+    val presetRadii = setOf(5, 10, 25, 50, 100)
+    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
+    var customRadiusMode by remember { mutableStateOf(false) }
+    var customRadiusText by remember { mutableStateOf(uiState.selectedRadiusKm.toString()) }
     var showLocationPicker by remember { mutableStateOf(false) }
+
+    LaunchedEffect(uiState.selectedRadiusKm) {
+        if (uiState.selectedRadiusKm !in presetRadii) {
+            customRadiusMode = true
+            customRadiusText = uiState.selectedRadiusKm.toString()
+        } else if (!customRadiusMode) {
+            customRadiusText = uiState.selectedRadiusKm.toString()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -165,15 +181,47 @@ fun PreferencesScreen(
                     CloBleChoiceChipRow(
                         label = "Radius Jarak Maksimum",
                         options = radiusOptions,
-                        selectedOptions = setOf("${uiState.selectedRadiusKm} km"),
+                        selectedOptions = if (customRadiusMode || uiState.selectedRadiusKm !in presetRadii) {
+                            setOf("Kustom")
+                        } else {
+                            setOf("${uiState.selectedRadiusKm} km")
+                        },
                         onOptionClick = { opt ->
-                            val km = opt.replace(" km", "").toIntOrNull() ?: 10
-                            viewModel.onRadiusSelected(km)
+                            if (opt == "Kustom") {
+                                customRadiusMode = true
+                                if (customRadiusText.isBlank()) {
+                                    customRadiusText = uiState.selectedRadiusKm.toString()
+                                }
+                            } else {
+                                customRadiusMode = false
+                                val km = opt.replace(" km", "").toIntOrNull() ?: 10
+                                customRadiusText = km.toString()
+                                viewModel.onRadiusSelected(km)
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("chips_pref_radius")
                     )
+
+                    if (customRadiusMode || uiState.selectedRadiusKm !in presetRadii) {
+                        CloBleLabeledTextField(
+                            label = "Radius Kustom (km)",
+                            value = customRadiusText,
+                            onValueChange = { raw ->
+                                val digits = raw.filter { it.isDigit() }.take(5)
+                                customRadiusText = digits
+                                val parsed = digits.toIntOrNull()
+                                if (parsed != null && parsed > 0) {
+                                    viewModel.onRadiusSelected(parsed)
+                                }
+                            },
+                            placeholder = "Contoh: 600",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_pref_custom_radius_km"
+                        )
+                    }
 
                     CloBleChoiceChipRow(
                         label = "Ukuran Pakaian Pilihan",

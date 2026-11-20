@@ -9,12 +9,16 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.ClothingItem
+import com.example.cloble.domain.model.InterestStatus
+import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
+import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.SendInterestResult
+import com.example.cloble.domain.util.DistanceCalculator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +31,17 @@ data class ItemDetailUiState(
     val item: ClothingItem? = null,
     val owner: UserProfile? = null,
     val isOwnItem: Boolean = false,
+    val distanceKm: Int? = null,
+    val existingInterestId: Long? = null,
+    val existingInterestStatus: InterestStatus? = null,
+    val relatedMatchId: Long? = null,
+    val isLockedByOtherMatch: Boolean = false,
+    val isItemUnavailable: Boolean = false,
     val isLoading: Boolean = true,
     val isSendingInterest: Boolean = false,
+    val isCancellingInterest: Boolean = false,
     val interestSentSuccess: Boolean = false,
+    val actionMessage: String? = null,
     val errorMessage: String? = null,
     val requiresBarterItemCta: Boolean = false
 )
@@ -54,14 +66,62 @@ class ItemDetailViewModel(
     private fun loadDetail() {
         viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull()
+            val viewerProfile = if (currentUserId != null) {
+                profileReviewRepository.observeUserProfile(currentUserId).firstOrNull()
+            } else {
+                null
+            }
             val item = wardrobeRepository.getClothingItem(rawItemId)
             if (item != null) {
                 val owner = profileReviewRepository.observeUserProfile(item.ownerId).firstOrNull()
+                val isOwn = currentUserId != null && currentUserId == item.ownerId
+
+                val computedDistanceKm = if (!isOwn && viewerProfile != null && owner != null) {
+                    val (vLat, vLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                        viewerProfile.city,
+                        viewerProfile.latitude,
+                        viewerProfile.longitude
+                    )
+                    val (oLat, oLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                        owner.city,
+                        owner.latitude,
+                        owner.longitude
+                    )
+                    DistanceCalculator.calculateKm(vLat, vLon, oLat, oLon)
+                } else {
+                    null
+                }
+
+                val outgoing = if (!isOwn && currentUserId != null) {
+                    discoveryMatchRepository.observeOutgoingInterests(currentUserId).firstOrNull()
+                        ?.firstOrNull { it.targetItemId == item.id }
+                } else {
+                    null
+                }
+
+                val isItemLocked = wardrobeRepository.isItemLocked(item.id)
+                val lockedByOther = !isOwn && (
+                    outgoing?.isLockedByOtherMatch == true ||
+                        (outgoing?.matchId == null && isItemLocked)
+                )
+                val itemUnavailable = !isOwn && (
+                    item.status != ItemStatus.AVAILABLE ||
+                        !item.isBarterAllowed ||
+                        isItemLocked
+                )
+
                 _uiState.update {
                     it.copy(
                         item = item,
                         owner = owner,
-                        isOwnItem = (currentUserId != null && currentUserId == item.ownerId),
+                        isOwnItem = isOwn,
+                        distanceKm = computedDistanceKm,
+                        existingInterestId = outgoing?.interestId,
+                        existingInterestStatus = outgoing?.interestStatus,
+                        relatedMatchId = outgoing?.matchId,
+                        isLockedByOtherMatch = lockedByOther,
+                        isItemUnavailable = itemUnavailable,
+                        interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
                         isLoading = false
                     )
                 }
@@ -79,19 +139,35 @@ class ItemDetailViewModel(
     fun sendInterest() {
         val state = _uiState.value
         val item = state.item ?: return
+        if (state.isLockedByOtherMatch || state.isItemUnavailable || state.existingInterestStatus != null) return
 
         viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch
-            _uiState.update { it.copy(isSendingInterest = true, errorMessage = null) }
+            _uiState.update { it.copy(isSendingInterest = true, errorMessage = null, actionMessage = null) }
 
             val result = discoveryMatchRepository.sendInterest(currentUserId, item.id)
             when (result) {
                 is SendInterestResult.Success -> {
+                    val outgoingAfter = discoveryMatchRepository.observeOutgoingInterests(currentUserId)
+                        .firstOrNull()
+                        ?.firstOrNull { it.targetItemId == item.id }
                     _uiState.update {
                         it.copy(
                             isSendingInterest = false,
-                            interestSentSuccess = true,
-                            requiresBarterItemCta = false
+                            interestSentSuccess = result.matchId == null,
+                            existingInterestId = result.interestId,
+                            existingInterestStatus = if (result.matchId != null) {
+                                InterestStatus.RESOLVED_BY_MATCH
+                            } else {
+                                InterestStatus.PENDING
+                            },
+                            relatedMatchId = result.matchId ?: outgoingAfter?.matchId,
+                            requiresBarterItemCta = false,
+                            actionMessage = if (result.matchId != null) {
+                                "Match langsung terbentuk karena pemilik juga menyukai pakaian Anda!"
+                            } else {
+                                null
+                            }
                         )
                     }
                 }
@@ -108,6 +184,8 @@ class ItemDetailViewModel(
                     _uiState.update {
                         it.copy(
                             isSendingInterest = false,
+                            existingInterestStatus = result.existingStatus,
+                            interestSentSuccess = result.existingStatus == InterestStatus.PENDING,
                             errorMessage = "Anda sudah pernah mengirim tawaran interest untuk pakaian ini.",
                             requiresBarterItemCta = false
                         )
@@ -117,6 +195,7 @@ class ItemDetailViewModel(
                     _uiState.update {
                         it.copy(
                             isSendingInterest = false,
+                            isItemUnavailable = true,
                             errorMessage = "Pakaian ini sudah tidak tersedia untuk dibarter.",
                             requiresBarterItemCta = false
                         )
@@ -137,6 +216,45 @@ class ItemDetailViewModel(
                             isSendingInterest = false,
                             errorMessage = "Gagal mengirim interest. Silakan coba lagi.",
                             requiresBarterItemCta = false
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelPendingInterest() {
+        val state = _uiState.value
+        val interestId = state.existingInterestId ?: return
+        viewModelScope.launch {
+            val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch
+            _uiState.update { it.copy(isCancellingInterest = true, errorMessage = null, actionMessage = null) }
+            when (val res = discoveryMatchRepository.cancelOutgoingInterest(currentUserId, interestId)) {
+                is CancelInterestResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            isCancellingInterest = false,
+                            existingInterestId = null,
+                            existingInterestStatus = null,
+                            interestSentSuccess = false,
+                            actionMessage = "Minat berhasil dibatalkan. Pakaian kembali tersedia di Jelajah."
+                        )
+                    }
+                }
+                is CancelInterestResult.InterestAlreadyProcessed -> {
+                    loadDetail()
+                    _uiState.update {
+                        it.copy(
+                            isCancellingInterest = false,
+                            errorMessage = "Minat sudah diproses oleh pemilik."
+                        )
+                    }
+                }
+                else -> {
+                    _uiState.update {
+                        it.copy(
+                            isCancellingInterest = false,
+                            errorMessage = "Gagal membatalkan minat."
                         )
                     }
                 }

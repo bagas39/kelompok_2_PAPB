@@ -56,13 +56,24 @@ class LocalDiscoveryMatchRepository(
             val selectedSizes = filter.selectedSizes
             val selectedColors = filter.selectedColors
 
+            val (viewerLat, viewerLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                viewer.city,
+                viewer.latitude,
+                viewer.longitude
+            )
+
             rawList.mapNotNull { raw ->
+                val (ownerLat, ownerLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                    raw.ownerCity,
+                    raw.ownerLatitude,
+                    raw.ownerLongitude
+                )
                 val distanceKm = DistanceCalculator.calculateKm(
-                    lat1 = viewer.latitude,
-                    lon1 = viewer.longitude,
-                    lat2 = raw.ownerLatitude,
-                    lon2 = raw.ownerLongitude
-                ).toInt()
+                    lat1 = viewerLat,
+                    lon1 = viewerLon,
+                    lat2 = ownerLat,
+                    lon2 = ownerLon
+                )
 
                 if (distanceKm > maxRadius) return@mapNotNull null
 
@@ -100,7 +111,8 @@ class LocalDiscoveryMatchRepository(
         viewerUserId: Long
     ): Flow<VerifiedMatchDetail?> {
         return interestMatchDao.getMatchWithDetailsFlow(matchId).map { row ->
-            row?.let { mapToVerifiedMatchDetail(it, viewerUserId) }
+            row?.takeIf { it.user1Id == viewerUserId || it.user2Id == viewerUserId }
+                ?.let { mapToVerifiedMatchDetail(it, viewerUserId) }
         }
     }
 

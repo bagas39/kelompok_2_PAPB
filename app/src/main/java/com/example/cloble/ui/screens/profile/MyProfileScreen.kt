@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +45,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,7 +56,10 @@ import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleOutlinedButton
+import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.CloBleTopBarAction
 import com.example.cloble.ui.components.LabeledPhoto
@@ -128,6 +134,17 @@ fun MyProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                if (uiState.passwordSuccessMessage != null) {
+                    CloBleStatusInfoBox(
+                        tone = CloBleInfoBoxTone.SUCCESS,
+                        title = "Password Diperbarui",
+                        message = uiState.passwordSuccessMessage!!,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_password_success_box")
+                    )
+                }
+
                 if (user != null) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -306,6 +323,14 @@ fun MyProfileScreen(
                                 modifier = Modifier.testTag("btn_go_to_preferences")
                             )
                             HorizontalDivider(color = CloBleColors.Outline)
+                            ProfileMenuRow(
+                                icon = CloBleIcons.EditPencil,
+                                title = "Ubah Password",
+                                subtitle = "Perbarui password masuk untuk akun Anda",
+                                onClick = viewModel::openChangePasswordDialog,
+                                modifier = Modifier.testTag("btn_change_password_from_profile")
+                            )
+                            HorizontalDivider(color = CloBleColors.Outline)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -465,6 +490,91 @@ fun MyProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showLogoutDialog = false }) {
+                    Text(
+                        text = "Batal",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = CloBleColors.TextSecondary
+                    )
+                }
+            }
+        )
+    }
+
+    if (uiState.showChangePasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!uiState.isUpdatingPassword) {
+                    viewModel.dismissChangePasswordDialog()
+                }
+            },
+            modifier = Modifier.testTag("change_password_dialog"),
+            containerColor = CloBleColors.Surface,
+            title = {
+                Text(
+                    text = "Ubah Password",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = CloBleColors.TextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Masukkan password baru untuk akun Anda (minimal 6 karakter).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CloBleColors.TextSecondary
+                    )
+                    if (uiState.passwordErrorMessage != null) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.WARNING,
+                            title = "Gagal Mengubah Password",
+                            message = uiState.passwordErrorMessage!!,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("change_password_error_box")
+                        )
+                    }
+                    CloBleLabeledTextField(
+                        label = "Password Baru",
+                        value = uiState.newPassword,
+                        onValueChange = viewModel::onNewPasswordChanged,
+                        placeholder = "Minimal 6 karakter",
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        enabled = !uiState.isUpdatingPassword,
+                        modifier = Modifier.fillMaxWidth(),
+                        inputTestTag = "input_profile_new_password"
+                    )
+                    CloBleLabeledTextField(
+                        label = "Konfirmasi Password Baru",
+                        value = uiState.confirmPassword,
+                        onValueChange = viewModel::onConfirmPasswordChanged,
+                        placeholder = "Ulangi password baru",
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        enabled = !uiState.isUpdatingPassword,
+                        modifier = Modifier.fillMaxWidth(),
+                        inputTestTag = "input_profile_confirm_password"
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = viewModel::submitChangePassword,
+                    enabled = !uiState.isUpdatingPassword,
+                    modifier = Modifier.testTag("btn_confirm_change_password")
+                ) {
+                    Text(
+                        text = if (uiState.isUpdatingPassword) "Menyimpan..." else "Simpan Password",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = CloBleColors.Primary
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = viewModel::dismissChangePasswordDialog,
+                    enabled = !uiState.isUpdatingPassword
+                ) {
                     Text(
                         text = "Batal",
                         style = MaterialTheme.typography.labelLarge,

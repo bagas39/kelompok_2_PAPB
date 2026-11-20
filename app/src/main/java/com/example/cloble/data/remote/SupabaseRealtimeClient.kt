@@ -17,6 +17,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,6 +38,7 @@ class SupabaseRealtimeClient(
     private var isConnected = false
 
     private val activeTopics = ConcurrentHashMap.newKeySet<String>()
+    private val pendingBroadcasts = ConcurrentLinkedQueue<String>()
 
     private val _incomingMessages = MutableSharedFlow<Pair<String, JSONObject>>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<Pair<String, JSONObject>> = _incomingMessages.asSharedFlow()
@@ -55,6 +57,10 @@ class SupabaseRealtimeClient(
                 startHeartbeat()
                 activeTopics.forEach { topic ->
                     sendJoinTopic(topic)
+                }
+                while (true) {
+                    val queued = pendingBroadcasts.poll() ?: break
+                    webSocket.send(queued)
                 }
             }
 
@@ -167,9 +173,6 @@ class SupabaseRealtimeClient(
     }
 
     fun broadcast(topic: String, eventName: String, data: JSONObject) {
-        if (!isConnected) {
-            connect()
-        }
         val ref = refCounter.incrementAndGet().toString()
         val innerPayload = JSONObject().apply {
             put("type", "broadcast")
@@ -181,7 +184,14 @@ class SupabaseRealtimeClient(
             put("event", "broadcast")
             put("payload", innerPayload)
             put("ref", ref)
+        }.toString()
+
+        val ws = webSocket
+        if (isConnected && ws != null) {
+            ws.send(msg)
+        } else {
+            pendingBroadcasts.offer(msg)
+            connect()
         }
-        webSocket?.send(msg.toString())
     }
 }

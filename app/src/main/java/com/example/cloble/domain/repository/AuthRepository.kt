@@ -3,6 +3,7 @@ package com.example.cloble.domain.repository
 import com.example.cloble.domain.model.DemoAccountSummary
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.result.AuthResult
+import com.example.cloble.domain.result.ResetPasswordResult
 import kotlinx.coroutines.flow.Flow
 
 interface AuthRepository {
@@ -12,6 +13,7 @@ interface AuthRepository {
 
     suspend fun login(email: String, rawPassword: String): AuthResult
     suspend fun loginDemoAccount(userId: Long): AuthResult
+    suspend fun resetPassword(email: String, newRawPassword: String): ResetPasswordResult
     suspend fun register(
         name: String,
         email: String,

@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,10 +52,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.cloble.domain.model.DiscoverCandidate
+import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
 import com.example.cloble.ui.components.CloBleIcons
@@ -95,6 +100,19 @@ fun DiscoverScreen(
         animatedOffset = 0f
         isAnimating = false
         isSubmitting = false
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshDiscover()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val currentOffset = if (isAnimating) animatedOffset else dragOffset
@@ -189,6 +207,46 @@ fun DiscoverScreen(
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (uiState.viewerCity.isNotBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = CloBleIcons.MapPin,
+                            contentDescription = null,
+                            tint = CloBleColors.Primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "${uiState.viewerCity} · Radius ${uiState.effectiveRadiusKm} km",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = CloBleColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("discover_location_radius_info")
+                        )
+                    }
+                    Text(
+                        text = "Ubah",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = CloBleColors.Primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(onClick = onNavigateToFilter)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
             if (uiState.activeFilterCount > 0) {
                 Row(
                     modifier = Modifier
@@ -582,7 +640,7 @@ private fun DiscoverCardContent(
                     color = CloBleColors.DarkScrim.copy(alpha = 0.72f)
                 ) {
                     Text(
-                        text = "${candidate.distanceKm} km",
+                        text = DistanceCalculator.formatDistanceLabel(candidate.distanceKm),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = Color.White,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)

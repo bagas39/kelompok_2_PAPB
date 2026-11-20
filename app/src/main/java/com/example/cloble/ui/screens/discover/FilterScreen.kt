@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -19,12 +20,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.ui.components.CloBleChoiceChipRow
+import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -38,7 +41,7 @@ fun FilterScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km")
+    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
 
     Scaffold(
         topBar = {
@@ -73,19 +76,39 @@ fun FilterScreen(
                     CloBleChoiceChipRow(
                         label = "Radius Jarak Maksimum",
                         options = radiusOptions,
-                        selectedOptions = if (uiState.selectedRadiusKm != null) setOf("${uiState.selectedRadiusKm} km") else emptySet(),
+                        selectedOptions = buildSet {
+                            if (uiState.isCustomRadius) {
+                                add("Kustom")
+                            } else if (uiState.selectedRadiusKm != null) {
+                                add("${uiState.selectedRadiusKm} km")
+                            }
+                        },
                         onOptionClick = { opt ->
-                            val km = opt.replace(" km", "").toIntOrNull()
-                            if (uiState.selectedRadiusKm == km) {
-                                viewModel.setRadius(null)
+                            if (opt == "Kustom") {
+                                viewModel.toggleCustomRadiusMode()
                             } else {
-                                viewModel.setRadius(km)
+                                val km = opt.replace(" km", "").toIntOrNull()
+                                if (km != null) {
+                                    viewModel.selectPresetRadius(km)
+                                }
                             }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("filter_chips_radius")
                     )
+
+                    if (uiState.isCustomRadius) {
+                        CloBleLabeledTextField(
+                            label = "Radius Kustom (km)",
+                            value = uiState.customRadiusText,
+                            onValueChange = viewModel::onCustomRadiusTextChanged,
+                            placeholder = "Contoh: 600",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_custom_radius_km"
+                        )
+                    }
 
                     CloBleChoiceChipRow(
                         label = "Kategori Pakaian",

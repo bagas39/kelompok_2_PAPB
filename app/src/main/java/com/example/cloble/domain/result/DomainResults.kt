@@ -96,3 +96,10 @@ sealed interface CancelInterestResult {
     data class InterestAlreadyProcessed(val currentStatus: InterestStatus) : CancelInterestResult
     data class DatabaseError(val failure: DbFailure) : CancelInterestResult
 }
+
+sealed interface ResetPasswordResult {
+    data object Success : ResetPasswordResult
+    data object EmailNotFound : ResetPasswordResult
+    data class ValidationFailed(val message: String) : ResetPasswordResult
+    data class DatabaseError(val failure: DbFailure) : ResetPasswordResult
+}

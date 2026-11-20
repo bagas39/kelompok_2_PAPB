@@ -241,7 +241,8 @@ fun CloBleChoiceChipRow(
     onOptionClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     label: String? = null,
-    showCheckmarkOnSelected: Boolean = true
+    showCheckmarkOnSelected: Boolean = true,
+    enabled: Boolean = true
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -262,9 +263,22 @@ fun CloBleChoiceChipRow(
         ) {
             options.forEach { option ->
                 val isSelected = option in selectedOptions
-                val bgColor = if (isSelected) CloBleColors.Primary else CloBleColors.Surface
-                val borderColor = if (isSelected) CloBleColors.Primary else CloBleColors.Outline
-                val textColor = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary
+                val bgColor = when {
+                    !enabled && isSelected -> CloBleColors.Primary.copy(alpha = 0.6f)
+                    !enabled -> CloBleColors.SecondarySurface
+                    isSelected -> CloBleColors.Primary
+                    else -> CloBleColors.Surface
+                }
+                val borderColor = when {
+                    !enabled && isSelected -> CloBleColors.Primary.copy(alpha = 0.6f)
+                    isSelected -> CloBleColors.Primary
+                    else -> CloBleColors.Outline
+                }
+                val textColor = when {
+                    isSelected -> CloBleColors.OnPrimary
+                    !enabled -> CloBleColors.TextSecondary
+                    else -> CloBleColors.TextPrimary
+                }
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -273,6 +287,7 @@ fun CloBleChoiceChipRow(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .clickable(
+                            enabled = enabled,
                             role = Role.Checkbox,
                             onClick = { onOptionClick(option) }
                         )

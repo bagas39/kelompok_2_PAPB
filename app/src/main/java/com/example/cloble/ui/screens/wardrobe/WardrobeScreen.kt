@@ -254,6 +254,8 @@ fun WardrobeScreen(
                             buildWardrobePhotos(item)
                         }
 
+                        val isLocked = summary.isInActiveMatch || item.status != ItemStatus.AVAILABLE
+
                         WardrobeItemCard(
                             title = item.name,
                             metadata = "${item.category} · ${item.size} · ${item.condition}",
@@ -262,17 +264,30 @@ fun WardrobeScreen(
                             imageModel = item.mainPhotoUri ?: item.detailPhotoUri ?: item.extraPhotoUri,
                             photoPlaceholderLabel = item.name,
                             compactGridMode = true,
-                            actionButtonText = if (summary.isInActiveMatch) "Terkunci" else "Kelola",
+                            actionButtonText = when {
+                                summary.isInActiveMatch -> "Terkunci"
+                                item.status != ItemStatus.AVAILABLE -> "Sudah Ditukar"
+                                else -> "Kelola"
+                            },
+                            actionButtonEnabled = !isLocked,
                             onPhotoClick = if (itemPhotos.isNotEmpty()) {
                                 { viewerPhotos = itemPhotos }
                             } else {
                                 null
                             },
                             onActionClick = {
-                                onNavigateToEditClothing(item.id)
+                                if (isLocked) {
+                                    viewModel.showLockedItemWarning(item.name, summary.isInActiveMatch)
+                                } else {
+                                    onNavigateToEditClothing(item.id)
+                                }
                             },
                             onCardClick = {
-                                onNavigateToEditClothing(item.id)
+                                if (isLocked) {
+                                    viewModel.showLockedItemWarning(item.name, summary.isInActiveMatch)
+                                } else {
+                                    onNavigateToEditClothing(item.id)
+                                }
                             },
                             modifier = Modifier.testTag("wardrobe_card_${item.id}")
                         )

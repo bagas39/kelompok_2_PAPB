@@ -46,6 +46,12 @@ class LocalWardrobeRepository(
         return EntityMappers.toDomainClothingItem(entity)
     }
 
+    override suspend fun isItemLocked(itemId: Long): Boolean {
+        val entity = clothingDao.getClothingById(itemId) ?: return false
+        if (entity.status != ItemStatus.AVAILABLE) return true
+        return clothingDao.countActiveMatchesUsingItem(itemId) > 0
+    }
+
     override suspend fun addClothingItem(
         ownerId: Long,
         draft: ClothingDraft

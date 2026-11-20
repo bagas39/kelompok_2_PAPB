@@ -169,14 +169,14 @@ fun AddEditClothingScreen(
                                 onClick = {
                                     if (!uiState.mainPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.mainPhotoUri)
-                                    } else {
+                                    } else if (!uiState.isLockedInActiveMatch) {
                                         activeSlotIndex = 0
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.mainPhotoUri != null) { { viewModel.onRemovePhoto(0) } } else null,
+                                onRemoveClick = if (uiState.mainPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(0) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_main")
@@ -187,14 +187,14 @@ fun AddEditClothingScreen(
                                 onClick = {
                                     if (!uiState.detailPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.detailPhotoUri)
-                                    } else {
+                                    } else if (!uiState.isLockedInActiveMatch) {
                                         activeSlotIndex = 1
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.detailPhotoUri != null) { { viewModel.onRemovePhoto(1) } } else null,
+                                onRemoveClick = if (uiState.detailPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(1) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_detail")
@@ -205,14 +205,14 @@ fun AddEditClothingScreen(
                                 onClick = {
                                     if (!uiState.extraPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.extraPhotoUri)
-                                    } else {
+                                    } else if (!uiState.isLockedInActiveMatch) {
                                         activeSlotIndex = 2
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.extraPhotoUri != null) { { viewModel.onRemovePhoto(2) } } else null,
+                                onRemoveClick = if (uiState.extraPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(2) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_extra")
@@ -222,6 +222,7 @@ fun AddEditClothingScreen(
                         CloBleOutlinedButton(
                             text = "Ubah / Tambah Foto",
                             leadingIcon = CloBleIcons.Camera,
+                            enabled = !uiState.isLockedInActiveMatch,
                             onClick = {
                                 activeSlotIndex = when {
                                     uiState.mainPhotoUri == null -> 0
@@ -257,6 +258,7 @@ fun AddEditClothingScreen(
                             value = uiState.name,
                             onValueChange = viewModel::onNameChanged,
                             placeholder = "Misal: Kemeja Flanel Hijau",
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("input_clothing_name")
@@ -269,6 +271,7 @@ fun AddEditClothingScreen(
                             placeholder = "Jelaskan bahan, kecocokan ukuran, dan kondisi pakaian...",
                             singleLine = false,
                             minHeight = 96.dp,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("input_clothing_description")
@@ -293,6 +296,7 @@ fun AddEditClothingScreen(
                             options = categories,
                             selectedOptions = setOf(uiState.category),
                             onOptionClick = viewModel::onCategorySelected,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_category")
@@ -303,6 +307,7 @@ fun AddEditClothingScreen(
                             options = sizes,
                             selectedOptions = setOf(uiState.size),
                             onOptionClick = viewModel::onSizeSelected,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_size")
@@ -313,6 +318,7 @@ fun AddEditClothingScreen(
                             options = genders,
                             selectedOptions = setOf(uiState.gender),
                             onOptionClick = viewModel::onGenderSelected,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_gender")
@@ -323,6 +329,7 @@ fun AddEditClothingScreen(
                             options = colors,
                             selectedOptions = setOf(uiState.color),
                             onOptionClick = viewModel::onColorSelected,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_color")
@@ -333,6 +340,7 @@ fun AddEditClothingScreen(
                             options = conditions,
                             selectedOptions = setOf(uiState.condition),
                             onOptionClick = viewModel::onConditionSelected,
+                            enabled = !uiState.isLockedInActiveMatch,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_condition")
@@ -362,6 +370,7 @@ fun AddEditClothingScreen(
                     CloBlePrimaryButton(
                         text = if (uiState.isEditMode) "Simpan Perubahan" else "Simpan ke Lemari",
                         onClick = { viewModel.save(onSaveSuccess) },
+                        enabled = !uiState.isLockedInActiveMatch,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("btn_save_clothing")

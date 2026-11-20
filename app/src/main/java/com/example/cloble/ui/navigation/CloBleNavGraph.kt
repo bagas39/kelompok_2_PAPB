@@ -376,6 +376,9 @@ fun CloBleNavGraph(
                 },
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE)
+                },
+                onNavigateToMatch = { matchId ->
+                    navController.navigate(CloBleDestinations.matchedRoute(matchId))
                 }
             )
         }

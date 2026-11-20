@@ -12,6 +12,7 @@ interface WardrobeRepository {
     fun observeClothingItem(itemId: Long): Flow<ClothingItem?>
 
     suspend fun getClothingItem(itemId: Long): ClothingItem?
+    suspend fun isItemLocked(itemId: Long): Boolean
     suspend fun addClothingItem(ownerId: Long, draft: ClothingDraft): WardrobeMutationResult
     suspend fun updateClothingItem(actorUserId: Long, itemId: Long, draft: ClothingDraft): WardrobeMutationResult
     suspend fun setBarterAllowed(actorUserId: Long, itemId: Long, allowed: Boolean): WardrobeMutationResult

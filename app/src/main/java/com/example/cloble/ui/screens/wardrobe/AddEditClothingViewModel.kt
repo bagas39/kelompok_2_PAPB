@@ -67,7 +67,7 @@ class AddEditClothingViewModel(
             if (isEdit) {
                 val item = wardrobeRepository.getClothingItem(rawItemId)
                 if (item != null) {
-                    val count = (wardrobeRepository as? com.example.cloble.data.repository.LocalWardrobeRepository)?.countEligibleBarterItems(item.ownerId)
+                    val locked = wardrobeRepository.isItemLocked(rawItemId)
                     _uiState.update {
                         it.copy(
                             name = item.name,
@@ -81,7 +81,13 @@ class AddEditClothingViewModel(
                             detailPhotoUri = item.detailPhotoUri,
                             extraPhotoUri = item.extraPhotoUri,
                             isBarterAllowed = item.isBarterAllowed,
-                            isLoading = false
+                            isLockedInActiveMatch = locked,
+                            isLoading = false,
+                            errorMessage = if (locked) {
+                                "Pakaian ini sedang terikat Match aktif atau sudah ditukar sehingga seluruh datanya terkunci."
+                            } else {
+                                null
+                            }
                         )
                     }
                 } else {
@@ -92,34 +98,42 @@ class AddEditClothingViewModel(
     }
 
     fun onNameChanged(newName: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(name = newName, errorMessage = null) }
     }
 
     fun onDescriptionChanged(newDesc: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(description = newDesc, errorMessage = null) }
     }
 
     fun onCategorySelected(cat: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(category = cat) }
     }
 
     fun onSizeSelected(s: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(size = s) }
     }
 
     fun onGenderSelected(g: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(gender = g) }
     }
 
     fun onColorSelected(c: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(color = c) }
     }
 
     fun onConditionSelected(cond: String) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update { it.copy(condition = cond) }
     }
 
     fun onPhotoSelected(photoUri: String, slotIndex: Int = 0) {
+        if (_uiState.value.isLockedInActiveMatch) return
         viewModelScope.launch {
             val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri) ?: photoUri
             _uiState.update {
@@ -133,6 +147,7 @@ class AddEditClothingViewModel(
     }
 
     fun onRemovePhoto(slotIndex: Int) {
+        if (_uiState.value.isLockedInActiveMatch) return
         _uiState.update {
             when (slotIndex) {
                 0 -> it.copy(mainPhotoUri = null)
@@ -193,6 +208,10 @@ class AddEditClothingViewModel(
 
     fun save(onSuccess: () -> Unit) {
         val s = _uiState.value
+        if (s.isLockedInActiveMatch) {
+            _uiState.update { it.copy(errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.") }
+            return
+        }
         val userId = s.currentUserId ?: return
         val name = s.name.trim()
 

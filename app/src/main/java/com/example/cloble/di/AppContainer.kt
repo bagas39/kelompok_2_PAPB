@@ -91,7 +91,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val discoveryMatchRepository: DiscoveryMatchRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseDiscoveryMatchRepository(supabaseClient, dataInvalidator)
+            SupabaseDiscoveryMatchRepository(supabaseClient, dataInvalidator, supabaseRealtimeClient)
         } else {
             LocalDiscoveryMatchRepository(
                 discoveryDao = database.discoveryDao(),

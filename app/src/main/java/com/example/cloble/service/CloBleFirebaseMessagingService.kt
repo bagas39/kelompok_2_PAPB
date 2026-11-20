@@ -50,5 +50,8 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
 
         val app = applicationContext as? CloBleApplication ?: return
         app.container.dataInvalidator.invalidateNotifications()
+        app.container.dataInvalidator.invalidateChat()
+        app.container.dataInvalidator.invalidateDiscovery()
+        app.container.dataInvalidator.invalidateWardrobe()
     }
 }

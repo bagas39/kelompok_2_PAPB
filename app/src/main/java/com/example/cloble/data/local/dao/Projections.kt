@@ -101,7 +101,8 @@ data class OutgoingInterestRow(
     val interestStatus: com.example.cloble.domain.model.InterestStatus,
     val createdAt: Long,
     val matchId: Long?,
-    val matchStatus: MatchStatus?
+    val matchStatus: MatchStatus?,
+    val isLockedByOtherMatch: Boolean = false
 )
 
 data class PassedClothingRow(
@@ -115,5 +116,6 @@ data class PassedClothingRow(
     val ownerId: Long,
     val ownerName: String,
     val ownerCity: String,
-    val passedAt: Long
+    val passedAt: Long,
+    val isInActiveMatch: Boolean = false
 )

@@ -61,7 +61,11 @@ interface DiscoveryDao {
             u.id AS ownerId,
             u.name AS ownerName,
             u.city AS ownerCity,
-            sp.createdAt AS passedAt
+            sp.createdAt AS passedAt,
+            CASE WHEN (
+              SELECT COUNT(*) FROM matches m
+              WHERE m.status = 'ACTIVE' AND (m.user1ItemId = c.id OR m.user2ItemId = c.id)
+            ) > 0 THEN 1 ELSE 0 END AS isInActiveMatch
         FROM swipe_passes sp
         JOIN clothing_items c ON sp.targetItemId = c.id
         JOIN users u ON c.ownerId = u.id

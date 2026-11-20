@@ -7,18 +7,20 @@ import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
 import com.example.cloble.domain.result.DbFailure
+import com.example.cloble.domain.result.ResetPasswordResult
+import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.domain.util.PasswordHasher
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -28,15 +30,14 @@ class SupabaseAuthRepository(
     private val invalidator: SupabaseDataInvalidator
 ) : AuthRepository {
 
-    init {
-        CoroutineScope(Dispatchers.IO).launch {
-            sessionPrefs.sessionTokenFlow.collect { token ->
-                client.setSessionToken(token)
-            }
-        }
-    }
-
-    override fun observeLoggedInUserId(): Flow<Long?> = sessionPrefs.loggedInUserIdFlow
+    override fun observeLoggedInUserId(): Flow<Long?> =
+        combine(
+            sessionPrefs.loggedInUserIdFlow,
+            sessionPrefs.sessionTokenFlow
+        ) { userId, token ->
+            client.setSessionToken(token)
+            if (userId != null && !token.isNullOrBlank()) userId else null
+        }.distinctUntilChanged()
 
     override fun observeCurrentUser(): Flow<UserProfile?> =
         observeLoggedInUserId().flatMapLatest { userId ->
@@ -76,7 +77,7 @@ class SupabaseAuthRepository(
                 val role = when (email.lowercase()) {
                     "raka@cloble.demo" -> "Pengirim & pemilik multi-item (Bandung)"
                     "naya@cloble.demo" -> "Penerima Interest & koleksi barter (Bandung)"
-                    "bagas@cloble.demo" -> "0 pakaian barter & ulasan 2★ (Cimahi)"
+                    "bagas@cloble.demo" -> "0 pakaian barter & ulasan 2 bintang (Cimahi)"
                     "dinda@cloble.demo" -> "Filter jarak >50km & reputasi rendah (Jakarta)"
                     else -> "Akun pengguna"
                 }
@@ -126,7 +127,7 @@ class SupabaseAuthRepository(
             val token = sessionResp.optString("sessionToken")
             client.setSessionToken(token)
             sessionPrefs.setSession(userId, token)
-            invalidator.invalidateUser()
+            invalidator.invalidateAll()
             AuthResult.Success(userId)
         } catch (e: Exception) {
             AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
@@ -147,10 +148,42 @@ class SupabaseAuthRepository(
             val token = sessionResp.optString("sessionToken")
             client.setSessionToken(token)
             sessionPrefs.setSession(userId, token)
-            invalidator.invalidateUser()
+            invalidator.invalidateAll()
             AuthResult.Success(userId)
         } catch (e: Exception) {
             AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        }
+    }
+
+    override suspend fun resetPassword(email: String, newRawPassword: String): ResetPasswordResult {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+            return ResetPasswordResult.ValidationFailed("Format email tidak valid")
+        }
+        if (newRawPassword.length < 6) {
+            return ResetPasswordResult.ValidationFailed("Password minimal 6 karakter")
+        }
+
+        return try {
+            val newHash = PasswordHasher.hash(newRawPassword)
+            val params = JSONObject().apply {
+                put("p_email", trimmedEmail)
+                put("p_new_password_hash", newHash)
+                put("p_now_millis", System.currentTimeMillis())
+            }
+            val resp = client.rpc("rpc_reset_password", params)
+            when (resp.optString("code")) {
+                "SUCCESS" -> ResetPasswordResult.Success
+                "EMAIL_NOT_FOUND" -> ResetPasswordResult.EmailNotFound
+                "VALIDATION_FAILED" -> ResetPasswordResult.ValidationFailed(
+                    resp.optString("message", "Validasi gagal")
+                )
+                else -> ResetPasswordResult.DatabaseError(
+                    DbFailure.UnexpectedDatabaseError("Gagal mereset password")
+                )
+            }
+        } catch (e: Exception) {
+            ResetPasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
         }
     }
 
@@ -175,13 +208,19 @@ class SupabaseAuthRepository(
             val resolvedLon: Double
             if (latitude != null && longitude != null) {
                 resolvedCity = city.trim().ifEmpty { CityPreset.BANDUNG.displayName }
-                resolvedLat = latitude
-                resolvedLon = longitude
+                val effective = DistanceCalculator.resolveEffectiveCoordinates(resolvedCity, latitude, longitude)
+                resolvedLat = effective.first
+                resolvedLon = effective.second
             } else {
                 val preset = CityPreset.fromDisplayName(city)
                 resolvedCity = if (city.isNotBlank() && city != preset.displayName) city.trim() else preset.displayName
-                resolvedLat = preset.latitude
-                resolvedLon = preset.longitude
+                val effective = DistanceCalculator.resolveEffectiveCoordinates(
+                    resolvedCity,
+                    preset.latitude,
+                    preset.longitude
+                )
+                resolvedLat = effective.first
+                resolvedLon = effective.second
             }
             val hash = PasswordHasher.hash(rawPassword)
             val now = System.currentTimeMillis()
@@ -203,7 +242,7 @@ class SupabaseAuthRepository(
                     val token = regResp.optString("sessionToken")
                     client.setSessionToken(token)
                     sessionPrefs.setSession(newUserId, token)
-                    invalidator.invalidateUser()
+                    invalidator.invalidateAll()
                     AuthResult.Success(newUserId)
                 }
                 "EMAIL_ALREADY_REGISTERED" -> AuthResult.EmailAlreadyRegistered

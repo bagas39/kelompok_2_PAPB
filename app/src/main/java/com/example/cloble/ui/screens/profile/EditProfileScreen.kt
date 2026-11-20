@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +45,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,7 +85,19 @@ fun EditProfileScreen(
     }
 
     val sizeOptions = listOf("XS", "S", "M", "L", "XL", "XXL", "Semua")
-    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km")
+    val presetRadii = setOf(5, 10, 25, 50, 100)
+    val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
+    var customRadiusMode by remember { mutableStateOf(false) }
+    var customRadiusText by remember { mutableStateOf(uiState.preferredRadiusKm.toString()) }
+
+    LaunchedEffect(uiState.preferredRadiusKm) {
+        if (uiState.preferredRadiusKm !in presetRadii) {
+            customRadiusMode = true
+            customRadiusText = uiState.preferredRadiusKm.toString()
+        } else if (!customRadiusMode) {
+            customRadiusText = uiState.preferredRadiusKm.toString()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -385,13 +400,45 @@ fun EditProfileScreen(
                             CloBleChoiceChipRow(
                                 label = "Radius Pencarian Maksimum",
                                 options = radiusOptions,
-                                selectedOptions = setOf("${uiState.preferredRadiusKm} km"),
+                                selectedOptions = if (customRadiusMode || uiState.preferredRadiusKm !in presetRadii) {
+                                    setOf("Kustom")
+                                } else {
+                                    setOf("${uiState.preferredRadiusKm} km")
+                                },
                                 onOptionClick = { label ->
-                                    val km = label.replace(" km", "").toIntOrNull() ?: 10
-                                    viewModel.onPreferredRadiusSelected(km)
+                                    if (label == "Kustom") {
+                                        customRadiusMode = true
+                                        if (customRadiusText.isBlank()) {
+                                            customRadiusText = uiState.preferredRadiusKm.toString()
+                                        }
+                                    } else {
+                                        customRadiusMode = false
+                                        val km = label.replace(" km", "").toIntOrNull() ?: 10
+                                        customRadiusText = km.toString()
+                                        viewModel.onPreferredRadiusSelected(km)
+                                    }
                                 },
                                 modifier = Modifier.testTag("chips_edit_profile_radius")
                             )
+
+                            if (customRadiusMode || uiState.preferredRadiusKm !in presetRadii) {
+                                CloBleLabeledTextField(
+                                    label = "Radius Kustom (km)",
+                                    value = customRadiusText,
+                                    onValueChange = { raw ->
+                                        val digits = raw.filter { it.isDigit() }.take(5)
+                                        customRadiusText = digits
+                                        val parsed = digits.toIntOrNull()
+                                        if (parsed != null && parsed > 0) {
+                                            viewModel.onPreferredRadiusSelected(parsed)
+                                        }
+                                    },
+                                    placeholder = "Contoh: 600",
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    inputTestTag = "input_edit_profile_custom_radius_km"
+                                )
+                            }
                         }
                     }
                 }

@@ -52,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.cloble.domain.model.ActivityHistoryTab
 import com.example.cloble.domain.model.InterestStatus
+import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
@@ -77,6 +78,7 @@ fun ActivityHistoryScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var interestPendingCancel by remember { mutableStateOf<OutgoingInterestSummary?>(null) }
     var viewerPhoto by remember { mutableStateOf<LabeledPhoto?>(null) }
+    var lockedWarningMessage by remember { mutableStateOf<String?>(null) }
 
     val selectedTabIndex = if (uiState.selectedTab == ActivityHistoryTab.TERTARIK) 0 else 1
 
@@ -126,6 +128,22 @@ fun ActivityHistoryScreen(
                     )
                 }
             }
+            if (lockedWarningMessage != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    CloBleStatusInfoBox(
+                        tone = CloBleInfoBoxTone.WARNING,
+                        title = "Detail Ditutup",
+                        message = lockedWarningMessage!!,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("history_locked_warning_banner")
+                    )
+                }
+            }
 
             PrimaryTabRow(
                 selectedTabIndex = selectedTabIndex,
@@ -140,7 +158,10 @@ fun ActivityHistoryScreen(
             ) {
                 Tab(
                     selected = uiState.selectedTab == ActivityHistoryTab.TERTARIK,
-                    onClick = { viewModel.selectTab(ActivityHistoryTab.TERTARIK) },
+                    onClick = {
+                        lockedWarningMessage = null
+                        viewModel.selectTab(ActivityHistoryTab.TERTARIK)
+                    },
                     text = {
                         Text(
                             text = "Tertarik (${uiState.outgoingInterests.size})",
@@ -152,7 +173,10 @@ fun ActivityHistoryScreen(
                 )
                 Tab(
                     selected = uiState.selectedTab == ActivityHistoryTab.DILEWATI,
-                    onClick = { viewModel.selectTab(ActivityHistoryTab.DILEWATI) },
+                    onClick = {
+                        lockedWarningMessage = null
+                        viewModel.selectTab(ActivityHistoryTab.DILEWATI)
+                    },
                     text = {
                         Text(
                             text = "Dilewati (${uiState.passedItems.size})",
@@ -179,9 +203,21 @@ fun ActivityHistoryScreen(
                         OutgoingInterestsList(
                             interests = uiState.outgoingInterests,
                             cancellingInterestId = uiState.cancellingInterestId,
-                            onItemClick = onNavigateToItemDetail,
-                            onViewMatchClick = onNavigateToMatchDetail,
-                            onCancelInterestRequest = { interestPendingCancel = it },
+                            onItemClick = { itemId ->
+                                lockedWarningMessage = null
+                                onNavigateToItemDetail(itemId)
+                            },
+                            onLockedItemClick = { message ->
+                                lockedWarningMessage = message
+                            },
+                            onViewMatchClick = { matchId ->
+                                lockedWarningMessage = null
+                                onNavigateToMatchDetail(matchId)
+                            },
+                            onCancelInterestRequest = {
+                                lockedWarningMessage = null
+                                interestPendingCancel = it
+                            },
                             onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
                             modifier = Modifier
                                 .fillMaxSize()
@@ -191,9 +227,21 @@ fun ActivityHistoryScreen(
                     ActivityHistoryTab.DILEWATI -> {
                         PassedClothingList(
                             passedItems = uiState.passedItems,
-                            onItemClick = onNavigateToItemDetail,
-                            onConvertToInterest = viewModel::convertPassToInterest,
-                            onRestoreToDiscover = viewModel::restorePassToDiscover,
+                            onItemClick = { itemId ->
+                                lockedWarningMessage = null
+                                onNavigateToItemDetail(itemId)
+                            },
+                            onLockedItemClick = { message ->
+                                lockedWarningMessage = message
+                            },
+                            onConvertToInterest = { itemId ->
+                                lockedWarningMessage = null
+                                viewModel.convertPassToInterest(itemId)
+                            },
+                            onRestoreToDiscover = { itemId ->
+                                lockedWarningMessage = null
+                                viewModel.restorePassToDiscover(itemId)
+                            },
                             onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
                             modifier = Modifier
                                 .fillMaxSize()
@@ -269,6 +317,7 @@ private fun OutgoingInterestsList(
     interests: List<OutgoingInterestSummary>,
     cancellingInterestId: Long?,
     onItemClick: (Long) -> Unit,
+    onLockedItemClick: (String) -> Unit,
     onViewMatchClick: (Long) -> Unit,
     onCancelInterestRequest: (OutgoingInterestSummary) -> Unit,
     onPhotoClick: (String, String) -> Unit,
@@ -318,6 +367,7 @@ private fun OutgoingInterestsList(
                     dateFormat = dateFormat,
                     isCancelling = cancellingInterestId == item.interestId,
                     onItemClick = onItemClick,
+                    onLockedItemClick = onLockedItemClick,
                     onViewMatchClick = onViewMatchClick,
                     onCancelClick = { onCancelInterestRequest(item) },
                     onPhotoClick = onPhotoClick
@@ -333,6 +383,7 @@ private fun OutgoingInterestCard(
     dateFormat: SimpleDateFormat,
     isCancelling: Boolean,
     onItemClick: (Long) -> Unit,
+    onLockedItemClick: (String) -> Unit,
     onViewMatchClick: (Long) -> Unit,
     onCancelClick: () -> Unit,
     onPhotoClick: (String, String) -> Unit
@@ -342,7 +393,13 @@ private fun OutgoingInterestCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
-            .clickable { onItemClick(item.targetItemId) }
+            .clickable {
+                if (item.isLockedByOtherMatch) {
+                    onLockedItemClick("Detail pakaian ditutup karena sudah terikat atau selesai di Match pengguna lain.")
+                } else {
+                    onItemClick(item.targetItemId)
+                }
+            }
             .testTag("outgoing_interest_card_${item.interestId}"),
         color = CloBleColors.Surface
     ) {
@@ -363,7 +420,7 @@ private fun OutgoingInterestCard(
                         .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp))
                         .let { base ->
                             val photo = item.targetItemPhotoUri
-                            if (!photo.isNullOrBlank()) {
+                            if (!photo.isNullOrBlank() && !item.isLockedByOtherMatch) {
                                 base.clickable { onPhotoClick(photo, item.targetItemName) }
                             } else {
                                 base
@@ -410,6 +467,14 @@ private fun OutgoingInterestCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = CloBleColors.TextSecondary
                     )
+                    if (item.isLockedByOtherMatch) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Detail & foto ditutup karena terikat match lain",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CloBleColors.DangerText
+                        )
+                    }
                 }
             }
 
@@ -422,8 +487,14 @@ private fun OutgoingInterestCard(
             ) {
                 val (statusText, badgeBg, badgeTextColor) = when (item.interestStatus) {
                     InterestStatus.PENDING -> Triple("Menunggu Respon", CloBleColors.WarningContainer, CloBleColors.WarningText)
-                    InterestStatus.ACCEPTED_MATCHED -> Triple("Berhasil Match", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
-                    InterestStatus.RESOLVED_BY_MATCH -> Triple("Selesai di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
+                    InterestStatus.ACCEPTED_MATCHED -> Triple("Berhasil Match!", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
+                    InterestStatus.RESOLVED_BY_MATCH -> {
+                        if (item.matchId != null) {
+                            Triple("Terhubung di Match", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                        } else {
+                            Triple("Selesai di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
+                        }
+                    }
                     InterestStatus.DECLINED -> Triple("Ditolak", CloBleColors.DangerContainer, CloBleColors.DangerText)
                     InterestStatus.INVALIDATED -> Triple("Tidak Tersedia", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                 }
@@ -485,6 +556,7 @@ private fun OutgoingInterestCard(
 private fun PassedClothingList(
     passedItems: List<PassedClothingSummary>,
     onItemClick: (Long) -> Unit,
+    onLockedItemClick: (String) -> Unit,
     onConvertToInterest: (Long) -> Unit,
     onRestoreToDiscover: (Long) -> Unit,
     onPhotoClick: (String, String) -> Unit,
@@ -533,6 +605,7 @@ private fun PassedClothingList(
                     item = item,
                     dateFormat = dateFormat,
                     onItemClick = onItemClick,
+                    onLockedItemClick = onLockedItemClick,
                     onConvertToInterest = onConvertToInterest,
                     onRestoreToDiscover = onRestoreToDiscover,
                     onPhotoClick = onPhotoClick
@@ -547,16 +620,26 @@ private fun PassedClothingCard(
     item: PassedClothingSummary,
     dateFormat: SimpleDateFormat,
     onItemClick: (Long) -> Unit,
+    onLockedItemClick: (String) -> Unit,
     onConvertToInterest: (Long) -> Unit,
     onRestoreToDiscover: (Long) -> Unit,
     onPhotoClick: (String, String) -> Unit
 ) {
+    val isLockedByMatchOrExchanged = item.isInActiveMatch || item.clothingStatus == ItemStatus.EXCHANGED
+    val isUnavailable = isLockedByMatchOrExchanged || !item.isBarterAllowed
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
-            .clickable { onItemClick(item.clothingId) }
+            .clickable {
+                if (isLockedByMatchOrExchanged) {
+                    onLockedItemClick("Detail pakaian ditutup karena item sedang dalam Match aktif atau sudah ditukar.")
+                } else {
+                    onItemClick(item.clothingId)
+                }
+            }
             .testTag("passed_clothing_card_${item.clothingId}"),
         color = CloBleColors.Surface
     ) {
@@ -577,7 +660,7 @@ private fun PassedClothingCard(
                         .border(1.dp, CloBleColors.Outline, RoundedCornerShape(12.dp))
                         .let { base ->
                             val photo = item.clothingPhotoUri
-                            if (!photo.isNullOrBlank()) {
+                            if (!photo.isNullOrBlank() && !isLockedByMatchOrExchanged) {
                                 base.clickable { onPhotoClick(photo, item.clothingName) }
                             } else {
                                 base
@@ -624,6 +707,18 @@ private fun PassedClothingCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = CloBleColors.TextSecondary
                     )
+                    if (isUnavailable) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isLockedByMatchOrExchanged) {
+                                "Sudah terikat match lain atau telah ditukar"
+                            } else {
+                                "Pemilik menonaktifkan opsi barter item ini"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CloBleColors.DangerText
+                        )
+                    }
                 }
             }
 
@@ -635,8 +730,8 @@ private fun PassedClothingCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 CloBleOutlinedButton(
-                    text = "Kembalikan",
-                    leadingIcon = CloBleIcons.RotateCcw,
+                    text = if (isUnavailable) "Hapus Riwayat" else "Kembalikan",
+                    leadingIcon = if (isUnavailable) CloBleIcons.Trash else CloBleIcons.RotateCcw,
                     onClick = { onRestoreToDiscover(item.clothingId) },
                     modifier = Modifier
                         .weight(1f)
@@ -644,8 +739,9 @@ private fun PassedClothingCard(
                 )
 
                 CloBlePrimaryButton(
-                    text = "Kirim Tertarik",
+                    text = if (isUnavailable) "Tidak Tersedia" else "Kirim Tertarik",
                     leadingIcon = CloBleIcons.HeartFilled,
+                    enabled = !isUnavailable,
                     onClick = { onConvertToInterest(item.clothingId) },
                     modifier = Modifier
                         .weight(1f)

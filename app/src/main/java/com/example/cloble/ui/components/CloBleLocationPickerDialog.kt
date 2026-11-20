@@ -61,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.cloble.data.remote.NominatimGeocoder
 import com.example.cloble.data.remote.ResolvedLocation
+import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.ui.theme.CloBleColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -97,10 +98,11 @@ fun CloBleLocationPickerDialog(
     var fullAddressHint by remember { mutableStateOf(initialCity) }
     var isReverseGeocoding by remember { mutableStateOf(false) }
     var hasUserEditedCity by remember { mutableStateOf(false) }
+    var isConfirmingLocation by remember { mutableStateOf(false) }
     var gpsStatusHint by remember { mutableStateOf<String?>(null) }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    var suppressNextReverseLookup by remember { mutableStateOf(true) }
+    var suppressNextReverseLookup by remember { mutableStateOf(false) }
 
     fun moveMapTo(lat: Double, lon: Double, zoom: Double = 14.0) {
         selectedLat = lat
@@ -111,6 +113,11 @@ fun CloBleLocationPickerDialog(
     fun applyDeviceLocation() {
         val location = readBestLastKnownLocation(context)
         if (location != null) {
+            val isInsideIndonesia = location.latitude in -12.0..7.5 && location.longitude in 94.0..142.0
+            if (!isInsideIndonesia) {
+                gpsStatusHint = "GPS perangkat menunjuk ke luar Indonesia (default emulator). Silakan cari atau geser pin ke kota Anda di Indonesia."
+                return
+            }
             gpsStatusHint = null
             hasUserEditedCity = false
             suppressNextReverseLookup = false
@@ -352,12 +359,12 @@ fun CloBleLocationPickerDialog(
                                                 val center = mapCenter
                                                 val lat = center.latitude
                                                 val lon = center.longitude
+                                                selectedLat = lat
+                                                selectedLon = lon
                                                 if (suppressNextReverseLookup) {
                                                     suppressNextReverseLookup = false
                                                     return true
                                                 }
-                                                selectedLat = lat
-                                                selectedLon = lon
                                                 coroutineScope.launch {
                                                     isReverseGeocoding = true
                                                     val resolved = NominatimGeocoder.reverseGeocode(lat, lon)
@@ -539,10 +546,47 @@ fun CloBleLocationPickerDialog(
                         }
 
                         CloBlePrimaryButton(
-                            text = "Pilih Lokasi Ini",
-                            enabled = cityInput.isNotBlank(),
+                            text = if (isConfirmingLocation) "Menyimpan Lokasi..." else "Pilih Lokasi Ini",
+                            enabled = cityInput.isNotBlank() && !isConfirmingLocation,
                             onClick = {
-                                onLocationConfirmed(cityInput.trim(), selectedLat, selectedLon)
+                                val currentMapCenter = mapViewRef?.mapCenter
+                                var finalLat = currentMapCenter?.latitude ?: selectedLat
+                                var finalLon = currentMapCenter?.longitude ?: selectedLon
+                                val cleanCity = cityInput.trim()
+                                val pinUnmovedFromInitial = DistanceCalculator.calculateKmExact(
+                                    finalLat,
+                                    finalLon,
+                                    initialLatitude,
+                                    initialLongitude
+                                ) < 0.05
+                                if (hasUserEditedCity || (searchQuery.isNotBlank() && pinUnmovedFromInitial)) {
+                                    coroutineScope.launch {
+                                        isConfirmingLocation = true
+                                        val queryText = cleanCity.ifBlank { searchQuery.trim() }
+                                        val geocoded = NominatimGeocoder.searchPlaces(queryText, limit = 1).firstOrNull()
+                                        if (geocoded != null && (!hasUserEditedCity || pinUnmovedFromInitial)) {
+                                            finalLat = geocoded.latitude
+                                            finalLon = geocoded.longitude
+                                        } else {
+                                            val resolved = DistanceCalculator.resolveEffectiveCoordinates(
+                                                cleanCity,
+                                                finalLat,
+                                                finalLon
+                                            )
+                                            finalLat = resolved.first
+                                            finalLon = resolved.second
+                                        }
+                                        isConfirmingLocation = false
+                                        onLocationConfirmed(cleanCity, finalLat, finalLon)
+                                    }
+                                } else {
+                                    val resolved = DistanceCalculator.resolveEffectiveCoordinates(
+                                        cleanCity,
+                                        finalLat,
+                                        finalLon
+                                    )
+                                    onLocationConfirmed(cleanCity, resolved.first, resolved.second)
+                                }
                             },
                             modifier = Modifier.testTag("btn_confirm_location")
                         )

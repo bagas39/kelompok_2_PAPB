@@ -12,6 +12,7 @@ import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
 import com.example.cloble.domain.result.DbFailure
+import com.example.cloble.domain.result.ResetPasswordResult
 import com.example.cloble.domain.util.PasswordHasher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -87,6 +88,27 @@ class LocalAuthRepository(
         val user = userDao.getUserById(userId) ?: return AuthResult.InvalidCredentials
         sessionPrefs.setLoggedInUserId(user.id)
         return AuthResult.Success(user.id)
+    }
+
+    override suspend fun resetPassword(email: String, newRawPassword: String): ResetPasswordResult {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+            return ResetPasswordResult.ValidationFailed("Format email tidak valid")
+        }
+        if (newRawPassword.length < 6) {
+            return ResetPasswordResult.ValidationFailed("Password minimal 6 karakter")
+        }
+
+        val existing = userDao.getUserByEmail(trimmedEmail) ?: return ResetPasswordResult.EmailNotFound
+        val newHash = PasswordHasher.hash(newRawPassword)
+        return EntityMappers.runCatchingSqlite(
+            onBusyOrLocked = { ResetPasswordResult.DatabaseError(DbFailure.DatabaseBusyOrLocked(it)) },
+            onConstraintViolation = { ResetPasswordResult.DatabaseError(DbFailure.DuplicateOrConstraintViolation(it)) },
+            onUnexpectedDatabaseError = { ResetPasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
+        ) {
+            userDao.updatePasswordHash(existing.id, newHash)
+            ResetPasswordResult.Success
+        }
     }
 
     override suspend fun register(

@@ -334,6 +334,7 @@ fun WardrobeItemCard(
     compactGridMode: Boolean = false,
     isSelected: Boolean = false,
     actionButtonText: String? = null,
+    actionButtonEnabled: Boolean = true,
     onActionClick: (() -> Unit)? = null,
     onCardClick: (() -> Unit)? = null,
     onPhotoClick: (() -> Unit)? = null
@@ -513,6 +514,7 @@ fun WardrobeItemCard(
                 CloBleOutlinedButton(
                     text = actionButtonText,
                     onClick = onActionClick,
+                    enabled = actionButtonEnabled,
                     accessibilityLabel = "$actionButtonText $title"
                 )
             }

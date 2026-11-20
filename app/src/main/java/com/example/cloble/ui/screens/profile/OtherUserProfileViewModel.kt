@@ -80,11 +80,12 @@ class OtherUserProfileViewModel(
             val reviews = profileReviewRepository.observeUserReviews(targetUserId).firstOrNull() ?: emptyList()
 
             wardrobeRepository.observeUserPublicWardrobe(targetUserId).collect { itemSummaries ->
-                val items = itemSummaries.map { it.item }
                 val eligibleItems = if (isReplying) {
-                    items.filter { it.isBarterAllowed && it.status == com.example.cloble.domain.model.ItemStatus.AVAILABLE }
+                    itemSummaries
+                        .filter { !it.isInActiveMatch && it.item.isBarterAllowed && it.item.status == com.example.cloble.domain.model.ItemStatus.AVAILABLE }
+                        .map { it.item }
                 } else {
-                    items
+                    itemSummaries.map { it.item }
                 }
                 _uiState.update {
                     it.copy(

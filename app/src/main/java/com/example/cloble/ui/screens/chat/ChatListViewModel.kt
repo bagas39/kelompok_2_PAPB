@@ -6,14 +6,18 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
+import com.example.cloble.data.remote.SupabaseDataInvalidator
 import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -24,10 +28,12 @@ data class ChatListUiState(
     val currentUserId: Long? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ChatListViewModel(
     private val authRepository: AuthRepository,
     private val chatRepository: ChatRepository,
-    private val discoveryMatchRepository: DiscoveryMatchRepository
+    private val discoveryMatchRepository: DiscoveryMatchRepository,
+    private val dataInvalidator: SupabaseDataInvalidator? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatListUiState())
@@ -35,25 +41,34 @@ class ChatListViewModel(
 
     init {
         viewModelScope.launch {
-            val userId = authRepository.observeLoggedInUserId().firstOrNull()
-            if (userId != null) {
-                _uiState.update { it.copy(currentUserId = userId) }
-
-                launch {
-                    discoveryMatchRepository.observeUnreadNotificationCount(userId).collect { count ->
-                        _uiState.update { it.copy(unreadNotificationCount = count) }
-                    }
+            authRepository.observeLoggedInUserId()
+                .filterNotNull()
+                .distinctUntilChanged()
+                .flatMapLatest { userId ->
+                    _uiState.update { it.copy(currentUserId = userId) }
+                    chatRepository.observeChatThreads(userId)
                 }
-
-                launch {
-                    chatRepository.observeChatThreads(userId).collect { list ->
-                        _uiState.update { it.copy(threads = list, isLoading = false) }
-                    }
+                .collect { list ->
+                    _uiState.update { it.copy(threads = list, isLoading = false) }
                 }
-            } else {
-                _uiState.update { it.copy(isLoading = false) }
-            }
         }
+
+        viewModelScope.launch {
+            authRepository.observeLoggedInUserId()
+                .filterNotNull()
+                .distinctUntilChanged()
+                .flatMapLatest { userId ->
+                    discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                }
+                .collect { count ->
+                    _uiState.update { it.copy(unreadNotificationCount = count) }
+                }
+        }
+    }
+
+    fun refresh() {
+        dataInvalidator?.invalidateChat()
+        dataInvalidator?.invalidateNotifications()
     }
 
     companion object {
@@ -63,7 +78,8 @@ class ChatListViewModel(
                 ChatListViewModel(
                     authRepository = app.container.authRepository,
                     chatRepository = app.container.chatRepository,
-                    discoveryMatchRepository = app.container.discoveryMatchRepository
+                    discoveryMatchRepository = app.container.discoveryMatchRepository,
+                    dataInvalidator = app.container.dataInvalidator
                 )
             }
         }

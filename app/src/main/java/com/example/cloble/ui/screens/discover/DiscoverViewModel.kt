@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
+import com.example.cloble.data.remote.SupabaseDataInvalidator
 import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.repository.AuthRepository
@@ -28,6 +29,8 @@ data class DiscoverUiState(
     val candidates: List<DiscoverCandidate> = emptyList(),
     val currentIndex: Int = 0,
     val filter: DiscoverFilter = DiscoverFilter(),
+    val viewerCity: String = "",
+    val preferredRadiusKm: Int = 10,
     val unreadNotificationCount: Int = 0,
     val isLoading: Boolean = true,
     val bannerMessage: String? = null,
@@ -42,6 +45,9 @@ data class DiscoverUiState(
 
     val hasMoreCards: Boolean
         get() = currentIndex < candidates.size
+
+    val effectiveRadiusKm: Int
+        get() = filter.maxRadiusKm ?: preferredRadiusKm
 
     val activeFilterCount: Int
         get() = (if (filter.maxRadiusKm != null) 1 else 0) +
@@ -62,7 +68,8 @@ sealed interface DiscoverNavigationEvent {
 class DiscoverViewModel(
     private val authRepository: AuthRepository,
     private val discoveryMatchRepository: DiscoveryMatchRepository,
-    private val discoverFilterFlow: MutableStateFlow<DiscoverFilter> = MutableStateFlow(DiscoverFilter())
+    private val discoverFilterFlow: MutableStateFlow<DiscoverFilter> = MutableStateFlow(DiscoverFilter()),
+    private val dataInvalidator: SupabaseDataInvalidator? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DiscoverUiState(filter = discoverFilterFlow.value))
@@ -73,17 +80,28 @@ class DiscoverViewModel(
 
     init {
         viewModelScope.launch {
+            authRepository.observeCurrentUser().collect { user ->
+                if (user != null) {
+                    _uiState.update {
+                        it.copy(
+                            viewerCity = user.city,
+                            preferredRadiusKm = user.preferredRadiusKm
+                        )
+                    }
+                }
+            }
+        }
+
+        viewModelScope.launch {
             authRepository.observeLoggedInUserId()
                 .filterNotNull()
                 .distinctUntilChanged()
-                .collect { userId ->
+                .flatMapLatest { userId ->
                     _uiState.update { it.copy(currentUserId = userId) }
-                    launch {
-                        discoveryMatchRepository.observeUnreadNotificationCount(userId)
-                            .collect { count ->
-                                _uiState.update { it.copy(unreadNotificationCount = count) }
-                            }
-                    }
+                    discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                }
+                .collect { count ->
+                    _uiState.update { it.copy(unreadNotificationCount = count) }
                 }
         }
 
@@ -105,11 +123,13 @@ class DiscoverViewModel(
                 .collect { candidates ->
                     _uiState.update { current ->
                         val currentItem = current.currentCandidate
-                        val newIndex = if (currentItem != null) {
-                            val found = candidates.indexOfFirst { it.item.id == currentItem.item.id }
-                            if (found >= 0) found else minOf(current.currentIndex, candidates.size)
-                        } else {
-                            minOf(current.currentIndex, candidates.size)
+                        val newIndex = when {
+                            candidates.isEmpty() -> 0
+                            currentItem != null -> {
+                                val found = candidates.indexOfFirst { it.item.id == currentItem.item.id }
+                                if (found >= 0) found else current.currentIndex.coerceIn(0, candidates.lastIndex)
+                            }
+                            else -> 0
                         }
                         current.copy(
                             candidates = candidates,
@@ -121,6 +141,10 @@ class DiscoverViewModel(
         }
     }
 
+    fun refreshDiscover() {
+        dataInvalidator?.invalidateDiscovery()
+    }
+
     fun passCurrentCandidate() {
         val state = _uiState.value
         val candidate = state.currentCandidate ?: return
@@ -128,9 +152,12 @@ class DiscoverViewModel(
 
         viewModelScope.launch {
             discoveryMatchRepository.passCandidate(userId, candidate.item.id)
-            _uiState.update {
-                it.copy(
-                    currentIndex = it.currentIndex + 1,
+            _uiState.update { current ->
+                val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                current.copy(
+                    candidates = remaining,
+                    currentIndex = nextIdx,
                     bannerMessage = null,
                     requiresBarterItemCta = false
                 )
@@ -152,9 +179,12 @@ class DiscoverViewModel(
                     } else {
                         "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!"
                     }
-                    _uiState.update {
-                        it.copy(
-                            currentIndex = it.currentIndex + 1,
+                    _uiState.update { current ->
+                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                        current.copy(
+                            candidates = remaining,
+                            currentIndex = nextIdx,
                             bannerMessage = message,
                             requiresBarterItemCta = false
                         )
@@ -169,27 +199,36 @@ class DiscoverViewModel(
                     }
                 }
                 is SendInterestResult.AlreadyInterested -> {
-                    _uiState.update {
-                        it.copy(
-                            currentIndex = it.currentIndex + 1,
+                    _uiState.update { current ->
+                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                        current.copy(
+                            candidates = remaining,
+                            currentIndex = nextIdx,
                             bannerMessage = "Anda sudah pernah mengirim ketertarikan untuk pakaian ini (${result.existingStatus.name}).",
                             requiresBarterItemCta = false
                         )
                     }
                 }
                 is SendInterestResult.TargetItemNotEligible -> {
-                    _uiState.update {
-                        it.copy(
-                            currentIndex = it.currentIndex + 1,
+                    _uiState.update { current ->
+                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                        current.copy(
+                            candidates = remaining,
+                            currentIndex = nextIdx,
                             bannerMessage = "Pakaian ini sudah tidak tersedia untuk dibarter.",
                             requiresBarterItemCta = false
                         )
                     }
                 }
                 is SendInterestResult.CannotInterestOwnItem -> {
-                    _uiState.update {
-                        it.copy(
-                            currentIndex = it.currentIndex + 1,
+                    _uiState.update { current ->
+                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                        current.copy(
+                            candidates = remaining,
+                            currentIndex = nextIdx,
                             bannerMessage = "Pakaian ini adalah milik Anda sendiri.",
                             requiresBarterItemCta = false
                         )
@@ -226,7 +265,8 @@ class DiscoverViewModel(
                 DiscoverViewModel(
                     authRepository = app.container.authRepository,
                     discoveryMatchRepository = app.container.discoveryMatchRepository,
-                    discoverFilterFlow = app.container.discoverFilterFlow
+                    discoverFilterFlow = app.container.discoverFilterFlow,
+                    dataInvalidator = app.container.dataInvalidator
                 )
             }
         }
