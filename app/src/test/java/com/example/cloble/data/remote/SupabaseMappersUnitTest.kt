@@ -3,6 +3,7 @@ package com.example.cloble.data.remote
 import com.example.cloble.domain.model.ItemStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -140,6 +141,28 @@ class SupabaseMappersUnitTest {
         assertEquals("Kemeja linen krem", notif.targetItemName)
         assertEquals("https://example.com/photo.jpg", notif.counterpartPhotoUri)
         assertTrue(notif.canReplyToInterest)
+    }
+
+    @Test
+    fun parseNotification_otherItemsInActiveMatch_doNotBlockNewInterest() {
+        val notification = JSONObject("""
+            {
+              "id": 10, "userId": 1, "type": "INCOMING_INTEREST",
+              "interests": {
+                "id": 20, "senderUserId": 2, "status": "PENDING",
+                "users": {"id": 2, "name": "Naya"},
+                "clothing_items": {"id": 4, "status": "AVAILABLE", "isBarterAllowed": true}
+              }
+            }
+        """.trimIndent())
+
+        val available = SupabaseMappers.parseNotification(notification, activeItemIds = setOf(1L, 2L))
+        assertTrue(available.canReplyToInterest)
+        assertNull(available.disabledReasonText)
+
+        val locked = SupabaseMappers.parseNotification(notification, activeItemIds = setOf(1L, 2L, 4L))
+        assertFalse(locked.canReplyToInterest)
+        assertEquals("Pakaian sedang terikat dalam Match aktif", locked.disabledReasonText)
     }
 
     @Test

@@ -92,7 +92,6 @@ object SupabaseMappers {
     fun parseNotification(
         json: JSONObject,
         activeItemIds: Set<Long> = emptySet(),
-        activePartnerUserIds: Set<Long> = emptySet(),
         reviewedMatchIds: Set<Long> = emptySet()
     ): NotificationFeedItem {
         val typeStr = json.optString("type")
@@ -146,14 +145,12 @@ object SupabaseMappers {
         val isBarterAllowed = targetItemJson?.optBoolean("isBarterAllowed", true) ?: true
 
         val targetInActiveMatch = targetItemId != null && activeItemIds.contains(targetItemId)
-        val partnerAlreadyInActiveMatch = counterpartUserId != null && activePartnerUserIds.contains(counterpartUserId)
 
         val canReplyToInterest = (notifType == NotificationType.INCOMING_INTEREST) &&
                 (interestStatus == null || interestStatus == "PENDING") &&
                 (itemStatus == null || itemStatus == "AVAILABLE") &&
                 isBarterAllowed &&
                 !targetInActiveMatch &&
-                !partnerAlreadyInActiveMatch &&
                 (counterpartUserId != null)
 
         val disabledReasonText = when {
@@ -164,8 +161,6 @@ object SupabaseMappers {
                 "Pakaian sudah tidak tersedia"
             interestStatus == "PENDING" && targetInActiveMatch ->
                 "Pakaian sedang terikat dalam Match aktif"
-            interestStatus == "PENDING" && partnerAlreadyInActiveMatch ->
-                "Anda sudah memiliki Match aktif dengan pengguna ini"
             else -> null
         }
 
