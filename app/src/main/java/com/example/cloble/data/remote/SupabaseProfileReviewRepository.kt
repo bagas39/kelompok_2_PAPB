@@ -83,8 +83,8 @@ class SupabaseProfileReviewRepository(
             }
             .flowOn(Dispatchers.IO)
 
-    override suspend fun updatePreferences(userId: Long, prefs: UserPreferences) {
-        try {
+    override suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean {
+        return try {
             val body = JSONObject().apply {
                 put("preferredSize", prefs.preferredSize)
                 put("preferredGender", prefs.preferredGender)
@@ -96,7 +96,9 @@ class SupabaseProfileReviewRepository(
             client.patch("users?id=eq.$userId", body.toString())
             invalidator.invalidateUser()
             invalidator.invalidateDiscovery()
+            true
         } catch (_: Exception) {
+            false
         }
     }
 
@@ -190,8 +192,10 @@ class SupabaseProfileReviewRepository(
                 "INVALID_RATING" -> ReviewSubmitResult.InvalidRating
                 else -> ReviewSubmitResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal memberi review"))
             }
-        } catch (e: Exception) {
-            ReviewSubmitResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            ReviewSubmitResult.DatabaseError(
+                DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi ke server. Silakan coba lagi.")
+            )
         }
     }
 }

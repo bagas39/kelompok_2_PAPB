@@ -19,16 +19,21 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private val PRESET_RADII_KM = setOf(5, 10, 25, 50, 100)
+
 data class PreferencesUiState(
     val isOnboarding: Boolean = false,
     val selectedCity: String = CityPreset.BANDUNG.displayName,
     val selectedLatitude: Double = CityPreset.BANDUNG.latitude,
     val selectedLongitude: Double = CityPreset.BANDUNG.longitude,
     val selectedRadiusKm: Int = 10,
+    val isCustomRadius: Boolean = false,
+    val customRadiusText: String = "10",
     val selectedSize: String = "M",
     val selectedGender: String = "Uniseks",
     val isSaving: Boolean = false,
     val isSavedSuccess: Boolean = false,
+    val errorMessage: String? = null,
     val currentUserId: Long? = null
 )
 
@@ -54,6 +59,8 @@ class PreferencesViewModel(
                         selectedLatitude = user.latitude,
                         selectedLongitude = user.longitude,
                         selectedRadiusKm = user.preferredRadiusKm,
+                        isCustomRadius = user.preferredRadiusKm !in PRESET_RADII_KM,
+                        customRadiusText = user.preferredRadiusKm.toString(),
                         selectedSize = user.preferredSize,
                         selectedGender = user.preferredGender
                     )
@@ -67,40 +74,103 @@ class PreferencesViewModel(
             it.copy(
                 selectedCity = city,
                 selectedLatitude = latitude,
-                selectedLongitude = longitude
+                selectedLongitude = longitude,
+                errorMessage = null
             )
         }
     }
 
     fun onRadiusSelected(radiusKm: Int) {
-        _uiState.update { it.copy(selectedRadiusKm = radiusKm) }
+        _uiState.update {
+            it.copy(
+                selectedRadiusKm = radiusKm,
+                isCustomRadius = radiusKm !in PRESET_RADII_KM,
+                customRadiusText = if (radiusKm > 0) radiusKm.toString() else "",
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onCustomRadiusModeSelected() {
+        _uiState.update {
+            it.copy(
+                isCustomRadius = true,
+                customRadiusText = if (it.customRadiusText.isBlank() && it.selectedRadiusKm > 0) {
+                    it.selectedRadiusKm.toString()
+                } else {
+                    it.customRadiusText
+                },
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onCustomRadiusTextChanged(raw: String) {
+        val digits = raw.filter { it.isDigit() }.take(5)
+        val parsed = digits.toIntOrNull()
+        _uiState.update {
+            it.copy(
+                isCustomRadius = true,
+                customRadiusText = digits,
+                selectedRadiusKm = parsed ?: 0,
+                errorMessage = null
+            )
+        }
     }
 
     fun onSizeSelected(size: String) {
-        _uiState.update { it.copy(selectedSize = size) }
+        _uiState.update { it.copy(selectedSize = size, errorMessage = null) }
     }
 
     fun onGenderSelected(gender: String) {
-        _uiState.update { it.copy(selectedGender = gender) }
+        _uiState.update { it.copy(selectedGender = gender, errorMessage = null) }
     }
 
     fun savePreferences(onSuccess: () -> Unit) {
         val s = _uiState.value
         val userId = s.currentUserId ?: return
+        val cleanCity = s.selectedCity.trim()
+
+        if (cleanCity.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "Lokasi tidak boleh kosong.") }
+            return
+        }
+
+        val effectiveRadius = if (s.isCustomRadius) {
+            s.customRadiusText.toIntOrNull() ?: 0
+        } else {
+            s.selectedRadiusKm
+        }
+        if (effectiveRadius <= 0) {
+            _uiState.update {
+                it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+            }
+            return
+        }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true) }
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
             val prefs = UserPreferences(
                 preferredSize = s.selectedSize,
                 preferredGender = s.selectedGender,
-                city = s.selectedCity.trim(),
+                city = cleanCity,
                 latitude = s.selectedLatitude,
                 longitude = s.selectedLongitude,
-                preferredRadiusKm = s.selectedRadiusKm
+                preferredRadiusKm = effectiveRadius
             )
-            profileReviewRepository.updatePreferences(userId, prefs)
-            _uiState.update { it.copy(isSaving = false, isSavedSuccess = true) }
-            onSuccess()
+            val success = profileReviewRepository.updatePreferences(userId, prefs)
+            if (success) {
+                _uiState.update { it.copy(isSaving = false, isSavedSuccess = true, errorMessage = null) }
+                onSuccess()
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        isSavedSuccess = false,
+                        errorMessage = "Gagal menyimpan preferensi. Periksa koneksi internet Anda dan coba lagi."
+                    )
+                }
+            }
         }
     }
 

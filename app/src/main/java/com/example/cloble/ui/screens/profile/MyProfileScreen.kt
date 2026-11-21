@@ -95,6 +95,7 @@ fun MyProfileScreen(
                         icon = CloBleIcons.Bell,
                         contentDescription = "Notifikasi",
                         onClick = onNavigateToNotifications,
+                        showBadgeDot = uiState.unreadNotificationCount > 0,
                         testTag = "btn_notifications_from_profile"
                     )
                 )

@@ -33,7 +33,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,19 +84,7 @@ fun EditProfileScreen(
     }
 
     val sizeOptions = listOf("XS", "S", "M", "L", "XL", "XXL", "Semua")
-    val presetRadii = setOf(5, 10, 25, 50, 100)
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
-    var customRadiusMode by remember { mutableStateOf(false) }
-    var customRadiusText by remember { mutableStateOf(uiState.preferredRadiusKm.toString()) }
-
-    LaunchedEffect(uiState.preferredRadiusKm) {
-        if (uiState.preferredRadiusKm !in presetRadii) {
-            customRadiusMode = true
-            customRadiusText = uiState.preferredRadiusKm.toString()
-        } else if (!customRadiusMode) {
-            customRadiusText = uiState.preferredRadiusKm.toString()
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -400,39 +387,27 @@ fun EditProfileScreen(
                             CloBleChoiceChipRow(
                                 label = "Radius Pencarian Maksimum",
                                 options = radiusOptions,
-                                selectedOptions = if (customRadiusMode || uiState.preferredRadiusKm !in presetRadii) {
+                                selectedOptions = if (uiState.isCustomRadius) {
                                     setOf("Kustom")
                                 } else {
                                     setOf("${uiState.preferredRadiusKm} km")
                                 },
                                 onOptionClick = { label ->
                                     if (label == "Kustom") {
-                                        customRadiusMode = true
-                                        if (customRadiusText.isBlank()) {
-                                            customRadiusText = uiState.preferredRadiusKm.toString()
-                                        }
+                                        viewModel.onCustomRadiusModeSelected()
                                     } else {
-                                        customRadiusMode = false
                                         val km = label.replace(" km", "").toIntOrNull() ?: 10
-                                        customRadiusText = km.toString()
                                         viewModel.onPreferredRadiusSelected(km)
                                     }
                                 },
                                 modifier = Modifier.testTag("chips_edit_profile_radius")
                             )
 
-                            if (customRadiusMode || uiState.preferredRadiusKm !in presetRadii) {
+                            if (uiState.isCustomRadius) {
                                 CloBleLabeledTextField(
                                     label = "Radius Kustom (km)",
-                                    value = customRadiusText,
-                                    onValueChange = { raw ->
-                                        val digits = raw.filter { it.isDigit() }.take(5)
-                                        customRadiusText = digits
-                                        val parsed = digits.toIntOrNull()
-                                        if (parsed != null && parsed > 0) {
-                                            viewModel.onPreferredRadiusSelected(parsed)
-                                        }
-                                    },
+                                    value = uiState.customRadiusText,
+                                    onValueChange = viewModel::onCustomRadiusTextChanged,
                                     placeholder = "Contoh: 600",
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth(),

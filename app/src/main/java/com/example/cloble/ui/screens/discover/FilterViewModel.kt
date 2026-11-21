@@ -81,7 +81,7 @@ class FilterViewModel(
             if (current.isCustomRadius) {
                 current.copy(isCustomRadius = false, selectedRadiusKm = null)
             } else {
-                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }
+                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
                 current.copy(isCustomRadius = true, selectedRadiusKm = parsed)
             }
         }
@@ -89,7 +89,7 @@ class FilterViewModel(
 
     fun onCustomRadiusTextChanged(raw: String) {
         val digitsOnly = raw.filter { it.isDigit() }.take(5)
-        val parsed = digitsOnly.toIntOrNull()?.coerceIn(1, 20000)
+        val parsed = digitsOnly.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
         _uiState.update {
             it.copy(
                 isCustomRadius = true,
@@ -100,12 +100,13 @@ class FilterViewModel(
     }
 
     fun setRadius(radius: Int?) {
-        val isCustom = radius != null && !PRESET_RADII_KM.contains(radius)
+        val sanitized = radius?.takeIf { it > 0 }?.coerceAtMost(20000)
+        val isCustom = sanitized != null && !PRESET_RADII_KM.contains(sanitized)
         _uiState.update {
             it.copy(
-                selectedRadiusKm = radius,
+                selectedRadiusKm = sanitized,
                 isCustomRadius = isCustom,
-                customRadiusText = if (isCustom) radius.toString() else it.customRadiusText
+                customRadiusText = if (isCustom) sanitized.toString() else it.customRadiusText
             )
         }
     }
@@ -117,6 +118,15 @@ class FilterViewModel(
 
     fun applyFilter(): DiscoverFilter {
         val built = buildFilter()
+        if (_uiState.value.isCustomRadius && built.maxRadiusKm == null) {
+            _uiState.update {
+                it.copy(
+                    isCustomRadius = false,
+                    selectedRadiusKm = null,
+                    customRadiusText = ""
+                )
+            }
+        }
         discoverFilterFlow.value = built
         return built
     }
@@ -124,9 +134,9 @@ class FilterViewModel(
     fun buildFilter(): DiscoverFilter {
         val state = _uiState.value
         val effectiveRadius = if (state.isCustomRadius) {
-            state.customRadiusText.toIntOrNull()?.coerceIn(1, 20000)
+            state.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
         } else {
-            state.selectedRadiusKm
+            state.selectedRadiusKm?.takeIf { it > 0 }
         }
         return DiscoverFilter(
             selectedSizes = state.selectedSizes,

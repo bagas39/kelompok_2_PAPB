@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -163,20 +164,21 @@ fun AddEditClothingScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            val canModifyPhotos = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving
                             ClothingPhotoSlot(
                                 label = "Foto Utama",
                                 imageModel = uiState.mainPhotoUri,
                                 onClick = {
                                     if (!uiState.mainPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.mainPhotoUri)
-                                    } else if (!uiState.isLockedInActiveMatch) {
+                                    } else if (canModifyPhotos) {
                                         activeSlotIndex = 0
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.mainPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(0) } } else null,
+                                onRemoveClick = if (uiState.mainPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(0) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_main")
@@ -187,14 +189,14 @@ fun AddEditClothingScreen(
                                 onClick = {
                                     if (!uiState.detailPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.detailPhotoUri)
-                                    } else if (!uiState.isLockedInActiveMatch) {
+                                    } else if (canModifyPhotos) {
                                         activeSlotIndex = 1
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.detailPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(1) } } else null,
+                                onRemoveClick = if (uiState.detailPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(1) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_detail")
@@ -205,24 +207,45 @@ fun AddEditClothingScreen(
                                 onClick = {
                                     if (!uiState.extraPhotoUri.isNullOrBlank()) {
                                         openFullscreenForSlot(uiState.extraPhotoUri)
-                                    } else if (!uiState.isLockedInActiveMatch) {
+                                    } else if (canModifyPhotos) {
                                         activeSlotIndex = 2
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     }
                                 },
-                                onRemoveClick = if (uiState.extraPhotoUri != null && !uiState.isLockedInActiveMatch) { { viewModel.onRemovePhoto(2) } } else null,
+                                onRemoveClick = if (uiState.extraPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(2) } } else null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("photo_slot_extra")
                             )
                         }
 
+                        if (uiState.isUploadingPhoto) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("photo_upload_loading"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = CloBleColors.Primary
+                                )
+                                Text(
+                                    text = "Mengunggah foto pakaian...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary
+                                )
+                            }
+                        }
+
                         CloBleOutlinedButton(
-                            text = "Ubah / Tambah Foto",
+                            text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Ubah / Tambah Foto",
                             leadingIcon = CloBleIcons.Camera,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving,
                             onClick = {
                                 activeSlotIndex = when {
                                     uiState.mainPhotoUri == null -> 0
@@ -370,7 +393,7 @@ fun AddEditClothingScreen(
                     CloBlePrimaryButton(
                         text = if (uiState.isEditMode) "Simpan Perubahan" else "Simpan ke Lemari",
                         onClick = { viewModel.save(onSaveSuccess) },
-                        enabled = !uiState.isLockedInActiveMatch,
+                        enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("btn_save_clothing")
@@ -379,7 +402,7 @@ fun AddEditClothingScreen(
                     if (uiState.isEditMode) {
                         TextButton(
                             onClick = viewModel::requestDelete,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("btn_delete_clothing")
@@ -387,7 +410,7 @@ fun AddEditClothingScreen(
                             Text(
                                 text = "Hapus Pakaian Ini",
                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (uiState.isLockedInActiveMatch) CloBleColors.Outline else CloBleColors.DangerText
+                                color = if (uiState.isLockedInActiveMatch || uiState.isUploadingPhoto) CloBleColors.Outline else CloBleColors.DangerText
                             )
                         }
                     }

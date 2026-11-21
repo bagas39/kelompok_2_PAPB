@@ -45,16 +45,21 @@ class LocalProfileReviewRepository(
         return reviewDao.hasReviewedFlow(matchId, reviewerId).map { count -> count > 0 }
     }
 
-    override suspend fun updatePreferences(userId: Long, prefs: UserPreferences) {
-        userDao.updatePreferences(
-            userId = userId,
-            preferredSize = prefs.preferredSize,
-            preferredGender = prefs.preferredGender,
-            city = prefs.city,
-            latitude = prefs.latitude,
-            longitude = prefs.longitude,
-            preferredRadiusKm = prefs.preferredRadiusKm
-        )
+    override suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean {
+        return try {
+            userDao.updatePreferences(
+                userId = userId,
+                preferredSize = prefs.preferredSize,
+                preferredGender = prefs.preferredGender,
+                city = prefs.city,
+                latitude = prefs.latitude,
+                longitude = prefs.longitude,
+                preferredRadiusKm = prefs.preferredRadiusKm
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     override suspend fun updateBio(userId: Long, bio: String) {

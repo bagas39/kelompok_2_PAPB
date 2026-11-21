@@ -10,6 +10,7 @@ import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.model.UserReview
 import com.example.cloble.domain.model.WardrobeItemSummary
 import com.example.cloble.domain.repository.AuthRepository
+import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.ChangePasswordResult
@@ -17,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -26,6 +28,7 @@ data class MyProfileUiState(
     val userProfile: UserProfile? = null,
     val reviews: List<UserReview> = emptyList(),
     val wardrobePreview: List<WardrobeItemSummary> = emptyList(),
+    val unreadNotificationCount: Int = 0,
     val isLoading: Boolean = true,
     val showChangePasswordDialog: Boolean = false,
     val currentPassword: String = "",
@@ -40,7 +43,8 @@ data class MyProfileUiState(
 class MyProfileViewModel(
     private val authRepository: AuthRepository,
     private val profileReviewRepository: ProfileReviewRepository,
-    private val wardrobeRepository: WardrobeRepository
+    private val wardrobeRepository: WardrobeRepository,
+    private val discoveryMatchRepository: DiscoveryMatchRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MyProfileUiState())
@@ -74,6 +78,18 @@ class MyProfileViewModel(
             }.collect { items ->
                 _uiState.update { it.copy(wardrobePreview = items.take(4)) }
             }
+        }
+
+        viewModelScope.launch {
+            authRepository.observeLoggedInUserId()
+                .distinctUntilChanged()
+                .flatMapLatest { userId ->
+                    if (userId == null) flowOf(0)
+                    else discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                }
+                .collect { count ->
+                    _uiState.update { it.copy(unreadNotificationCount = count) }
+                }
         }
     }
 
@@ -192,7 +208,8 @@ class MyProfileViewModel(
                 MyProfileViewModel(
                     authRepository = app.container.authRepository,
                     profileReviewRepository = app.container.profileReviewRepository,
-                    wardrobeRepository = app.container.wardrobeRepository
+                    wardrobeRepository = app.container.wardrobeRepository,
+                    discoveryMatchRepository = app.container.discoveryMatchRepository
                 )
             }
         }
