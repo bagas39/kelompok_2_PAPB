@@ -49,14 +49,12 @@ class SupabaseDiscoveryMatchRepository(
 
     private data class ActiveMatchContext(
         val activeItemIds: Set<Long>,
-        val otherActiveItemIds: Set<Long>,
-        val activePartnerUserIds: Set<Long>
+        val otherActiveItemIds: Set<Long>
     )
 
     private suspend fun fetchActiveMatchContext(): ActiveMatchContext {
         val activeItems = mutableSetOf<Long>()
         val otherActiveItems = mutableSetOf<Long>()
-        val activePartners = mutableSetOf<Long>()
         try {
             val ctx = client.rpc("rpc_get_active_match_context", JSONObject())
             ctx.optJSONArray("activeItemIds")?.let { arr ->
@@ -71,15 +69,9 @@ class SupabaseDiscoveryMatchRepository(
                     if (id > 0L) otherActiveItems.add(id)
                 }
             }
-            ctx.optJSONArray("activePartnerUserIds")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val id = arr.optLong(i)
-                    if (id > 0L) activePartners.add(id)
-                }
-            }
         } catch (_: Exception) {
         }
-        return ActiveMatchContext(activeItems, otherActiveItems, activePartners)
+        return ActiveMatchContext(activeItems, otherActiveItems)
     }
 
     override fun observeDiscoverCandidates(
@@ -110,7 +102,6 @@ class SupabaseDiscoveryMatchRepository(
 
             val matchContext = fetchActiveMatchContext()
             val activeItemIds = matchContext.activeItemIds
-            val activePartnerUserIds = matchContext.activePartnerUserIds
 
             val passesArr = client.getJsonArray("swipe_passes?userId=eq.$viewerUserId&select=targetItemId")
             val passedItemIds = mutableSetOf<Long>()
@@ -185,7 +176,6 @@ class SupabaseDiscoveryMatchRepository(
 
                 val ownerJson = raw.optJSONObject("users") ?: JSONObject()
                 val ownerId = ownerJson.optLong("id", raw.optLong("ownerId"))
-                if (activePartnerUserIds.contains(ownerId)) continue
                 val ownerCity = ownerJson.optString("city", "Bandung")
                 val (ownerLat, ownerLon) = DistanceCalculator.resolveEffectiveCoordinates(
                     city = ownerCity,
@@ -443,7 +433,6 @@ class SupabaseDiscoveryMatchRepository(
                     SupabaseMappers.parseNotification(
                         json = arr.getJSONObject(i),
                         activeItemIds = ctx.activeItemIds,
-                        activePartnerUserIds = ctx.activePartnerUserIds,
                         reviewedMatchIds = reviewedMatchIds
                     )
                 )

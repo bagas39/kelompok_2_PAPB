@@ -227,7 +227,7 @@ class ItemDetailViewModel(
                     _uiState.update {
                         it.copy(
                             isSendingInterest = false,
-                            errorMessage = "Anda sedang memiliki Match aktif dengan pemilik pakaian ini. Selesaikan atau batalkan Match tersebut terlebih dahulu.",
+                            errorMessage = "Pasangan pakaian ini sudah memiliki pertukaran aktif atau sudah selesai ditukar.",
                             requiresBarterItemCta = false
                         )
                     }
