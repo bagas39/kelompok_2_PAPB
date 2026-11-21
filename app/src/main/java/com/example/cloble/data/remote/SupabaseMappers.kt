@@ -89,7 +89,12 @@ object SupabaseMappers {
         )
     }
 
-    fun parseNotification(json: JSONObject): NotificationFeedItem {
+    fun parseNotification(
+        json: JSONObject,
+        activeItemIds: Set<Long> = emptySet(),
+        activePartnerUserIds: Set<Long> = emptySet(),
+        reviewedMatchIds: Set<Long> = emptySet()
+    ): NotificationFeedItem {
         val typeStr = json.optString("type")
         val notifType = try {
             NotificationType.valueOf(typeStr)
@@ -104,6 +109,14 @@ object SupabaseMappers {
 
         val relatedInterestId = json.optLongOrNull("relatedInterestId") ?: interestJson?.optLongOrNull("id")
         val relatedMatchId = json.optLongOrNull("relatedMatchId") ?: matchJson?.optLongOrNull("id")
+        val matchStatus = matchJson?.optStringOrNull("status")?.let { statusStr ->
+            try {
+                MatchStatus.valueOf(statusStr)
+            } catch (_: Exception) {
+                null
+            }
+        }
+        val hasReviewedMatch = relatedMatchId != null && reviewedMatchIds.contains(relatedMatchId)
 
         var counterpartUserId: Long? = senderJson?.optLongOrNull("id") ?: interestJson?.optLongOrNull("senderUserId")
         var counterpartName: String? = senderJson?.optStringOrNull("name")
@@ -132,17 +145,27 @@ object SupabaseMappers {
         val itemStatus = targetItemJson?.optStringOrNull("status")
         val isBarterAllowed = targetItemJson?.optBoolean("isBarterAllowed", true) ?: true
 
+        val targetInActiveMatch = targetItemId != null && activeItemIds.contains(targetItemId)
+        val partnerAlreadyInActiveMatch = counterpartUserId != null && activePartnerUserIds.contains(counterpartUserId)
+
         val canReplyToInterest = (notifType == NotificationType.INCOMING_INTEREST) &&
                 (interestStatus == null || interestStatus == "PENDING") &&
                 (itemStatus == null || itemStatus == "AVAILABLE") &&
                 isBarterAllowed &&
+                !targetInActiveMatch &&
+                !partnerAlreadyInActiveMatch &&
                 (counterpartUserId != null)
 
-        val disabledReasonText = when (interestStatus) {
-            "ACCEPTED_MATCHED" -> "Sudah terhubung dalam Match"
-            "RESOLVED_BY_MATCH" -> "Diselesaikan melalui Match pasangan"
-            "DECLINED" -> "Tawaran telah ditolak"
-            "INVALIDATED" -> "Pakaian sudah tidak tersedia"
+        val disabledReasonText = when {
+            interestStatus == "ACCEPTED_MATCHED" -> "Sudah terhubung dalam Match"
+            interestStatus == "RESOLVED_BY_MATCH" -> "Diselesaikan melalui Match pasangan"
+            interestStatus == "DECLINED" -> "Tawaran telah ditolak"
+            interestStatus == "INVALIDATED" || (itemStatus != null && itemStatus != "AVAILABLE") || !isBarterAllowed ->
+                "Pakaian sudah tidak tersedia"
+            interestStatus == "PENDING" && targetInActiveMatch ->
+                "Pakaian sedang terikat dalam Match aktif"
+            interestStatus == "PENDING" && partnerAlreadyInActiveMatch ->
+                "Anda sudah memiliki Match aktif dengan pengguna ini"
             else -> null
         }
 
@@ -162,7 +185,9 @@ object SupabaseMappers {
             counterpartName = counterpartName,
             counterpartPhotoUri = counterpartPhotoUri,
             targetItemId = targetItemId,
-            targetItemName = targetItemName
+            targetItemName = targetItemName,
+            matchStatus = matchStatus,
+            hasReviewedMatch = hasReviewedMatch
         )
     }
 

@@ -519,7 +519,7 @@ fun MyProfileScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Masukkan password baru untuk akun Anda (minimal 6 karakter).",
+                        text = "Verifikasi password saat ini dan masukkan password baru (minimal 6 karakter).",
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary
                     )
@@ -533,6 +533,17 @@ fun MyProfileScreen(
                                 .testTag("change_password_error_box")
                         )
                     }
+                    CloBleLabeledTextField(
+                        label = "Password Saat Ini",
+                        value = uiState.currentPassword,
+                        onValueChange = viewModel::onCurrentPasswordChanged,
+                        placeholder = "Masukkan password saat ini",
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        enabled = !uiState.isUpdatingPassword,
+                        modifier = Modifier.fillMaxWidth(),
+                        inputTestTag = "input_profile_current_password"
+                    )
                     CloBleLabeledTextField(
                         label = "Password Baru",
                         value = uiState.newPassword,

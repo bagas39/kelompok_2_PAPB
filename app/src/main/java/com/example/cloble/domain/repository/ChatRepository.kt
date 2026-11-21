@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
     fun observeChatThreads(userId: Long): Flow<List<ChatThreadSummary>>
+    fun observePartnerMatches(userId: Long, partnerUserId: Long): Flow<List<ChatThreadSummary>>
     fun observeMessages(matchId: Long, viewerUserId: Long): Flow<List<ChatMessage>>
 
     suspend fun sendMessage(matchId: Long, senderId: Long, text: String): SendMessageResult

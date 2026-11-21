@@ -439,6 +439,29 @@ fun ItemDetailScreen(
                             enabled = false,
                             modifier = Modifier.fillMaxWidth()
                         )
+                    } else if (uiState.canReofferAfterCancelled) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CloBlePrimaryButton(
+                                text = if (uiState.isSendingInterest) "Mengirim Tawaran..." else "Tawar Ulang Barter",
+                                onClick = viewModel::sendInterest,
+                                enabled = !uiState.isSendingInterest,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_send_interest_from_detail")
+                            )
+                            if (matchId != null) {
+                                CloBleOutlinedButton(
+                                    text = "Lihat Riwayat Match Dibatalkan",
+                                    onClick = { onNavigateToMatch(matchId) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("btn_view_match_from_detail")
+                                )
+                            }
+                        }
                     } else if (matchId != null) {
                         CloBlePrimaryButton(
                             text = "Lihat Match",

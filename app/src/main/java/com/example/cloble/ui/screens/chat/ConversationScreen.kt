@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -253,6 +254,45 @@ fun ConversationScreen(
                                                 null
                                             }
                                         )
+                                    }
+                                }
+
+                                if (uiState.partnerMatches.size > 1) {
+                                    LazyRow(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("conversation_match_history_selector"),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(uiState.partnerMatches, key = { it.matchId }) { item ->
+                                            val isSelected = item.matchId == uiState.activeMatchId
+                                            val prefix = when (item.status) {
+                                                MatchStatus.ACTIVE -> "Aktif"
+                                                MatchStatus.COMPLETED -> "Selesai"
+                                                MatchStatus.CANCELLED -> "Batal"
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(99.dp),
+                                                color = if (isSelected) CloBleColors.Primary else CloBleColors.SecondarySurface,
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isSelected) CloBleColors.Primary else CloBleColors.Outline
+                                                ),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(99.dp))
+                                                    .clickable { viewModel.selectMatch(item.matchId) }
+                                                    .testTag("match_selector_chip_${item.matchId}")
+                                            ) {
+                                                Text(
+                                                    text = "$prefix · ${item.myItemName} - ${item.partnerItemName}",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 

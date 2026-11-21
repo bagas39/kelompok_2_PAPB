@@ -14,6 +14,7 @@ import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
 import com.example.cloble.domain.result.DbFailure
+import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.util.DistanceCalculator
@@ -30,6 +31,41 @@ class SupabaseDiscoveryMatchRepository(
     private val invalidator: SupabaseDataInvalidator,
     private val realtimeClient: SupabaseRealtimeClient? = null
 ) : DiscoveryMatchRepository {
+
+    private data class ActiveMatchContext(
+        val activeItemIds: Set<Long>,
+        val otherActiveItemIds: Set<Long>,
+        val activePartnerUserIds: Set<Long>
+    )
+
+    private suspend fun fetchActiveMatchContext(): ActiveMatchContext {
+        val activeItems = mutableSetOf<Long>()
+        val otherActiveItems = mutableSetOf<Long>()
+        val activePartners = mutableSetOf<Long>()
+        try {
+            val ctx = client.rpc("rpc_get_active_match_context", JSONObject())
+            ctx.optJSONArray("activeItemIds")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val id = arr.optLong(i)
+                    if (id > 0L) activeItems.add(id)
+                }
+            }
+            ctx.optJSONArray("otherActiveItemIds")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val id = arr.optLong(i)
+                    if (id > 0L) otherActiveItems.add(id)
+                }
+            }
+            ctx.optJSONArray("activePartnerUserIds")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val id = arr.optLong(i)
+                    if (id > 0L) activePartners.add(id)
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return ActiveMatchContext(activeItems, otherActiveItems, activePartners)
+    }
 
     override fun observeDiscoverCandidates(
         viewerUserId: Long,
@@ -57,13 +93,9 @@ class SupabaseDiscoveryMatchRepository(
             val prefRadius = viewerJson.optInt("preferredRadiusKm", 10)
             val maxRadius = filter.maxRadiusKm ?: prefRadius
 
-            val activeMatchesArr = client.getJsonArray("matches?status=eq.ACTIVE&select=user1ItemId,user2ItemId")
-            val activeItemIds = mutableSetOf<Long>()
-            for (i in 0 until activeMatchesArr.length()) {
-                val m = activeMatchesArr.getJSONObject(i)
-                activeItemIds.add(m.optLong("user1ItemId"))
-                activeItemIds.add(m.optLong("user2ItemId"))
-            }
+            val matchContext = fetchActiveMatchContext()
+            val activeItemIds = matchContext.activeItemIds
+            val activePartnerUserIds = matchContext.activePartnerUserIds
 
             val passesArr = client.getJsonArray("swipe_passes?userId=eq.$viewerUserId&select=targetItemId")
             val passedItemIds = mutableSetOf<Long>()
@@ -71,10 +103,39 @@ class SupabaseDiscoveryMatchRepository(
                 passedItemIds.add(passesArr.getJSONObject(i).optLong("targetItemId"))
             }
 
-            val interestsArr = client.getJsonArray("interests?senderUserId=eq.$viewerUserId&select=targetItemId")
+            val myMatchesArr = try {
+                client.getJsonArray(
+                    "matches?or=(user1Id.eq.$viewerUserId,user2Id.eq.$viewerUserId)&select=id,sourceInterestId,user1ItemId,user2ItemId,status"
+                )
+            } catch (_: Exception) {
+                org.json.JSONArray()
+            }
+            val nonCancelledMatchSourceIds = mutableSetOf<Long>()
+            val nonCancelledMatchItemIds = mutableSetOf<Long>()
+            for (i in 0 until myMatchesArr.length()) {
+                val m = myMatchesArr.getJSONObject(i)
+                val status = m.optString("status")
+                if (status == "ACTIVE" || status == "COMPLETED") {
+                    nonCancelledMatchSourceIds.add(m.optLong("sourceInterestId"))
+                    nonCancelledMatchItemIds.add(m.optLong("user1ItemId"))
+                    nonCancelledMatchItemIds.add(m.optLong("user2ItemId"))
+                }
+            }
+
+            val interestsArr = client.getJsonArray("interests?senderUserId=eq.$viewerUserId&select=id,targetItemId,status")
             val interestedItemIds = mutableSetOf<Long>()
             for (i in 0 until interestsArr.length()) {
-                interestedItemIds.add(interestsArr.getJSONObject(i).optLong("targetItemId"))
+                val row = interestsArr.getJSONObject(i)
+                val iid = row.optLong("id")
+                val targetId = row.optLong("targetItemId")
+                val status = row.optString("status")
+                val stillBlocking = status == "PENDING" ||
+                        status == "DECLINED" ||
+                        ((status == "ACCEPTED_MATCHED" || status == "RESOLVED_BY_MATCH") &&
+                                (nonCancelledMatchSourceIds.contains(iid) || nonCancelledMatchItemIds.contains(targetId)))
+                if (stillBlocking) {
+                    interestedItemIds.add(targetId)
+                }
             }
 
             val rawItemsArr = client.getJsonArray(
@@ -109,6 +170,7 @@ class SupabaseDiscoveryMatchRepository(
 
                 val ownerJson = raw.optJSONObject("users") ?: JSONObject()
                 val ownerId = ownerJson.optLong("id", raw.optLong("ownerId"))
+                if (activePartnerUserIds.contains(ownerId)) continue
                 val ownerCity = ownerJson.optString("city", "Bandung")
                 val (ownerLat, ownerLon) = DistanceCalculator.resolveEffectiveCoordinates(
                     city = ownerCity,
@@ -244,12 +306,30 @@ class SupabaseDiscoveryMatchRepository(
 
     private suspend fun fetchNotifications(userId: Long): List<NotificationFeedItem> {
         return try {
+            val ctx = fetchActiveMatchContext()
+            val reviewedMatchIds = mutableSetOf<Long>()
+            try {
+                val revArr = client.getJsonArray("reviews?reviewerId=eq.$userId&select=matchId")
+                for (i in 0 until revArr.length()) {
+                    val mid = revArr.getJSONObject(i).optLong("matchId")
+                    if (mid > 0L) reviewedMatchIds.add(mid)
+                }
+            } catch (_: Exception) {
+            }
+
             val arr = client.getJsonArray(
                 "notifications?userId=eq.$userId&select=*,interests:relatedInterestId(*,users:senderUserId(id,name),clothing_items:targetItemId(id,name,status,isBarterAllowed,mainPhotoUri)),matches:relatedMatchId(*,user1:user1Id(id,name),user2:user2Id(id,name))&order=createdAt.desc"
             )
             val list = mutableListOf<NotificationFeedItem>()
             for (i in 0 until arr.length()) {
-                list.add(SupabaseMappers.parseNotification(arr.getJSONObject(i)))
+                list.add(
+                    SupabaseMappers.parseNotification(
+                        json = arr.getJSONObject(i),
+                        activeItemIds = ctx.activeItemIds,
+                        activePartnerUserIds = ctx.activePartnerUserIds,
+                        reviewedMatchIds = reviewedMatchIds
+                    )
+                )
             }
             list
         } catch (_: Exception) {
@@ -285,25 +365,12 @@ class SupabaseDiscoveryMatchRepository(
             )
             val myMatchesArr = try {
                 client.getJsonArray(
-                    "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=id,sourceInterestId,user1Id,user2Id,user1ItemId,user2ItemId,status&order=updatedAt.desc"
+                    "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=id,sourceInterestId,user1Id,user2Id,user1ItemId,user2ItemId,status,createdAt&order=updatedAt.desc"
                 )
             } catch (_: Exception) {
                 org.json.JSONArray()
             }
-            val activeOtherItemIds = mutableSetOf<Long>()
-            try {
-                val activeArr = client.getJsonArray("matches?status=eq.ACTIVE&select=user1Id,user2Id,user1ItemId,user2ItemId")
-                for (i in 0 until activeArr.length()) {
-                    val m = activeArr.getJSONObject(i)
-                    val u1 = m.optLong("user1Id")
-                    val u2 = m.optLong("user2Id")
-                    if (u1 != userId && u2 != userId) {
-                        activeOtherItemIds.add(m.optLong("user1ItemId"))
-                        activeOtherItemIds.add(m.optLong("user2ItemId"))
-                    }
-                }
-            } catch (_: Exception) {
-            }
+            val otherActiveItemIds = fetchActiveMatchContext().otherActiveItemIds
 
             val list = mutableListOf<OutgoingInterestSummary>()
             for (i in 0 until arr.length()) {
@@ -341,14 +408,7 @@ class SupabaseDiscoveryMatchRepository(
                 if (resolvedMatchId == null && (interestStatus == InterestStatus.ACCEPTED_MATCHED || interestStatus == InterestStatus.RESOLVED_BY_MATCH)) {
                     for (j in 0 until myMatchesArr.length()) {
                         val mm = myMatchesArr.getJSONObject(j)
-                        val mUser1 = mm.optLong("user1Id")
-                        val mUser2 = mm.optLong("user2Id")
-                        val mItem1 = mm.optLong("user1ItemId")
-                        val mItem2 = mm.optLong("user2ItemId")
-                        val matchesBySource = mm.optLong("sourceInterestId") == interestId
-                        val matchesByItemAndOwner = (mItem1 == targetItemId || mItem2 == targetItemId) &&
-                                ((mUser1 == userId && mUser2 == ownerId) || (mUser2 == userId && mUser1 == ownerId))
-                        if (matchesBySource || matchesByItemAndOwner) {
+                        if (mm.optLong("sourceInterestId") == interestId) {
                             resolvedMatchId = mm.optLong("id")
                             resolvedMatchStatus = try {
                                 MatchStatus.valueOf(mm.optString("status", "ACTIVE"))
@@ -358,13 +418,38 @@ class SupabaseDiscoveryMatchRepository(
                             break
                         }
                     }
+                    if (resolvedMatchId == null) {
+                        val interestCreatedAt = raw.optLong("createdAt")
+                        var bestScore = Long.MAX_VALUE
+                        for (j in 0 until myMatchesArr.length()) {
+                            val mm = myMatchesArr.getJSONObject(j)
+                            val mUser1 = mm.optLong("user1Id")
+                            val mUser2 = mm.optLong("user2Id")
+                            val mItem1 = mm.optLong("user1ItemId")
+                            val mItem2 = mm.optLong("user2ItemId")
+                            val matchesByItemAndOwner = (mItem1 == targetItemId || mItem2 == targetItemId) &&
+                                    ((mUser1 == userId && mUser2 == ownerId) || (mUser2 == userId && mUser1 == ownerId))
+                            if (matchesByItemAndOwner) {
+                                val diff = kotlin.math.abs(mm.optLong("createdAt") - interestCreatedAt)
+                                if (diff < bestScore) {
+                                    bestScore = diff
+                                    resolvedMatchId = mm.optLong("id")
+                                    resolvedMatchStatus = try {
+                                        MatchStatus.valueOf(mm.optString("status", "ACTIVE"))
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 val isLockedByOther = resolvedMatchId == null && (
                         interestStatus == InterestStatus.RESOLVED_BY_MATCH ||
                                 interestStatus == InterestStatus.INVALIDATED ||
                                 itemStatus != ItemStatus.AVAILABLE ||
-                                activeOtherItemIds.contains(targetItemId)
+                                otherActiveItemIds.contains(targetItemId)
                         )
 
                 list.add(
@@ -393,16 +478,7 @@ class SupabaseDiscoveryMatchRepository(
             val arr = client.getJsonArray(
                 "swipe_passes?userId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(*))&order=createdAt.desc"
             )
-            val activeItemIds = mutableSetOf<Long>()
-            try {
-                val activeMatchesArr = client.getJsonArray("matches?status=eq.ACTIVE&select=user1ItemId,user2ItemId")
-                for (i in 0 until activeMatchesArr.length()) {
-                    val m = activeMatchesArr.getJSONObject(i)
-                    activeItemIds.add(m.optLong("user1ItemId"))
-                    activeItemIds.add(m.optLong("user2ItemId"))
-                }
-            } catch (_: Exception) {
-            }
+            val activeItemIds = fetchActiveMatchContext().activeItemIds
 
             val list = mutableListOf<PassedClothingSummary>()
             for (i in 0 until arr.length()) {
@@ -469,6 +545,7 @@ class SupabaseDiscoveryMatchRepository(
                 "TARGET_ITEM_NOT_FOUND" -> SendInterestResult.TargetItemNotFound
                 "CANNOT_INTEREST_OWN_ITEM" -> SendInterestResult.CannotInterestOwnItem
                 "TARGET_ITEM_NOT_ELIGIBLE" -> SendInterestResult.TargetItemNotEligible
+                "PAIR_ALREADY_MATCHED" -> SendInterestResult.PairAlreadyMatched
                 else -> SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Aksi gagal"))
             }
         } catch (e: Exception) {
@@ -559,6 +636,31 @@ class SupabaseDiscoveryMatchRepository(
             }
         } catch (e: Exception) {
             RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        }
+    }
+
+    override suspend fun declineIncomingInterest(
+        actorUserId: Long,
+        interestId: Long
+    ): DeclineInterestResult {
+        return try {
+            val params = JSONObject().apply {
+                put("p_actor_user_id", actorUserId)
+                put("p_interest_id", interestId)
+                put("p_now_millis", System.currentTimeMillis())
+            }
+            val res = client.rpc("rpc_decline_incoming_interest", params)
+            when (res.optString("code")) {
+                "SUCCESS" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    DeclineInterestResult.Success
+                }
+                "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> DeclineInterestResult.InterestAlreadyProcessedOrInvalid
+                else -> DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Tolak tawaran gagal"))
+            }
+        } catch (e: Exception) {
+            DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
         }
     }
 

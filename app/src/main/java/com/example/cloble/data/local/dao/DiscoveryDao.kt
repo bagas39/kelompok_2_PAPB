@@ -34,6 +34,11 @@ interface DiscoveryDao {
           AND c.id NOT IN (
             SELECT targetItemId FROM swipe_passes WHERE userId = :viewerUserId
           )
+          AND c.ownerId NOT IN (
+            SELECT user2Id FROM matches WHERE status = 'ACTIVE' AND user1Id = :viewerUserId
+            UNION
+            SELECT user1Id FROM matches WHERE status = 'ACTIVE' AND user2Id = :viewerUserId
+          )
           AND NOT EXISTS (
             SELECT 1 FROM interests i WHERE i.senderUserId = :viewerUserId AND i.targetItemId = c.id
           )

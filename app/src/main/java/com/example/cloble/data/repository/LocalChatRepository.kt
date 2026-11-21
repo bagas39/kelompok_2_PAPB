@@ -25,6 +25,16 @@ class LocalChatRepository(
         }
     }
 
+    override fun observePartnerMatches(
+        userId: Long,
+        partnerUserId: Long
+    ): Flow<List<ChatThreadSummary>> {
+        return chatDao.getChatThreadsFlow(userId).map { rows ->
+            rows.map { EntityMappers.toDomainChatThread(it) }
+                .filter { it.partnerUserId == partnerUserId }
+        }
+    }
+
     override fun observeMessages(
         matchId: Long,
         viewerUserId: Long

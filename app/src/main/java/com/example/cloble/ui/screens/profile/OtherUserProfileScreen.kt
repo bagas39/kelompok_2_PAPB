@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -55,6 +58,7 @@ import java.util.Locale
 fun OtherUserProfileScreen(
     onNavigateBack: () -> Unit,
     onNavigateToMatched: (Long) -> Unit,
+    onNavigateToItemDetail: (Long) -> Unit = {},
     viewModel: OtherUserProfileViewModel = viewModel(factory = OtherUserProfileViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -83,18 +87,27 @@ fun OtherUserProfileScreen(
                     border = BorderStroke(1.dp, CloBleColors.Outline),
                     color = CloBleColors.Surface
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        CloBlePrimaryButton(
-                            text = if (uiState.isSubmitting) "Memproses..." else "Terima & Buat Match",
-                            onClick = viewModel::acceptInterestAndCreateMatch,
-                            enabled = uiState.selectedItemId != null && !uiState.isSubmitting,
+                        CloBleOutlinedButton(
+                            text = if (uiState.isDeclining) "Menolak..." else "Tolak Tawaran",
+                            onClick = viewModel::openDeclineDialog,
+                            enabled = !uiState.isSubmitting && !uiState.isDeclining,
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .weight(1f)
+                                .testTag("btn_decline_interest")
+                        )
+                        CloBlePrimaryButton(
+                            text = if (uiState.isSubmitting) "Memproses..." else "Terima & Match",
+                            onClick = viewModel::acceptInterestAndCreateMatch,
+                            enabled = uiState.selectedItemId != null && !uiState.isSubmitting && !uiState.isDeclining,
+                            modifier = Modifier
+                                .weight(1.3f)
                                 .testTag("btn_accept_and_create_match")
                         )
                     }
@@ -253,6 +266,57 @@ fun OtherUserProfileScreen(
 
                         item {
                             Text(
+                                text = "Koleksi Siap Barter (${uiState.wardrobeItems.size})",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = CloBleColors.TextPrimary
+                            )
+                        }
+
+                        if (uiState.wardrobeItems.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "Belum ada pakaian yang dibuka untuk barter.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary
+                                )
+                            }
+                        } else {
+                            val pairs = uiState.wardrobeItems.chunked(2)
+                            items(pairs) { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    rowItems.forEach { item ->
+                                        val itemPhotos = buildOtherUserItemPhotos(item)
+                                        WardrobeItemCard(
+                                            title = item.name,
+                                            metadata = "${item.category} · ${item.size} · ${item.condition}",
+                                            barterBadge = WardrobeBarterBadge.ALLOWED,
+                                            imageModel = item.mainPhotoUri ?: item.detailPhotoUri ?: item.extraPhotoUri,
+                                            compactGridMode = true,
+                                            actionButtonText = "Lihat Detail",
+                                            onPhotoClick = if (itemPhotos.isNotEmpty()) {
+                                                { viewerPhotos = itemPhotos }
+                                            } else {
+                                                null
+                                            },
+                                            onActionClick = { onNavigateToItemDetail(item.id) },
+                                            onCardClick = { onNavigateToItemDetail(item.id) },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("other_user_wardrobe_item_${item.id}")
+                                        )
+                                    }
+                                    if (rowItems.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Text(
                                 text = "Ulasan (${uiState.reviews.size})",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = CloBleColors.TextPrimary
@@ -323,6 +387,48 @@ fun OtherUserProfileScreen(
                     }
                 }
             }
+        }
+
+        if (uiState.showDeclineDialog) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissDeclineDialog,
+                containerColor = CloBleColors.Surface,
+                title = {
+                    Text(
+                        text = "Tolak Tawaran Barter?",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = CloBleColors.TextPrimary
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Tawaran interest ini akan ditandai ditolak sehingga pengirim mengetahui penolakan tersebut.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CloBleColors.TextSecondary
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = viewModel::declineInterest,
+                        modifier = Modifier.testTag("btn_confirm_decline_interest")
+                    ) {
+                        Text(
+                            text = "Ya, Tolak",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = CloBleColors.DangerText
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::dismissDeclineDialog) {
+                        Text(
+                            text = "Batal",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = CloBleColors.TextSecondary
+                        )
+                    }
+                }
+            )
         }
 
         if (viewerPhotos.isNotEmpty()) {

@@ -11,6 +11,7 @@ import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.ItemStatus
+import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
@@ -35,6 +36,8 @@ data class ItemDetailUiState(
     val existingInterestId: Long? = null,
     val existingInterestStatus: InterestStatus? = null,
     val relatedMatchId: Long? = null,
+    val relatedMatchStatus: MatchStatus? = null,
+    val canReofferAfterCancelled: Boolean = false,
     val isLockedByOtherMatch: Boolean = false,
     val isItemUnavailable: Boolean = false,
     val isLoading: Boolean = true,
@@ -109,6 +112,9 @@ class ItemDetailViewModel(
                         !item.isBarterAllowed ||
                         isItemLocked
                 )
+                val canReofferAfterCancelled = outgoing?.matchStatus == MatchStatus.CANCELLED &&
+                    !lockedByOther &&
+                    !itemUnavailable
 
                 _uiState.update {
                     it.copy(
@@ -119,6 +125,8 @@ class ItemDetailViewModel(
                         existingInterestId = outgoing?.interestId,
                         existingInterestStatus = outgoing?.interestStatus,
                         relatedMatchId = outgoing?.matchId,
+                        relatedMatchStatus = outgoing?.matchStatus,
+                        canReofferAfterCancelled = canReofferAfterCancelled,
                         isLockedByOtherMatch = lockedByOther,
                         isItemUnavailable = itemUnavailable,
                         interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
@@ -139,7 +147,10 @@ class ItemDetailViewModel(
     fun sendInterest() {
         val state = _uiState.value
         val item = state.item ?: return
-        if (state.isLockedByOtherMatch || state.isItemUnavailable || state.existingInterestStatus != null) return
+        if (state.isLockedByOtherMatch ||
+            state.isItemUnavailable ||
+            (state.existingInterestStatus != null && !state.canReofferAfterCancelled)
+        ) return
 
         viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch
@@ -162,6 +173,8 @@ class ItemDetailViewModel(
                                 InterestStatus.PENDING
                             },
                             relatedMatchId = result.matchId ?: outgoingAfter?.matchId,
+                            relatedMatchStatus = if (result.matchId != null) MatchStatus.ACTIVE else outgoingAfter?.matchStatus,
+                            canReofferAfterCancelled = false,
                             requiresBarterItemCta = false,
                             actionMessage = if (result.matchId != null) {
                                 "Match langsung terbentuk karena pemilik juga menyukai pakaian Anda!"
@@ -206,6 +219,15 @@ class ItemDetailViewModel(
                         it.copy(
                             isSendingInterest = false,
                             errorMessage = "Ini adalah pakaian milik Anda sendiri.",
+                            requiresBarterItemCta = false
+                        )
+                    }
+                }
+                is SendInterestResult.PairAlreadyMatched -> {
+                    _uiState.update {
+                        it.copy(
+                            isSendingInterest = false,
+                            errorMessage = "Anda sedang memiliki Match aktif dengan pemilik pakaian ini. Selesaikan atau batalkan Match tersebut terlebih dahulu.",
                             requiresBarterItemCta = false
                         )
                     }

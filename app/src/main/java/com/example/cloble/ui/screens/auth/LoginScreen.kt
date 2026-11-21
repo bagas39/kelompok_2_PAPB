@@ -243,7 +243,7 @@ fun LoginScreen(
             containerColor = CloBleColors.Surface,
             title = {
                 Text(
-                    text = "Reset Password",
+                    text = if (uiState.resetStep == 1) "Reset Password (1/2)" else "Verifikasi OTP (2/2)",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = CloBleColors.TextPrimary
                 )
@@ -251,65 +251,133 @@ fun LoginScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Masukkan email akun terdaftar dan password baru Anda (minimal 6 karakter).",
+                        text = if (uiState.resetStep == 1) {
+                            "Masukkan email akun Anda. Kami akan mengirimkan kode OTP jika email Anda terdaftar."
+                        } else {
+                            "Masukkan kode OTP 6 digit untuk ${uiState.resetEmail.trim()} beserta password baru Anda."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary
                     )
+                    if (uiState.resetInfoMessage != null && uiState.resetErrorMessage == null) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.HIGHLIGHT,
+                            title = "Informasi OTP",
+                            message = uiState.resetInfoMessage!!,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("reset_password_info_box")
+                        )
+                    }
                     if (uiState.resetErrorMessage != null) {
                         CloBleStatusInfoBox(
                             tone = CloBleInfoBoxTone.WARNING,
-                            title = "Gagal Reset Password",
+                            title = "Perhatian",
                             message = uiState.resetErrorMessage!!,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("reset_password_error_box")
                         )
                     }
-                    CloBleLabeledTextField(
-                        label = "Email Terdaftar",
-                        value = uiState.resetEmail,
-                        onValueChange = viewModel::onResetEmailChanged,
-                        placeholder = "nama@email.com",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        enabled = !uiState.isResetSubmitting,
-                        modifier = Modifier.fillMaxWidth(),
-                        inputTestTag = "input_reset_email"
-                    )
-                    CloBleLabeledTextField(
-                        label = "Password Baru",
-                        value = uiState.resetNewPassword,
-                        onValueChange = viewModel::onResetNewPasswordChanged,
-                        placeholder = "Minimal 6 karakter",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        enabled = !uiState.isResetSubmitting,
-                        modifier = Modifier.fillMaxWidth(),
-                        inputTestTag = "input_reset_new_password"
-                    )
-                    CloBleLabeledTextField(
-                        label = "Konfirmasi Password Baru",
-                        value = uiState.resetConfirmPassword,
-                        onValueChange = viewModel::onResetConfirmPasswordChanged,
-                        placeholder = "Ulangi password baru",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        enabled = !uiState.isResetSubmitting,
-                        modifier = Modifier.fillMaxWidth(),
-                        inputTestTag = "input_reset_confirm_password"
-                    )
+                    if (uiState.resetStep == 1) {
+                        CloBleLabeledTextField(
+                            label = "Email Terdaftar",
+                            value = uiState.resetEmail,
+                            onValueChange = viewModel::onResetEmailChanged,
+                            placeholder = "nama@email.com",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            enabled = !uiState.isResetSubmitting,
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_reset_email"
+                        )
+                    } else {
+                        CloBleLabeledTextField(
+                            label = "Kode OTP (6 Digit)",
+                            value = uiState.resetOtpCode,
+                            onValueChange = viewModel::onResetOtpCodeChanged,
+                            placeholder = "123456",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !uiState.isResetSubmitting,
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_reset_otp_code"
+                        )
+                        CloBleLabeledTextField(
+                            label = "Password Baru",
+                            value = uiState.resetNewPassword,
+                            onValueChange = viewModel::onResetNewPasswordChanged,
+                            placeholder = "Minimal 6 karakter",
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            enabled = !uiState.isResetSubmitting,
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_reset_new_password"
+                        )
+                        CloBleLabeledTextField(
+                            label = "Konfirmasi Password Baru",
+                            value = uiState.resetConfirmPassword,
+                            onValueChange = viewModel::onResetConfirmPasswordChanged,
+                            placeholder = "Ulangi password baru",
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            enabled = !uiState.isResetSubmitting,
+                            modifier = Modifier.fillMaxWidth(),
+                            inputTestTag = "input_reset_confirm_password"
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            TextButton(
+                                onClick = viewModel::backToResetEmailStep,
+                                enabled = !uiState.isResetSubmitting,
+                                modifier = Modifier.testTag("btn_back_to_reset_email")
+                            ) {
+                                Text(
+                                    text = "Ganti Email",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = CloBleColors.TextSecondary
+                                )
+                            }
+                            TextButton(
+                                onClick = viewModel::requestResetOtp,
+                                enabled = !uiState.isResetSubmitting,
+                                modifier = Modifier.testTag("btn_resend_reset_otp")
+                            ) {
+                                Text(
+                                    text = "Kirim Ulang OTP",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = CloBleColors.Primary
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = viewModel::submitResetPassword,
-                    enabled = !uiState.isResetSubmitting,
-                    modifier = Modifier.testTag("btn_confirm_reset_password")
-                ) {
-                    Text(
-                        text = if (uiState.isResetSubmitting) "Menyimpan..." else "Simpan Password",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = CloBleColors.Primary
-                    )
+                if (uiState.resetStep == 1) {
+                    TextButton(
+                        onClick = viewModel::requestResetOtp,
+                        enabled = !uiState.isResetSubmitting,
+                        modifier = Modifier.testTag("btn_send_reset_otp")
+                    ) {
+                        Text(
+                            text = if (uiState.isResetSubmitting) "Mengirim..." else "Kirim Kode OTP",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = CloBleColors.Primary
+                        )
+                    }
+                } else {
+                    TextButton(
+                        onClick = viewModel::submitResetPassword,
+                        enabled = !uiState.isResetSubmitting,
+                        modifier = Modifier.testTag("btn_confirm_reset_password")
+                    ) {
+                        Text(
+                            text = if (uiState.isResetSubmitting) "Memverifikasi..." else "Verifikasi & Simpan",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = CloBleColors.Primary
+                        )
+                    }
                 }
             },
             dismissButton = {

@@ -15,6 +15,7 @@ import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
+import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,8 @@ data class OtherUserProfileUiState(
     val selectedItemId: Long? = null,
     val isLoading: Boolean = true,
     val isSubmitting: Boolean = false,
+    val isDeclining: Boolean = false,
+    val showDeclineDialog: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -141,11 +144,57 @@ class OtherUserProfileViewModel(
                         )
                     }
                 }
+                is RespondInterestResult.PairAlreadyMatched -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Anda sudah memiliki Match aktif dengan pengguna ini."
+                        )
+                    }
+                }
                 else -> {
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
                             errorMessage = "Gagal memproses tawaran barter. Silakan coba lagi."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun openDeclineDialog() {
+        _uiState.update { it.copy(showDeclineDialog = true) }
+    }
+
+    fun dismissDeclineDialog() {
+        _uiState.update { it.copy(showDeclineDialog = false) }
+    }
+
+    fun declineInterest() {
+        if (!isReplying || interestId <= 0L) return
+        viewModelScope.launch {
+            val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch
+            _uiState.update { it.copy(isDeclining = true, showDeclineDialog = false, errorMessage = null) }
+            when (discoveryMatchRepository.declineIncomingInterest(currentUserId, interestId)) {
+                is DeclineInterestResult.Success -> {
+                    _uiState.update { it.copy(isDeclining = false) }
+                    _events.emit(OtherUserProfileEvent.ReplyRejected)
+                }
+                is DeclineInterestResult.InterestAlreadyProcessedOrInvalid -> {
+                    _uiState.update {
+                        it.copy(
+                            isDeclining = false,
+                            errorMessage = "Tawaran interest ini sudah tidak berlaku atau sudah direspons."
+                        )
+                    }
+                }
+                is DeclineInterestResult.DatabaseError -> {
+                    _uiState.update {
+                        it.copy(
+                            isDeclining = false,
+                            errorMessage = "Gagal menolak tawaran. Silakan coba lagi."
                         )
                     }
                 }

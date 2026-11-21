@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.ChatMessage
+import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.VerifiedMatchDetail
 import com.example.cloble.domain.repository.AuthRepository
@@ -18,15 +19,23 @@ import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
 import com.example.cloble.domain.result.SendMessageResult
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ConversationUiState(
+    val activeMatchId: Long = -1L,
     val matchDetail: VerifiedMatchDetail? = null,
+    val partnerMatches: List<ChatThreadSummary> = emptyList(),
     val messages: List<ChatMessage> = emptyList(),
     val draftMessage: String = "",
     val isReadOnly: Boolean = false,
@@ -41,6 +50,7 @@ data class ConversationUiState(
     val isLoading: Boolean = true
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ConversationViewModel(
     savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
@@ -51,8 +61,11 @@ class ConversationViewModel(
 
     val matchId: Long = savedStateHandle.get<Long>("matchId") ?: -1L
 
-    private val _uiState = MutableStateFlow(ConversationUiState())
+    private val selectedMatchIdFlow = MutableStateFlow(matchId)
+    private val _uiState = MutableStateFlow(ConversationUiState(activeMatchId = matchId))
     val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
+
+    private var partnerHistoryJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -60,44 +73,86 @@ class ConversationViewModel(
             if (userId != null && matchId > 0L) {
                 _uiState.update { it.copy(currentUserId = userId) }
 
-                chatRepository.markMessagesRead(matchId, userId)
-
                 launch {
-                    discoveryMatchRepository.observeMatchDetail(matchId, userId).collect { detail ->
-                        _uiState.update { state ->
-                            val isReadOnly = detail?.isReadOnly ?: false
-                            val canRate = detail?.status == MatchStatus.COMPLETED && !state.hasReviewed
-                            state.copy(
-                                matchDetail = detail,
-                                isReadOnly = isReadOnly,
-                                canRatePartner = canRate,
-                                isLoading = false
-                            )
+                    selectedMatchIdFlow.collect { activeId ->
+                        if (activeId > 0L) {
+                            chatRepository.markMessagesRead(activeId, userId)
                         }
                     }
                 }
 
                 launch {
-                    chatRepository.observeMessages(matchId, userId).collect { msgs ->
-                        _uiState.update { it.copy(messages = msgs) }
-                    }
+                    selectedMatchIdFlow
+                        .flatMapLatest { activeId ->
+                            if (activeId > 0L) discoveryMatchRepository.observeMatchDetail(activeId, userId)
+                            else flowOf(null)
+                        }
+                        .collect { detail ->
+                            _uiState.update { state ->
+                                val isReadOnly = detail?.isReadOnly ?: false
+                                val canRate = detail?.status == MatchStatus.COMPLETED && !state.hasReviewed
+                                state.copy(
+                                    matchDetail = detail,
+                                    isReadOnly = isReadOnly,
+                                    canRatePartner = canRate,
+                                    isLoading = false
+                                )
+                            }
+                            if (detail != null && partnerHistoryJob == null) {
+                                partnerHistoryJob = launch {
+                                    chatRepository.observePartnerMatches(userId, detail.partnerUserId)
+                                        .collect { matches ->
+                                            _uiState.update { it.copy(partnerMatches = matches) }
+                                        }
+                                }
+                            }
+                        }
                 }
 
                 launch {
-                    profileReviewRepository.hasUserReviewedMatch(matchId, userId).collect { reviewed ->
-                        _uiState.update { state ->
-                            val canRate = state.matchDetail?.status == MatchStatus.COMPLETED && !reviewed
-                            state.copy(
-                                hasReviewed = reviewed,
-                                canRatePartner = canRate
-                            )
+                    selectedMatchIdFlow
+                        .flatMapLatest { activeId ->
+                            if (activeId > 0L) chatRepository.observeMessages(activeId, userId)
+                            else flowOf(emptyList())
                         }
-                    }
+                        .collect { msgs ->
+                            _uiState.update { it.copy(messages = msgs) }
+                        }
+                }
+
+                launch {
+                    selectedMatchIdFlow
+                        .flatMapLatest { activeId ->
+                            if (activeId > 0L) profileReviewRepository.hasUserReviewedMatch(activeId, userId)
+                            else flowOf(false)
+                        }
+                        .collect { reviewed ->
+                            _uiState.update { state ->
+                                val canRate = state.matchDetail?.status == MatchStatus.COMPLETED && !reviewed
+                                state.copy(
+                                    hasReviewed = reviewed,
+                                    canRatePartner = canRate
+                                )
+                            }
+                        }
                 }
             } else {
                 _uiState.update { it.copy(isLoading = false) }
             }
         }
+    }
+
+    fun selectMatch(targetMatchId: Long) {
+        if (targetMatchId <= 0L || targetMatchId == selectedMatchIdFlow.value) return
+        _uiState.update {
+            it.copy(
+                activeMatchId = targetMatchId,
+                errorMessage = null,
+                showCancelDialog = false,
+                showCompleteDialog = false
+            )
+        }
+        selectedMatchIdFlow.value = targetMatchId
     }
 
     fun onDraftChanged(text: String) {
@@ -132,10 +187,11 @@ class ConversationViewModel(
         val text = _uiState.value.draftMessage.trim()
         if (text.isBlank()) return
         val userId = _uiState.value.currentUserId ?: return
+        val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
 
         viewModelScope.launch {
             _uiState.update { it.copy(draftMessage = "") }
-            when (val result = chatRepository.sendMessage(matchId, userId, text)) {
+            when (val result = chatRepository.sendMessage(activeId, userId, text)) {
                 is SendMessageResult.Success -> {
 
                 }
@@ -158,9 +214,10 @@ class ConversationViewModel(
 
     fun confirmCancelMatch() {
         val userId = _uiState.value.currentUserId ?: return
+        val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         viewModelScope.launch {
             _uiState.update { it.copy(isActionInProgress = true, showCancelDialog = false) }
-            when (val result = discoveryMatchRepository.cancelMatch(matchId, userId)) {
+            when (val result = discoveryMatchRepository.cancelMatch(activeId, userId)) {
                 is CancelMatchResult.Success -> {
                     _uiState.update { it.copy(isActionInProgress = false) }
                 }
@@ -182,10 +239,11 @@ class ConversationViewModel(
 
     fun confirmCompleteExchange() {
         val userId = _uiState.value.currentUserId ?: return
+        val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         val location = _uiState.value.meetingLocationInput.trim().ifBlank { null }
         viewModelScope.launch {
             _uiState.update { it.copy(isActionInProgress = true, showCompleteDialog = false) }
-            when (val result = discoveryMatchRepository.completeMatchExchange(matchId, userId, location)) {
+            when (val result = discoveryMatchRepository.completeMatchExchange(activeId, userId, location)) {
                 is CompleteMatchResult.Success -> {
                     _uiState.update { it.copy(isActionInProgress = false) }
                 }

@@ -12,7 +12,7 @@ import com.example.cloble.domain.model.WardrobeItemSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
-import com.example.cloble.domain.result.ResetPasswordResult
+import com.example.cloble.domain.result.ChangePasswordResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +28,7 @@ data class MyProfileUiState(
     val wardrobePreview: List<WardrobeItemSummary> = emptyList(),
     val isLoading: Boolean = true,
     val showChangePasswordDialog: Boolean = false,
+    val currentPassword: String = "",
     val newPassword: String = "",
     val confirmPassword: String = "",
     val isUpdatingPassword: Boolean = false,
@@ -80,6 +81,7 @@ class MyProfileViewModel(
         _uiState.update {
             it.copy(
                 showChangePasswordDialog = true,
+                currentPassword = "",
                 newPassword = "",
                 confirmPassword = "",
                 passwordErrorMessage = null,
@@ -93,9 +95,14 @@ class MyProfileViewModel(
             it.copy(
                 showChangePasswordDialog = false,
                 isUpdatingPassword = false,
+                currentPassword = "",
                 passwordErrorMessage = null
             )
         }
+    }
+
+    fun onCurrentPasswordChanged(value: String) {
+        _uiState.update { it.copy(currentPassword = value, passwordErrorMessage = null) }
     }
 
     fun onNewPasswordChanged(value: String) {
@@ -108,9 +115,16 @@ class MyProfileViewModel(
 
     fun submitChangePassword() {
         val state = _uiState.value
-        val email = state.userProfile?.email ?: return
+        if (state.currentPassword.isEmpty()) {
+            _uiState.update { it.copy(passwordErrorMessage = "Password saat ini wajib diisi") }
+            return
+        }
         if (state.newPassword.length < 6) {
             _uiState.update { it.copy(passwordErrorMessage = "Password baru minimal 6 karakter") }
+            return
+        }
+        if (state.currentPassword == state.newPassword) {
+            _uiState.update { it.copy(passwordErrorMessage = "Password baru tidak boleh sama dengan password saat ini") }
             return
         }
         if (state.newPassword != state.confirmPassword) {
@@ -120,25 +134,39 @@ class MyProfileViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isUpdatingPassword = true, passwordErrorMessage = null) }
-            when (val res = authRepository.resetPassword(email, state.newPassword)) {
-                is ResetPasswordResult.Success -> {
+            when (val res = authRepository.changePassword(state.currentPassword, state.newPassword)) {
+                is ChangePasswordResult.Success -> {
                     _uiState.update {
                         it.copy(
                             isUpdatingPassword = false,
                             showChangePasswordDialog = false,
+                            currentPassword = "",
                             newPassword = "",
                             confirmPassword = "",
-                            passwordSuccessMessage = "Password akun berhasil diubah."
+                            passwordSuccessMessage = "Password akun berhasil diubah. Sesi perangkat ini tetap aktif dan sesi lain telah dicabut."
                         )
                     }
                 }
-                is ResetPasswordResult.ValidationFailed -> {
+                is ChangePasswordResult.InvalidCurrentPassword -> {
+                    _uiState.update {
+                        it.copy(
+                            isUpdatingPassword = false,
+                            passwordErrorMessage = "Password saat ini salah."
+                        )
+                    }
+                }
+                is ChangePasswordResult.Unauthorized -> {
+                    _uiState.update {
+                        it.copy(
+                            isUpdatingPassword = false,
+                            passwordErrorMessage = "Sesi Anda tidak valid atau sudah berakhir. Silakan login kembali."
+                        )
+                    }
+                }
+                is ChangePasswordResult.ValidationFailed -> {
                     _uiState.update { it.copy(isUpdatingPassword = false, passwordErrorMessage = res.message) }
                 }
-                is ResetPasswordResult.EmailNotFound -> {
-                    _uiState.update { it.copy(isUpdatingPassword = false, passwordErrorMessage = "Akun tidak ditemukan.") }
-                }
-                is ResetPasswordResult.DatabaseError -> {
+                is ChangePasswordResult.DatabaseError -> {
                     _uiState.update {
                         it.copy(
                             isUpdatingPassword = false,

@@ -121,6 +121,25 @@ class SupabaseClient(
         }
     }
 
+    suspend fun invokeEdgeFunction(
+        functionName: String,
+        body: JSONObject
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val url = "${config.baseUrl}/functions/v1/$functionName"
+        val builder = Request.Builder()
+            .url(url)
+            .addHeader("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(jsonMediaType))
+
+        applyHeaders(builder)
+        val responseBody = executeRequest(builder.build())
+        if (responseBody.trim().startsWith("{")) {
+            JSONObject(responseBody)
+        } else {
+            JSONObject().put("value", responseBody)
+        }
+    }
+
     suspend fun uploadPhoto(
         bytes: ByteArray,
         filename: String,

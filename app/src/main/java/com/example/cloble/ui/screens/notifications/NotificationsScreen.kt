@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.NotificationType
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleOutlinedButton
@@ -116,17 +117,25 @@ fun NotificationsScreen(
                     val borderColor = if (!item.isRead) CloBleColors.PrimarySoft else CloBleColors.Outline
 
                     val cardClickModifier = when {
-                        item.type == NotificationType.INCOMING_INTEREST && item.counterpartUserId != null && item.relatedInterestId != null -> {
+                        item.type == NotificationType.INCOMING_INTEREST &&
+                            item.canReplyToInterest &&
+                            item.counterpartUserId != null &&
+                            item.relatedInterestId != null -> {
                             Modifier.clickable {
                                 onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
                             }
                         }
-                        item.type == NotificationType.MATCH_VERIFIED && item.relatedMatchId != null -> {
+                        item.type == NotificationType.MATCH_VERIFIED &&
+                            item.relatedMatchId != null &&
+                            (item.matchStatus == null || item.matchStatus == MatchStatus.ACTIVE) -> {
                             Modifier.clickable {
                                 onNavigateToConversation(item.relatedMatchId)
                             }
                         }
-                        item.type == NotificationType.EXCHANGE_COMPLETED && item.relatedMatchId != null && item.counterpartUserId != null -> {
+                        item.type == NotificationType.EXCHANGE_COMPLETED &&
+                            !item.hasReviewedMatch &&
+                            item.relatedMatchId != null &&
+                            item.counterpartUserId != null -> {
                             Modifier.clickable {
                                 onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
                             }
@@ -198,21 +207,45 @@ fun NotificationsScreen(
                                     }
                                 }
                                 NotificationType.MATCH_VERIFIED -> {
-                                    if (item.relatedMatchId != null) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        CloBlePrimaryButton(
-                                            text = "Buka Ruang Obrolan",
-                                            onClick = {
-                                                onNavigateToConversation(item.relatedMatchId)
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .testTag("btn_open_chat_${item.id}")
-                                        )
+                                    when (item.matchStatus) {
+                                        MatchStatus.CANCELLED -> {
+                                            Text(
+                                                text = "Match telah dibatalkan",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                                color = CloBleColors.DangerText
+                                            )
+                                        }
+                                        MatchStatus.COMPLETED -> {
+                                            Text(
+                                                text = "Pertukaran telah selesai",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                                color = CloBleColors.SuccessText
+                                            )
+                                        }
+                                        else -> {
+                                            if (item.relatedMatchId != null) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                CloBlePrimaryButton(
+                                                    text = "Buka Ruang Obrolan",
+                                                    onClick = {
+                                                        onNavigateToConversation(item.relatedMatchId)
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .testTag("btn_open_chat_${item.id}")
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                                 NotificationType.EXCHANGE_COMPLETED -> {
-                                    if (item.relatedMatchId != null && item.counterpartUserId != null) {
+                                    if (item.hasReviewedMatch) {
+                                        Text(
+                                            text = "Ulasan sudah dikirim",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                            color = CloBleColors.SuccessText
+                                        )
+                                    } else if (item.relatedMatchId != null && item.counterpartUserId != null) {
                                         Spacer(modifier = Modifier.height(2.dp))
                                         CloBleOutlinedButton(
                                             text = "Beri Ulasan",

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleOutlinedButton
@@ -96,8 +97,23 @@ fun MatchedScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
+                val headlineText = when (detail?.status) {
+                    MatchStatus.COMPLETED -> "Pertukaran Selesai!"
+                    MatchStatus.CANCELLED -> "Match Dibatalkan"
+                    else -> "Kalian saling tertarik!"
+                }
+                val subtitleText = when (detail?.status) {
+                    MatchStatus.COMPLETED -> "Pertukaran pakaian antara Anda dan ${detail.partnerName} telah selesai diselesaikan."
+                    MatchStatus.CANCELLED -> "Match dengan ${detail.partnerName} ini telah dibatalkan. Anda dapat melihat riwayat obrolan atau menjelajahi pakaian lainnya."
+                    else -> if (detail != null) {
+                        "Anda dan ${detail.partnerName} telah menyetujui pertukaran pakaian. Buka obrolan untuk mengatur lokasi dan waktu serah terima fisik."
+                    } else {
+                        "Match terbentuk. Lanjutkan ke ruang obrolan untuk koordinasi."
+                    }
+                }
+
                 Text(
-                    text = "Kalian saling tertarik!",
+                    text = headlineText,
                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                     color = CloBleColors.TextPrimary,
                     textAlign = TextAlign.Center,
@@ -107,11 +123,7 @@ fun MatchedScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = if (detail != null) {
-                        "Anda dan ${detail.partnerName} telah menyetujui pertukaran pakaian. Buka obrolan untuk mengatur lokasi dan waktu serah terima fisik."
-                    } else {
-                        "Match terbentuk. Lanjutkan ke ruang obrolan untuk koordinasi."
-                    },
+                    text = subtitleText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = CloBleColors.TextSecondary,
                     textAlign = TextAlign.Center
@@ -267,7 +279,7 @@ fun MatchedScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 CloBlePrimaryButton(
-                    text = "Buka Obrolan",
+                    text = if (detail?.status == MatchStatus.ACTIVE || detail == null) "Buka Obrolan" else "Lihat Riwayat Obrolan",
                     onClick = { onNavigateToConversation(uiState.matchId) },
                     modifier = Modifier
                         .fillMaxWidth()

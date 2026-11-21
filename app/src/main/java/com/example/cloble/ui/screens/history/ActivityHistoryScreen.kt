@@ -53,6 +53,7 @@ import coil.compose.AsyncImage
 import com.example.cloble.domain.model.ActivityHistoryTab
 import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.ItemStatus
+import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
@@ -485,18 +486,31 @@ private fun OutgoingInterestCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val (statusText, badgeBg, badgeTextColor) = when (item.interestStatus) {
-                    InterestStatus.PENDING -> Triple("Menunggu Respon", CloBleColors.WarningContainer, CloBleColors.WarningText)
-                    InterestStatus.ACCEPTED_MATCHED -> Triple("Berhasil Match!", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
-                    InterestStatus.RESOLVED_BY_MATCH -> {
+                val (statusText, badgeBg, badgeTextColor) = when {
+                    item.interestStatus == InterestStatus.PENDING && item.isLockedByOtherMatch ->
+                        Triple("Tertahan di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
+                    item.interestStatus == InterestStatus.PENDING ->
+                        Triple("Menunggu Respon", CloBleColors.WarningContainer, CloBleColors.WarningText)
+                    item.interestStatus == InterestStatus.ACCEPTED_MATCHED -> when (item.matchStatus) {
+                        MatchStatus.COMPLETED -> Triple("Pertukaran Selesai", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                        MatchStatus.CANCELLED -> Triple("Match Dibatalkan", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                        else -> Triple("Berhasil Match!", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
+                    }
+                    item.interestStatus == InterestStatus.RESOLVED_BY_MATCH -> {
                         if (item.matchId != null) {
-                            Triple("Terhubung di Match", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                            when (item.matchStatus) {
+                                MatchStatus.COMPLETED -> Triple("Pertukaran Selesai", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                                MatchStatus.CANCELLED -> Triple("Match Dibatalkan", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                                else -> Triple("Terhubung di Match", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                            }
                         } else {
                             Triple("Selesai di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                         }
                     }
-                    InterestStatus.DECLINED -> Triple("Ditolak", CloBleColors.DangerContainer, CloBleColors.DangerText)
-                    InterestStatus.INVALIDATED -> Triple("Tidak Tersedia", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
+                    item.interestStatus == InterestStatus.DECLINED ->
+                        Triple("Ditolak", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                    else ->
+                        Triple("Tidak Tersedia", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                 }
 
                 Surface(

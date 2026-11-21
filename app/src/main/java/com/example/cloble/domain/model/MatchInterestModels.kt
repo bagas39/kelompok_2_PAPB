@@ -16,7 +16,9 @@ data class NotificationFeedItem(
     val counterpartName: String? = null,
     val counterpartPhotoUri: String? = null,
     val targetItemId: Long? = null,
-    val targetItemName: String? = null
+    val targetItemName: String? = null,
+    val matchStatus: MatchStatus? = null,
+    val hasReviewedMatch: Boolean = false
 )
 
 data class VerifiedMatchDetail(

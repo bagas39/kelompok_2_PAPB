@@ -11,11 +11,14 @@ import com.example.cloble.domain.model.DemoAccountSummary
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
+import com.example.cloble.domain.result.ChangePasswordResult
 import com.example.cloble.domain.result.DbFailure
+import com.example.cloble.domain.result.RequestPasswordResetOtpResult
 import com.example.cloble.domain.result.ResetPasswordResult
 import com.example.cloble.domain.util.PasswordHasher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -90,24 +93,60 @@ class LocalAuthRepository(
         return AuthResult.Success(user.id)
     }
 
-    override suspend fun resetPassword(email: String, newRawPassword: String): ResetPasswordResult {
+    override suspend fun requestPasswordResetOtp(email: String): RequestPasswordResetOtpResult {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+            return RequestPasswordResetOtpResult.ValidationFailed("Format email tidak valid")
+        }
+        return RequestPasswordResetOtpResult.SmtpNotConfigured(
+            "Pengiriman email OTP tidak tersedia pada mode database lokal."
+        )
+    }
+
+    override suspend fun verifyOtpAndResetPassword(
+        email: String,
+        otpCode: String,
+        newRawPassword: String
+    ): ResetPasswordResult {
         val trimmedEmail = email.trim().lowercase()
         if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
             return ResetPasswordResult.ValidationFailed("Format email tidak valid")
         }
+        if (!otpCode.trim().matches(Regex("^[0-9]{6}$"))) {
+            return ResetPasswordResult.ValidationFailed("Kode OTP harus 6 digit angka")
+        }
         if (newRawPassword.length < 6) {
             return ResetPasswordResult.ValidationFailed("Password minimal 6 karakter")
         }
+        return ResetPasswordResult.OtpExpiredOrNotFound
+    }
 
-        val existing = userDao.getUserByEmail(trimmedEmail) ?: return ResetPasswordResult.EmailNotFound
+    override suspend fun changePassword(
+        currentRawPassword: String,
+        newRawPassword: String
+    ): ChangePasswordResult {
+        if (currentRawPassword.isEmpty()) {
+            return ChangePasswordResult.ValidationFailed("Password saat ini wajib diisi")
+        }
+        if (newRawPassword.length < 6) {
+            return ChangePasswordResult.ValidationFailed("Password baru minimal 6 karakter")
+        }
+        if (currentRawPassword == newRawPassword) {
+            return ChangePasswordResult.ValidationFailed("Password baru tidak boleh sama dengan password saat ini")
+        }
+        val userId = sessionPrefs.loggedInUserIdFlow.firstOrNull() ?: return ChangePasswordResult.Unauthorized
+        val user = userDao.getUserById(userId) ?: return ChangePasswordResult.Unauthorized
+        if (!PasswordHasher.verify(currentRawPassword, user.passwordHash)) {
+            return ChangePasswordResult.InvalidCurrentPassword
+        }
         val newHash = PasswordHasher.hash(newRawPassword)
         return EntityMappers.runCatchingSqlite(
-            onBusyOrLocked = { ResetPasswordResult.DatabaseError(DbFailure.DatabaseBusyOrLocked(it)) },
-            onConstraintViolation = { ResetPasswordResult.DatabaseError(DbFailure.DuplicateOrConstraintViolation(it)) },
-            onUnexpectedDatabaseError = { ResetPasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
+            onBusyOrLocked = { ChangePasswordResult.DatabaseError(DbFailure.DatabaseBusyOrLocked(it)) },
+            onConstraintViolation = { ChangePasswordResult.DatabaseError(DbFailure.DuplicateOrConstraintViolation(it)) },
+            onUnexpectedDatabaseError = { ChangePasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
         ) {
-            userDao.updatePasswordHash(existing.id, newHash)
-            ResetPasswordResult.Success
+            userDao.updatePasswordHash(user.id, newHash)
+            ChangePasswordResult.Success
         }
     }
 

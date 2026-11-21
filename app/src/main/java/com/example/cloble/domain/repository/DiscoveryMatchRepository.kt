@@ -9,6 +9,7 @@ import com.example.cloble.domain.model.VerifiedMatchDetail
 import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
+import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,7 @@ interface DiscoveryMatchRepository {
         interestId: Long,
         chosenSenderItemId: Long
     ): RespondInterestResult
+    suspend fun declineIncomingInterest(actorUserId: Long, interestId: Long): DeclineInterestResult
     suspend fun cancelMatch(matchId: Long, actorUserId: Long): CancelMatchResult
     suspend fun completeMatchExchange(
         matchId: Long,

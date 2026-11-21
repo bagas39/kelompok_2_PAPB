@@ -36,6 +36,7 @@ sealed interface SendInterestResult {
     data object TargetItemNotFound : SendInterestResult
     data object CannotInterestOwnItem : SendInterestResult
     data object TargetItemNotEligible : SendInterestResult
+    data object PairAlreadyMatched : SendInterestResult
     data class DatabaseError(val failure: DbFailure) : SendInterestResult
 }
 
@@ -97,9 +98,35 @@ sealed interface CancelInterestResult {
     data class DatabaseError(val failure: DbFailure) : CancelInterestResult
 }
 
+sealed interface DeclineInterestResult {
+    data object Success : DeclineInterestResult
+    data object InterestAlreadyProcessedOrInvalid : DeclineInterestResult
+    data class DatabaseError(val failure: DbFailure) : DeclineInterestResult
+}
+
+sealed interface RequestPasswordResetOtpResult {
+    data object Success : RequestPasswordResetOtpResult
+    data object EmailNotFound : RequestPasswordResetOtpResult
+    data class RateLimited(val message: String) : RequestPasswordResetOtpResult
+    data class SmtpNotConfigured(val message: String) : RequestPasswordResetOtpResult
+    data class ValidationFailed(val message: String) : RequestPasswordResetOtpResult
+    data class DatabaseError(val failure: DbFailure) : RequestPasswordResetOtpResult
+}
+
 sealed interface ResetPasswordResult {
     data object Success : ResetPasswordResult
     data object EmailNotFound : ResetPasswordResult
+    data class InvalidOtp(val remainingAttempts: Int) : ResetPasswordResult
+    data object OtpExpiredOrNotFound : ResetPasswordResult
+    data object OtpMaxAttemptsExceeded : ResetPasswordResult
     data class ValidationFailed(val message: String) : ResetPasswordResult
     data class DatabaseError(val failure: DbFailure) : ResetPasswordResult
+}
+
+sealed interface ChangePasswordResult {
+    data object Success : ChangePasswordResult
+    data object InvalidCurrentPassword : ChangePasswordResult
+    data object Unauthorized : ChangePasswordResult
+    data class ValidationFailed(val message: String) : ChangePasswordResult
+    data class DatabaseError(val failure: DbFailure) : ChangePasswordResult
 }

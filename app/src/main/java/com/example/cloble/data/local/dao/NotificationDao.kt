@@ -39,6 +39,7 @@ interface NotificationDao {
               AND item.status = 'AVAILABLE'
               AND item.isBarterAllowed = 1
               AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND (m.user1ItemId = item.id OR m.user2ItemId = item.id)) = 0
+              AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND ((m.user1Id = :userId AND m.user2Id = sender.id) OR (m.user2Id = :userId AND m.user1Id = sender.id))) = 0
             ) THEN 1 ELSE 0 END AS canReplyToInterest,
             CASE
               WHEN i.status = 'ACCEPTED_MATCHED' THEN 'Sudah terhubung dalam Match'
@@ -46,11 +47,16 @@ interface NotificationDao {
               WHEN i.status = 'DECLINED' THEN 'Tawaran telah ditolak'
               WHEN i.status = 'INVALIDATED' THEN 'Pakaian sudah tidak tersedia'
               ELSE NULL
-            END AS disabledReasonText
+            END AS disabledReasonText,
+            relMatch.status AS matchStatus,
+            CASE WHEN n.relatedMatchId IS NOT NULL AND EXISTS (
+              SELECT 1 FROM reviews r WHERE r.matchId = n.relatedMatchId AND r.reviewerId = :userId
+            ) THEN 1 ELSE 0 END AS hasReviewedMatch
         FROM notifications n
         LEFT JOIN interests i ON n.relatedInterestId = i.id
         LEFT JOIN users sender ON i.senderUserId = sender.id
         LEFT JOIN clothing_items item ON i.targetItemId = item.id
+        LEFT JOIN matches relMatch ON n.relatedMatchId = relMatch.id
         WHERE n.userId = :userId
         ORDER BY n.createdAt DESC
         """
@@ -80,6 +86,7 @@ interface NotificationDao {
               AND item.status = 'AVAILABLE'
               AND item.isBarterAllowed = 1
               AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND (m.user1ItemId = item.id OR m.user2ItemId = item.id)) = 0
+              AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND ((m.user1Id = :userId AND m.user2Id = sender.id) OR (m.user2Id = :userId AND m.user1Id = sender.id))) = 0
             ) THEN 1 ELSE 0 END AS canReplyToInterest,
             CASE
               WHEN i.status = 'ACCEPTED_MATCHED' THEN 'Sudah terhubung dalam Match'
@@ -87,11 +94,16 @@ interface NotificationDao {
               WHEN i.status = 'DECLINED' THEN 'Tawaran telah ditolak'
               WHEN i.status = 'INVALIDATED' THEN 'Pakaian sudah tidak tersedia'
               ELSE NULL
-            END AS disabledReasonText
+            END AS disabledReasonText,
+            relMatch.status AS matchStatus,
+            CASE WHEN n.relatedMatchId IS NOT NULL AND EXISTS (
+              SELECT 1 FROM reviews r WHERE r.matchId = n.relatedMatchId AND r.reviewerId = :userId
+            ) THEN 1 ELSE 0 END AS hasReviewedMatch
         FROM notifications n
         LEFT JOIN interests i ON n.relatedInterestId = i.id
         LEFT JOIN users sender ON i.senderUserId = sender.id
         LEFT JOIN clothing_items item ON i.targetItemId = item.id
+        LEFT JOIN matches relMatch ON n.relatedMatchId = relMatch.id
         WHERE n.userId = :userId
         ORDER BY n.createdAt DESC
         """

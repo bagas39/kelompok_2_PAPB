@@ -79,6 +79,37 @@ object PasswordHasher {
         return iterations < targetIterations
     }
 
+    fun extractChallenge(storedHash: String): Pair<Int, String>? {
+        val parts = storedHash.split('$')
+        if (parts.size != 4 || parts[0] != ALGORITHM_NAME) return null
+        val iterations = parts[1].toIntOrNull() ?: return null
+        if (iterations !in MIN_ACCEPTED_ITERATIONS..MAX_ACCEPTED_ITERATIONS) return null
+        val saltHex = parts[2]
+        val salt = fromHex(saltHex) ?: return null
+        if (salt.size < SALT_LENGTH_BYTES) return null
+        return iterations to saltHex
+    }
+
+    fun hashWithSaltHex(password: String, saltHex: String, iterations: Int): String? {
+        if (iterations !in MIN_ACCEPTED_ITERATIONS..MAX_ACCEPTED_ITERATIONS) return null
+        val salt = fromHex(saltHex) ?: return null
+        if (salt.size < SALT_LENGTH_BYTES) return null
+        val passwordUtf8 = password.toByteArray(Charsets.UTF_8)
+        return try {
+            val hashBytes = deriveKey(
+                passwordUtf8 = passwordUtf8,
+                salt = salt,
+                iterations = iterations,
+                dkLenBytes = DEFAULT_DK_LEN_BYTES
+            )
+            "$ALGORITHM_NAME$$iterations$$saltHex$${toHex(hashBytes)}"
+        } catch (_: Exception) {
+            null
+        } finally {
+            passwordUtf8.fill(0)
+        }
+    }
+
     fun deriveKey(
         passwordUtf8: ByteArray,
         salt: ByteArray,

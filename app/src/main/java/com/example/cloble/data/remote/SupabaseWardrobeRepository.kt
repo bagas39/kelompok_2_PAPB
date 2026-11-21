@@ -33,11 +33,11 @@ class SupabaseWardrobeRepository(
 
     private suspend fun fetchActiveMatchItemIds(): Set<Long> {
         val activeItemIds = mutableSetOf<Long>()
-        val activeMatchesArr = client.getJsonArray("matches?status=eq.ACTIVE&select=user1ItemId,user2ItemId")
-        for (i in 0 until activeMatchesArr.length()) {
-            val m = activeMatchesArr.getJSONObject(i)
-            activeItemIds.add(m.optLong("user1ItemId"))
-            activeItemIds.add(m.optLong("user2ItemId"))
+        val context = client.rpc("rpc_get_active_match_context", JSONObject())
+        val itemsArr = context.optJSONArray("activeItemIds") ?: return activeItemIds
+        for (i in 0 until itemsArr.length()) {
+            val itemId = itemsArr.optLong(i)
+            if (itemId > 0L) activeItemIds.add(itemId)
         }
         return activeItemIds
     }
@@ -120,10 +120,7 @@ class SupabaseWardrobeRepository(
         return try {
             val existing = getClothingItem(itemId) ?: return false
             if (existing.status != ItemStatus.AVAILABLE) return true
-            val matchesArr = client.getJsonArray(
-                "matches?status=eq.ACTIVE&or=(user1ItemId.eq.$itemId,user2ItemId.eq.$itemId)&select=id"
-            )
-            matchesArr.length() > 0
+            fetchActiveMatchItemIds().contains(itemId)
         } catch (_: Exception) {
             false
         }

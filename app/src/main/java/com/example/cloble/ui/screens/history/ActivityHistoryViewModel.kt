@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
@@ -60,24 +61,18 @@ class ActivityHistoryViewModel(
     private fun startObservingHistory(userId: Long) {
         observationJob?.cancel()
         observationJob = viewModelScope.launch {
-            launch {
-                discoveryMatchRepository.observeOutgoingInterests(userId).collect { interests ->
-                    _uiState.update {
-                        it.copy(
-                            outgoingInterests = interests,
-                            isLoading = false
-                        )
-                    }
-                }
-            }
-            launch {
-                discoveryMatchRepository.observePassedClothing(userId).collect { passed ->
-                    _uiState.update {
-                        it.copy(
-                            passedItems = passed,
-                            isLoading = false
-                        )
-                    }
+            combine(
+                discoveryMatchRepository.observeOutgoingInterests(userId),
+                discoveryMatchRepository.observePassedClothing(userId)
+            ) { interests, passed ->
+                interests to passed
+            }.collect { (interests, passed) ->
+                _uiState.update {
+                    it.copy(
+                        outgoingInterests = interests,
+                        passedItems = passed,
+                        isLoading = false
+                    )
                 }
             }
         }
@@ -181,6 +176,14 @@ class ActivityHistoryViewModel(
                     _uiState.update {
                         it.copy(
                             errorMessage = "Pakaian ini sudah tidak tersedia untuk barter.",
+                            actionMessage = null
+                        )
+                    }
+                }
+                is SendInterestResult.PairAlreadyMatched -> {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "Anda sedang memiliki Match aktif dengan pemilik pakaian ini.",
                             actionMessage = null
                         )
                     }

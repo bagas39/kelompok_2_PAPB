@@ -24,6 +24,7 @@ import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.CancelMatchResult
 import com.example.cloble.domain.result.CompleteMatchResult
 import com.example.cloble.domain.result.DbFailure
+import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.util.DistanceCalculator
@@ -245,6 +246,21 @@ class LocalDiscoveryMatchRepository(
                 is RespondInterestDaoResult.ItemAlreadyInActiveMatch -> RespondInterestResult.ItemAlreadyInActiveMatch
                 is RespondInterestDaoResult.PairAlreadyMatched -> RespondInterestResult.PairAlreadyMatched
             }
+        }
+    }
+
+    override suspend fun declineIncomingInterest(
+        actorUserId: Long,
+        interestId: Long
+    ): DeclineInterestResult {
+        val now = System.currentTimeMillis()
+        return EntityMappers.runCatchingSqlite(
+            onBusyOrLocked = { DeclineInterestResult.DatabaseError(DbFailure.DatabaseBusyOrLocked(it)) },
+            onConstraintViolation = { DeclineInterestResult.DatabaseError(DbFailure.DuplicateOrConstraintViolation(it)) },
+            onUnexpectedDatabaseError = { DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(it)) }
+        ) {
+            val declined = interestMatchDao.declineIncomingInterest(actorUserId, interestId, now)
+            if (declined) DeclineInterestResult.Success else DeclineInterestResult.InterestAlreadyProcessedOrInvalid
         }
     }
 

@@ -27,7 +27,9 @@ data class NotificationRow(
     val targetItemId: Long? = null,
     val targetItemName: String? = null,
     val canReplyToInterest: Boolean = false,
-    val disabledReasonText: String? = null
+    val disabledReasonText: String? = null,
+    val matchStatus: MatchStatus? = null,
+    val hasReviewedMatch: Boolean = false
 )
 
 data class MatchWithDetailsRow(

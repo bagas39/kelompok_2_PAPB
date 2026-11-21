@@ -135,4 +135,19 @@ class DomainUtilUnitTest {
         val currentHash = PasswordHasher.hash("demo", iterations = 120_000)
         assertFalse(PasswordHasher.needsUpgrade(currentHash, targetIterations = 120_000))
     }
+
+    @Test
+    fun passwordHasher_extractChallengeAndHashWithSaltHex() {
+        val originalHash = PasswordHasher.hash("CloBleSecure99!", iterations = 12_000)
+        val challenge = PasswordHasher.extractChallenge(originalHash)
+        assertNotNull(challenge)
+        val (iterations, saltHex) = challenge!!
+        assertEquals(12_000, iterations)
+
+        val recomputedValid = PasswordHasher.hashWithSaltHex("CloBleSecure99!", saltHex, iterations)
+        assertEquals(originalHash, recomputedValid)
+
+        val recomputedInvalid = PasswordHasher.hashWithSaltHex("WrongPass!", saltHex, iterations)
+        assertNotEquals(originalHash, recomputedInvalid)
+    }
 }

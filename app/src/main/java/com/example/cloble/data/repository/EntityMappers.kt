@@ -114,7 +114,9 @@ object EntityMappers {
             counterpartName = row.counterpartName,
             counterpartPhotoUri = row.counterpartPhotoUri,
             targetItemId = row.targetItemId,
-            targetItemName = row.targetItemName
+            targetItemName = row.targetItemName,
+            matchStatus = row.matchStatus,
+            hasReviewedMatch = row.hasReviewedMatch
         )
     }
 

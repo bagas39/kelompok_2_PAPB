@@ -599,8 +599,26 @@ abstract class InterestMatchDao {
     @Query("DELETE FROM notifications WHERE relatedInterestId = :interestId AND type = 'INCOMING_INTEREST'")
     abstract suspend fun deleteIncomingNotificationForInterest(interestId: Long)
 
+    @Query("UPDATE notifications SET isRead = 1 WHERE relatedInterestId = :interestId AND type = 'INCOMING_INTEREST' AND userId = :receiverUserId")
+    abstract suspend fun markIncomingNotificationRead(interestId: Long, receiverUserId: Long)
+
     @Query("DELETE FROM interests WHERE id = :interestId")
     abstract suspend fun deleteInterestById(interestId: Long)
+
+    @Transaction
+    open suspend fun declineIncomingInterest(
+        actorUserId: Long,
+        interestId: Long,
+        nowMillis: Long
+    ): Boolean {
+        val interest = getInterestById(interestId) ?: return false
+        if (interest.receiverUserId != actorUserId || interest.status != InterestStatus.PENDING) {
+            return false
+        }
+        markInterestStatus(interestId, InterestStatus.DECLINED, nowMillis)
+        markIncomingNotificationRead(interestId, actorUserId)
+        return true
+    }
 
     @Transaction
     open suspend fun cancelOutgoingInterest(

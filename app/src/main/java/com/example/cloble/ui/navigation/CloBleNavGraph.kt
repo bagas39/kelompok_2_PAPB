@@ -411,6 +411,9 @@ fun CloBleNavGraph(
                     navController.navigate(CloBleDestinations.matchedRoute(matchId)) {
                         popUpTo(CloBleDestinations.NOTIFICATIONS) { inclusive = false }
                     }
+                },
+                onNavigateToItemDetail = { itemId ->
+                    navController.navigate(CloBleDestinations.itemDetailRoute(itemId))
                 }
             )
         }
