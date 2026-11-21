@@ -75,7 +75,12 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val authRepository: AuthRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseAuthRepository(supabaseClient, sessionPrefs, dataInvalidator)
+            SupabaseAuthRepository(
+                client = supabaseClient,
+                sessionPrefs = sessionPrefs,
+                invalidator = dataInvalidator,
+                offlineChatCacheDao = database.offlineChatCacheDao()
+            )
         } else {
             LocalAuthRepository(database, sessionPrefs)
         }
@@ -91,7 +96,12 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val discoveryMatchRepository: DiscoveryMatchRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseDiscoveryMatchRepository(supabaseClient, dataInvalidator, supabaseRealtimeClient)
+            SupabaseDiscoveryMatchRepository(
+                client = supabaseClient,
+                invalidator = dataInvalidator,
+                realtimeClient = supabaseRealtimeClient,
+                cacheDao = database.offlineChatCacheDao()
+            )
         } else {
             LocalDiscoveryMatchRepository(
                 discoveryDao = database.discoveryDao(),
@@ -106,7 +116,12 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val chatRepository: ChatRepository by lazy {
         if (SupabaseConfig.isConfigured) {
-            SupabaseChatRepository(supabaseClient, supabaseRealtimeClient, dataInvalidator)
+            SupabaseChatRepository(
+                client = supabaseClient,
+                realtimeClient = supabaseRealtimeClient,
+                invalidator = dataInvalidator,
+                cacheDao = database.offlineChatCacheDao()
+            )
         } else {
             LocalChatRepository(database.chatDao(), database.userDao())
         }
