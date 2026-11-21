@@ -27,9 +27,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.ui.components.CloBleChoiceChipRow
+import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
+import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.theme.CloBleColors
 
@@ -61,6 +63,17 @@ fun FilterScreen(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (uiState.errorMessage != null) {
+                CloBleStatusInfoBox(
+                    tone = CloBleInfoBoxTone.WARNING,
+                    title = "Perhatian",
+                    message = uiState.errorMessage!!,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("filter_error_box")
+                )
+            }
+
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = CloBleColors.Surface,
@@ -159,8 +172,10 @@ fun FilterScreen(
                     text = "Terapkan",
                     onClick = {
                         val applied = viewModel.applyFilter()
-                        onApplyFilter(applied)
-                        onNavigateBack()
+                        if (applied != null) {
+                            onApplyFilter(applied)
+                            onNavigateBack()
+                        }
                     },
                     modifier = Modifier
                         .weight(1f)

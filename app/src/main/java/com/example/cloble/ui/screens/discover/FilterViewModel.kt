@@ -19,7 +19,8 @@ data class FilterUiState(
     val selectedCategories: Set<String> = emptySet(),
     val selectedRadiusKm: Int? = null,
     val isCustomRadius: Boolean = false,
-    val customRadiusText: String = ""
+    val customRadiusText: String = "",
+    val errorMessage: String? = null
 )
 
 class FilterViewModel(
@@ -69,9 +70,9 @@ class FilterViewModel(
     fun selectPresetRadius(km: Int) {
         _uiState.update { current ->
             if (!current.isCustomRadius && current.selectedRadiusKm == km) {
-                current.copy(selectedRadiusKm = null, isCustomRadius = false)
+                current.copy(selectedRadiusKm = null, isCustomRadius = false, errorMessage = null)
             } else {
-                current.copy(selectedRadiusKm = km, isCustomRadius = false)
+                current.copy(selectedRadiusKm = km, isCustomRadius = false, errorMessage = null)
             }
         }
     }
@@ -79,10 +80,10 @@ class FilterViewModel(
     fun toggleCustomRadiusMode() {
         _uiState.update { current ->
             if (current.isCustomRadius) {
-                current.copy(isCustomRadius = false, selectedRadiusKm = null)
+                current.copy(isCustomRadius = false, selectedRadiusKm = null, errorMessage = null)
             } else {
                 val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
-                current.copy(isCustomRadius = true, selectedRadiusKm = parsed)
+                current.copy(isCustomRadius = true, selectedRadiusKm = parsed, errorMessage = null)
             }
         }
     }
@@ -94,7 +95,8 @@ class FilterViewModel(
             it.copy(
                 isCustomRadius = true,
                 customRadiusText = digitsOnly,
-                selectedRadiusKm = parsed
+                selectedRadiusKm = parsed,
+                errorMessage = null
             )
         }
     }
@@ -106,7 +108,8 @@ class FilterViewModel(
             it.copy(
                 selectedRadiusKm = sanitized,
                 isCustomRadius = isCustom,
-                customRadiusText = if (isCustom) sanitized.toString() else it.customRadiusText
+                customRadiusText = if (isCustom) sanitized.toString() else it.customRadiusText,
+                errorMessage = null
             )
         }
     }
@@ -116,17 +119,19 @@ class FilterViewModel(
         discoverFilterFlow.value = DiscoverFilter()
     }
 
-    fun applyFilter(): DiscoverFilter {
-        val built = buildFilter()
-        if (_uiState.value.isCustomRadius && built.maxRadiusKm == null) {
-            _uiState.update {
-                it.copy(
-                    isCustomRadius = false,
-                    selectedRadiusKm = null,
-                    customRadiusText = ""
-                )
+    fun applyFilter(): DiscoverFilter? {
+        val state = _uiState.value
+        if (state.isCustomRadius) {
+            val parsedRadius = state.customRadiusText.toIntOrNull() ?: 0
+            if (parsedRadius <= 0) {
+                _uiState.update {
+                    it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+                }
+                return null
             }
         }
+        val built = buildFilter()
+        _uiState.update { it.copy(errorMessage = null) }
         discoverFilterFlow.value = built
         return built
     }
