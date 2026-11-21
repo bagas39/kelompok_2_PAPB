@@ -1,5 +1,7 @@
 package com.example.cloble.data.remote
 
+import com.example.cloble.data.local.dao.OfflineChatCacheDao
+import com.example.cloble.data.repository.OfflineChatCacheMappers
 import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.model.InterestStatus
@@ -18,19 +20,32 @@ import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.util.DistanceCalculator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SupabaseDiscoveryMatchRepository(
     private val client: SupabaseClient,
     private val invalidator: SupabaseDataInvalidator,
-    private val realtimeClient: SupabaseRealtimeClient? = null
+    private val realtimeClient: SupabaseRealtimeClient? = null,
+    private val cacheDao: OfflineChatCacheDao? = null
 ) : DiscoveryMatchRepository {
+
+    private sealed interface RemoteMatchDetailResult {
+        data class Found(val detail: VerifiedMatchDetail) : RemoteMatchDetailResult
+        data object NotFoundOrForbidden : RemoteMatchDetailResult
+        data object NetworkError : RemoteMatchDetailResult
+    }
 
     private data class ActiveMatchContext(
         val activeItemIds: Set<Long>,
@@ -207,28 +222,125 @@ class SupabaseDiscoveryMatchRepository(
     override fun observeMatchDetail(
         matchId: Long,
         viewerUserId: Long
-    ): Flow<VerifiedMatchDetail?> =
-        combine(
-            invalidator.discoveryTrigger.onStart { emit(Unit) },
-            invalidator.chatTrigger.onStart { emit(Unit) }
-        ) { _, _ ->
-            fetchMatchDetail(matchId, viewerUserId)
-        }.flowOn(Dispatchers.IO)
+    ): Flow<VerifiedMatchDetail?> = channelFlow {
+        val refreshTrigger = Channel<Unit>(Channel.CONFLATED)
 
-    private suspend fun fetchMatchDetail(
+        if (cacheDao != null) {
+            val initialSyncDone = AtomicBoolean(false)
+            val hasEmittedCache = AtomicBoolean(false)
+
+            val cacheJob = launch {
+                cacheDao.observeMatchDetail(viewerUserId, matchId).collect { entity ->
+                    if (entity != null) {
+                        hasEmittedCache.set(true)
+                        send(OfflineChatCacheMappers.toDomain(entity))
+                    } else if (initialSyncDone.get()) {
+                        send(null)
+                    }
+                }
+            }
+
+            val syncJob = launch {
+                for (unit in refreshTrigger) {
+                    when (val result = fetchMatchDetailResult(matchId, viewerUserId)) {
+                        is RemoteMatchDetailResult.Found -> {
+                            initialSyncDone.set(true)
+                            cacheDao.upsertMatchDetail(OfflineChatCacheMappers.toEntity(result.detail))
+                        }
+                        is RemoteMatchDetailResult.NotFoundOrForbidden -> {
+                            initialSyncDone.set(true)
+                            cacheDao.deleteMatchDetail(viewerUserId, matchId)
+                            if (!hasEmittedCache.get()) {
+                                send(null)
+                            }
+                        }
+                        is RemoteMatchDetailResult.NetworkError -> {
+                            initialSyncDone.set(true)
+                            if (!hasEmittedCache.get()) {
+                                send(null)
+                            }
+                        }
+                    }
+                }
+            }
+
+            refreshTrigger.trySend(Unit)
+
+            val discoveryJob = launch {
+                invalidator.discoveryTrigger.collect { refreshTrigger.trySend(Unit) }
+            }
+            val chatJob = launch {
+                invalidator.chatTrigger.collect { refreshTrigger.trySend(Unit) }
+            }
+
+            awaitClose {
+                refreshTrigger.close()
+                cacheJob.cancel()
+                syncJob.cancel()
+                discoveryJob.cancel()
+                chatJob.cancel()
+            }
+        } else {
+            var lastKnownDetail: VerifiedMatchDetail? = null
+            var hasEmitted = false
+
+            val syncJob = launch {
+                for (unit in refreshTrigger) {
+                    when (val result = fetchMatchDetailResult(matchId, viewerUserId)) {
+                        is RemoteMatchDetailResult.Found -> {
+                            lastKnownDetail = result.detail
+                            hasEmitted = true
+                            send(result.detail)
+                        }
+                        is RemoteMatchDetailResult.NotFoundOrForbidden -> {
+                            lastKnownDetail = null
+                            hasEmitted = true
+                            send(null)
+                        }
+                        is RemoteMatchDetailResult.NetworkError -> {
+                            if (!hasEmitted) {
+                                hasEmitted = true
+                                send(lastKnownDetail)
+                            }
+                        }
+                    }
+                }
+            }
+
+            refreshTrigger.trySend(Unit)
+
+            val discoveryJob = launch {
+                invalidator.discoveryTrigger.collect { refreshTrigger.trySend(Unit) }
+            }
+            val chatJob = launch {
+                invalidator.chatTrigger.collect { refreshTrigger.trySend(Unit) }
+            }
+
+            awaitClose {
+                refreshTrigger.close()
+                syncJob.cancel()
+                discoveryJob.cancel()
+                chatJob.cancel()
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private suspend fun fetchMatchDetailResult(
         matchId: Long,
         viewerUserId: Long
-    ): VerifiedMatchDetail? {
+    ): RemoteMatchDetailResult {
         return try {
             val matchArr = client.getJsonArray(
                 "matches?id=eq.$matchId&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri)," +
                         "i1:user1ItemId(*),i2:user2ItemId(*)"
             )
-            if (matchArr.length() == 0) return null
+            if (matchArr.length() == 0) return RemoteMatchDetailResult.NotFoundOrForbidden
             val m = matchArr.getJSONObject(0)
             val user1Id = m.optLong("user1Id")
             val user2Id = m.optLong("user2Id")
-            if (viewerUserId != user1Id && viewerUserId != user2Id) return null
+            if (viewerUserId != user1Id && viewerUserId != user2Id) {
+                return RemoteMatchDetailResult.NotFoundOrForbidden
+            }
 
             val isViewerUser1 = viewerUserId == user1Id
             val partnerUserId = if (isViewerUser1) user2Id else user1Id
@@ -256,8 +368,10 @@ class SupabaseDiscoveryMatchRepository(
             val myItemObj = if (isViewerUser1) m.optJSONObject("i1") else m.optJSONObject("i2")
             val partnerItemObj = if (isViewerUser1) m.optJSONObject("i2") else m.optJSONObject("i1")
 
-            val myItem = myItemObj?.let { SupabaseMappers.parseClothingItem(it) } ?: return null
-            val partnerItem = partnerItemObj?.let { SupabaseMappers.parseClothingItem(it) } ?: return null
+            val myItem = myItemObj?.let { SupabaseMappers.parseClothingItem(it) }
+                ?: return RemoteMatchDetailResult.NotFoundOrForbidden
+            val partnerItem = partnerItemObj?.let { SupabaseMappers.parseClothingItem(it) }
+                ?: return RemoteMatchDetailResult.NotFoundOrForbidden
 
             val matchStatus = try {
                 MatchStatus.valueOf(m.optString("status", "ACTIVE"))
@@ -265,26 +379,29 @@ class SupabaseDiscoveryMatchRepository(
                 MatchStatus.ACTIVE
             }
 
-            VerifiedMatchDetail(
-                matchId = matchId,
-                status = matchStatus,
-                meetingLocation = m.optString("meetingLocation").takeIf {
-                    it.isNotBlank() && !it.equals("null", ignoreCase = true)
-                },
-                createdAt = m.optLong("createdAt"),
-                updatedAt = m.optLong("updatedAt"),
-                myUserId = viewerUserId,
-                partnerUserId = partnerUserId,
-                partnerName = partnerName,
-                partnerCity = partnerCity,
-                partnerAvatarUri = partnerAvatarUri,
-                partnerAverageRating = partnerAvg,
-                partnerReviewCount = partnerCount,
-                myItem = myItem,
-                partnerItem = partnerItem
+            RemoteMatchDetailResult.Found(
+                VerifiedMatchDetail(
+                    matchId = matchId,
+                    status = matchStatus,
+                    meetingLocation = m.optString("meetingLocation").takeIf {
+                        it.isNotBlank() && !it.equals("null", ignoreCase = true)
+                    },
+                    createdAt = m.optLong("createdAt"),
+                    updatedAt = m.optLong("updatedAt"),
+                    myUserId = viewerUserId,
+                    partnerUserId = partnerUserId,
+                    partnerName = partnerName,
+                    partnerCity = partnerCity,
+                    partnerAvatarUri = partnerAvatarUri,
+                    partnerAverageRating = partnerAvg,
+                    partnerReviewCount = partnerCount,
+                    myItem = myItem,
+                    partnerItem = partnerItem
+                )
             )
-        } catch (_: Exception) {
-            null
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            RemoteMatchDetailResult.NetworkError
         }
     }
 

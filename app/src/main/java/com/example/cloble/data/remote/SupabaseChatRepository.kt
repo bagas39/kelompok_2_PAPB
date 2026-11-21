@@ -1,5 +1,8 @@
 package com.example.cloble.data.remote
 
+import com.example.cloble.data.local.dao.OfflineChatCacheDao
+import com.example.cloble.data.local.entity.CachedChatThreadEntity
+import com.example.cloble.data.repository.OfflineChatCacheMappers
 import com.example.cloble.domain.model.ChatMessage
 import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.model.MatchStatus
@@ -7,7 +10,9 @@ import com.example.cloble.domain.repository.ChatRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.SendMessageResult
 import com.example.cloble.domain.util.ChatThreadDeduplicator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -19,13 +24,14 @@ import org.json.JSONObject
 class SupabaseChatRepository(
     private val client: SupabaseClient,
     private val realtimeClient: SupabaseRealtimeClient,
-    private val invalidator: SupabaseDataInvalidator
+    private val invalidator: SupabaseDataInvalidator,
+    private val cacheDao: OfflineChatCacheDao? = null
 ) : ChatRepository {
 
-    private suspend fun fetchUserThreads(
+    private suspend fun fetchUserThreadsOrNull(
         userId: Long,
         partnerUserIdFilter: Long? = null
-    ): List<ChatThreadSummary> {
+    ): List<ChatThreadSummary>? {
         return try {
             val matchesArr = client.getJsonArray(
                 "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri),i1:user1ItemId(name,mainPhotoUri),i2:user2ItemId(name,mainPhotoUri)&order=updatedAt.desc"
@@ -106,66 +112,120 @@ class SupabaseChatRepository(
                 )
             }
             list
-        } catch (_: Exception) {
-            emptyList()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
         }
     }
 
+    private fun sortPartnerMatches(threads: List<ChatThreadSummary>): List<ChatThreadSummary> {
+        return threads.sortedWith(
+            compareBy<ChatThreadSummary> {
+                when (it.status) {
+                    MatchStatus.ACTIVE -> 0
+                    MatchStatus.COMPLETED -> 1
+                    MatchStatus.CANCELLED -> 2
+                }
+            }.thenByDescending { it.updatedAt }.thenByDescending { it.matchId }
+        )
+    }
+
     override fun observeChatThreads(userId: Long): Flow<List<ChatThreadSummary>> =
-        observeThreadsFlow(userId) { ChatThreadDeduplicator.deduplicateByPartner(fetchUserThreads(userId)) }
+        observeThreadsFlow(
+            userId = userId,
+            partnerUserIdFilter = null,
+            cacheFlow = cacheDao?.observeThreads(userId),
+            transform = { ChatThreadDeduplicator.deduplicateByPartner(it) }
+        )
 
     override fun observePartnerMatches(
         userId: Long,
         partnerUserId: Long
     ): Flow<List<ChatThreadSummary>> =
-        observeThreadsFlow(userId) {
-            fetchUserThreads(userId, partnerUserId).sortedWith(
-                compareBy<ChatThreadSummary> {
-                    when (it.status) {
-                        MatchStatus.ACTIVE -> 0
-                        MatchStatus.COMPLETED -> 1
-                        MatchStatus.CANCELLED -> 2
-                    }
-                }.thenByDescending { it.updatedAt }.thenByDescending { it.matchId }
-            )
-        }
+        observeThreadsFlow(
+            userId = userId,
+            partnerUserIdFilter = partnerUserId,
+            cacheFlow = cacheDao?.observePartnerThreads(userId, partnerUserId),
+            transform = ::sortPartnerMatches
+        )
 
     private fun observeThreadsFlow(
         userId: Long,
-        loader: suspend () -> List<ChatThreadSummary>
+        partnerUserIdFilter: Long?,
+        cacheFlow: Flow<List<CachedChatThreadEntity>>?,
+        transform: (List<ChatThreadSummary>) -> List<ChatThreadSummary>
     ): Flow<List<ChatThreadSummary>> = channelFlow {
         val userTopic = "realtime:user_threads_$userId"
         realtimeClient.subscribeTopic(userTopic)
 
-        send(loader())
+        var hasEmitted = false
+        val refreshTrigger = Channel<Unit>(Channel.CONFLATED)
+
+        val cacheJob = if (cacheDao != null && cacheFlow != null) {
+            launch {
+                cacheFlow.collect { entities ->
+                    hasEmitted = true
+                    send(transform(entities.map { OfflineChatCacheMappers.toDomain(it) }))
+                }
+            }
+        } else {
+            null
+        }
+
+        val syncJob = launch {
+            for (unit in refreshTrigger) {
+                val fetched = fetchUserThreadsOrNull(userId, partnerUserIdFilter)
+                if (fetched != null) {
+                    if (cacheDao != null) {
+                        val entities = fetched.map { OfflineChatCacheMappers.toEntity(userId, it) }
+                        if (partnerUserIdFilter == null) {
+                            cacheDao.replaceThreadsForUser(userId, entities)
+                        } else {
+                            cacheDao.replacePartnerThreadsForUser(userId, partnerUserIdFilter, entities)
+                        }
+                    } else {
+                        hasEmitted = true
+                        send(transform(fetched))
+                    }
+                } else if (cacheDao == null && !hasEmitted) {
+                    hasEmitted = true
+                    send(emptyList())
+                }
+            }
+        }
+
+        refreshTrigger.trySend(Unit)
 
         val realtimeJob = launch {
             realtimeClient.incomingMessages.collect { (incomingTopic, _) ->
                 if (incomingTopic == userTopic || incomingTopic.startsWith("realtime:match_")) {
-                    send(loader())
+                    refreshTrigger.trySend(Unit)
                 }
             }
         }
 
         val invalidatorJob = launch {
             invalidator.discoveryTrigger.collect {
-                send(loader())
+                refreshTrigger.trySend(Unit)
             }
         }
 
         val chatInvalidatorJob = launch {
             invalidator.chatTrigger.collect {
-                send(loader())
+                refreshTrigger.trySend(Unit)
             }
         }
 
         val userInvalidatorJob = launch {
             invalidator.userTrigger.collect {
-                send(loader())
+                refreshTrigger.trySend(Unit)
             }
         }
 
         awaitClose {
+            refreshTrigger.close()
+            cacheJob?.cancel()
+            syncJob.cancel()
             realtimeJob.cancel()
             invalidatorJob.cancel()
             chatInvalidatorJob.cancel()
@@ -182,6 +242,19 @@ class SupabaseChatRepository(
         realtimeClient.subscribeTopic(topic)
 
         val currentMessages = mutableListOf<ChatMessage>()
+        var hasEmitted = false
+        val refreshTrigger = Channel<Unit>(Channel.CONFLATED)
+
+        val cacheJob = if (cacheDao != null) {
+            launch {
+                cacheDao.observeMessages(matchId).collect { entities ->
+                    hasEmitted = true
+                    send(entities.map { OfflineChatCacheMappers.toDomain(it, viewerUserId) })
+                }
+            }
+        } else {
+            null
+        }
 
         suspend fun reloadMessagesFromServer() {
             try {
@@ -193,24 +266,42 @@ class SupabaseChatRepository(
                     val senderName = senderObj?.optString("name", "Pengguna") ?: "Pengguna"
                     fetched.add(SupabaseMappers.parseChatMessage(obj, viewerUserId, senderName))
                 }
-                currentMessages.clear()
-                currentMessages.addAll(fetched)
-                send(currentMessages.toList())
-            } catch (_: Exception) {
-                if (currentMessages.isEmpty()) {
+                if (cacheDao != null) {
+                    if (fetched.isNotEmpty()) {
+                        cacheDao.upsertMessages(fetched.map { OfflineChatCacheMappers.toEntity(it) })
+                    }
+                } else {
+                    val snapshot = synchronized(currentMessages) {
+                        currentMessages.clear()
+                        currentMessages.addAll(fetched)
+                        currentMessages.toList()
+                    }
+                    hasEmitted = true
+                    send(snapshot)
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (cacheDao == null && !hasEmitted) {
+                    hasEmitted = true
                     send(emptyList())
                 }
             }
         }
 
-        reloadMessagesFromServer()
+        val syncJob = launch {
+            for (unit in refreshTrigger) {
+                reloadMessagesFromServer()
+            }
+        }
+
+        refreshTrigger.trySend(Unit)
 
         val job = launch {
             realtimeClient.incomingMessages.collect { (incomingTopic, data) ->
                 if (incomingTopic == topic) {
                     val id = data.optLong("id")
                     val mId = data.optLong("matchId")
-                    if (mId == matchId && currentMessages.none { it.id == id }) {
+                    if (mId == matchId && id > 0L) {
                         val senderId = data.optLong("senderId")
                         val senderName = data.optString("senderName", "Pengguna")
                         val messageText = data.optString("messageText")
@@ -227,8 +318,23 @@ class SupabaseChatRepository(
                             isFromMe = isFromMe,
                             isRead = false
                         )
-                        currentMessages.add(newMsg)
-                        send(currentMessages.toList())
+                        if (cacheDao != null) {
+                            cacheDao.upsertMessage(OfflineChatCacheMappers.toEntity(newMsg))
+                            cacheDao.updateThreadLastMessage(mId, messageText, sentAt)
+                        } else {
+                            val updatedSnapshot = synchronized(currentMessages) {
+                                if (currentMessages.none { it.id == id }) {
+                                    currentMessages.add(newMsg)
+                                    currentMessages.toList()
+                                } else {
+                                    null
+                                }
+                            }
+                            if (updatedSnapshot != null) {
+                                hasEmitted = true
+                                send(updatedSnapshot)
+                            }
+                        }
                     }
                 }
             }
@@ -236,11 +342,14 @@ class SupabaseChatRepository(
 
         val chatRefreshJob = launch {
             invalidator.chatTrigger.collect {
-                reloadMessagesFromServer()
+                refreshTrigger.trySend(Unit)
             }
         }
 
         awaitClose {
+            refreshTrigger.close()
+            cacheJob?.cancel()
+            syncJob.cancel()
             job.cancel()
             chatRefreshJob.cancel()
             realtimeClient.unsubscribeTopic(topic)
@@ -288,6 +397,21 @@ class SupabaseChatRepository(
                 val senderJson = client.getJsonObjectOrNull("users?id=eq.$senderId&select=name")
                 val senderName = senderJson?.optString("name", "Pengguna") ?: "Pengguna"
 
+                val cachedMessage = ChatMessage(
+                    id = newId,
+                    matchId = matchId,
+                    senderId = senderId,
+                    senderName = senderName,
+                    messageText = trimmed,
+                    isRead = false,
+                    sentAt = now,
+                    isFromMe = true
+                )
+                runCatching {
+                    cacheDao?.upsertMessage(OfflineChatCacheMappers.toEntity(cachedMessage))
+                    cacheDao?.updateThreadLastMessage(matchId, trimmed, now)
+                }
+
                 val broadcastData = JSONObject().apply {
                     put("id", newId)
                     put("matchId", matchId)
@@ -315,6 +439,10 @@ class SupabaseChatRepository(
         try {
             val body = JSONObject().put("isRead", true)
             client.patch("chat_messages?matchId=eq.$matchId&senderId=neq.$viewerUserId&isRead=eq.false", body.toString())
+            runCatching {
+                cacheDao?.markMessagesReadLocal(matchId, viewerUserId)
+                cacheDao?.clearThreadUnreadCount(viewerUserId, matchId)
+            }
             invalidator.invalidateChat()
         } catch (_: Exception) {
         }

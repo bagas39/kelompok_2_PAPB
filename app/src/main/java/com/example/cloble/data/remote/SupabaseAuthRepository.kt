@@ -1,5 +1,6 @@
 package com.example.cloble.data.remote
 
+import com.example.cloble.data.local.dao.OfflineChatCacheDao
 import com.example.cloble.data.local.session.SessionPreferencesDataSource
 import com.example.cloble.domain.model.CityPreset
 import com.example.cloble.domain.model.DemoAccountSummary
@@ -29,8 +30,16 @@ import org.json.JSONObject
 class SupabaseAuthRepository(
     private val client: SupabaseClient,
     private val sessionPrefs: SessionPreferencesDataSource,
-    private val invalidator: SupabaseDataInvalidator
+    private val invalidator: SupabaseDataInvalidator,
+    private val offlineChatCacheDao: OfflineChatCacheDao? = null
 ) : AuthRepository {
+
+    private suspend fun clearOfflineCacheIfAccountChanged(newUserId: Long) {
+        val previousUserId = sessionPrefs.getLoggedInUserIdOnce()
+        if (previousUserId != newUserId) {
+            runCatching { offlineChatCacheDao?.clearAll() }
+        }
+    }
 
     override fun observeLoggedInUserId(): Flow<Long?> =
         combine(
@@ -134,6 +143,7 @@ class SupabaseAuthRepository(
             if (userId <= 0L || token.isBlank()) {
                 return AuthResult.InvalidCredentials
             }
+            clearOfflineCacheIfAccountChanged(userId)
             client.setSessionToken(token)
             sessionPrefs.setSession(userId, token)
             invalidator.invalidateAll()
@@ -155,6 +165,7 @@ class SupabaseAuthRepository(
             }
 
             val token = sessionResp.optString("sessionToken")
+            clearOfflineCacheIfAccountChanged(userId)
             client.setSessionToken(token)
             sessionPrefs.setSession(userId, token)
             invalidator.invalidateAll()
@@ -342,6 +353,7 @@ class SupabaseAuthRepository(
                 "SUCCESS" -> {
                     val newUserId = regResp.optLong("userId")
                     val token = regResp.optString("sessionToken")
+                    clearOfflineCacheIfAccountChanged(newUserId)
                     client.setSessionToken(token)
                     sessionPrefs.setSession(newUserId, token)
                     invalidator.invalidateAll()
@@ -370,6 +382,7 @@ class SupabaseAuthRepository(
         }
         client.setSessionToken(null)
         sessionPrefs.clearSession()
+        runCatching { offlineChatCacheDao?.clearAll() }
         invalidator.invalidateAll()
     }
 
