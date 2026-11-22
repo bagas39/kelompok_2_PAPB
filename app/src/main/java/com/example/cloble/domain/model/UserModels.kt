@@ -40,10 +40,3 @@ data class UserPreferences(
     val longitude: Double,
     val preferredRadiusKm: Int
 )
-
-data class DemoAccountSummary(
-    val id: Long,
-    val name: String,
-    val email: String,
-    val roleDescription: String
-)

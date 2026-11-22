@@ -15,6 +15,7 @@ sealed interface AuthResult {
     data class Success(val userId: Long) : AuthResult
     data object InvalidCredentials : AuthResult
     data object EmailAlreadyRegistered : AuthResult
+    data class RateLimited(val message: String) : AuthResult
     data class ValidationFailed(val message: String) : AuthResult
     data class DatabaseError(val failure: DbFailure) : AuthResult
 }

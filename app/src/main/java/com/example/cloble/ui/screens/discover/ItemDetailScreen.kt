@@ -505,7 +505,7 @@ fun ItemDetailScreen(
                         )
                     } else if (uiState.isItemUnavailable ||
                         existingStatus == InterestStatus.RESOLVED_BY_MATCH ||
-                        existingStatus == InterestStatus.INVALIDATED
+                        (existingStatus == InterestStatus.INVALIDATED && !uiState.canReofferAfterInvalidated)
                     ) {
                         CloBlePrimaryButton(
                             text = "Pakaian Tidak Tersedia",

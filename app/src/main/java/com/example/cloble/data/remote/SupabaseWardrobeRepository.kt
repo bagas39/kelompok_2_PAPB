@@ -291,6 +291,7 @@ class SupabaseWardrobeRepository(
             val uri = Uri.parse(sourceUriString)
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext null
+            if (bytes.size > MAX_PHOTO_BYTES) return@withContext null
 
             val ext = when (context.contentResolver.getType(uri)) {
                 "image/png" -> "png"
@@ -327,5 +328,9 @@ class SupabaseWardrobeRepository(
         } catch (_: Exception) {
             0
         }
+    }
+
+    private companion object {
+        const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
     }
 }

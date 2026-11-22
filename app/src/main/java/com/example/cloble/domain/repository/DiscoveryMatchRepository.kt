@@ -22,7 +22,7 @@ interface DiscoveryMatchRepository {
     fun observeOutgoingInterests(userId: Long): Flow<List<OutgoingInterestSummary>>
     fun observePassedClothing(userId: Long): Flow<List<PassedClothingSummary>>
 
-    suspend fun passCandidate(userId: Long, targetItemId: Long)
+    suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean
     suspend fun sendInterest(senderId: Long, targetItemId: Long): SendInterestResult
     suspend fun cancelOutgoingInterest(userId: Long, interestId: Long): CancelInterestResult
     suspend fun convertPassToInterest(userId: Long, targetItemId: Long): SendInterestResult

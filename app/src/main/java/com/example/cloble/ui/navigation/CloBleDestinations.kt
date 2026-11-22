@@ -1,8 +1,6 @@
 package com.example.cloble.ui.navigation
 
 object CloBleDestinations {
-    const val PHASE_1_SHOWCASE = "phase1_design_showcase"
-
     const val LOGIN = "login"
     const val REGISTER = "register"
     const val PREFERENCES = "preferences?isOnboarding={isOnboarding}"

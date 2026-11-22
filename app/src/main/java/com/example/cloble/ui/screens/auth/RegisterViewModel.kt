@@ -6,9 +6,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
-import com.example.cloble.domain.model.CityPreset
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
+import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,16 +18,19 @@ import kotlinx.coroutines.launch
 data class RegisterUiState(
     val name: String = "",
     val email: String = "",
-    val city: String = CityPreset.BANDUNG.displayName,
-    val latitude: Double = CityPreset.BANDUNG.latitude,
-    val longitude: Double = CityPreset.BANDUNG.longitude,
+    val city: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val password: String = "",
     val confirmPassword: String = "",
     val isPasswordVisible: Boolean = false,
     val isConfirmPasswordVisible: Boolean = false,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null
-)
+) {
+    val hasSelectedLocation: Boolean
+        get() = city.isNotBlank() && latitude != null && longitude != null
+}
 
 class RegisterViewModel(
     private val authRepository: AuthRepository
@@ -47,7 +50,7 @@ class RegisterViewModel(
     fun onLocationSelected(city: String, latitude: Double, longitude: Double) {
         _uiState.update {
             it.copy(
-                city = city,
+                city = city.trim(),
                 latitude = latitude,
                 longitude = longitude,
                 errorMessage = null
@@ -81,16 +84,16 @@ class RegisterViewModel(
             _uiState.update { it.copy(errorMessage = "Nama lengkap wajib diisi") }
             return
         }
-        if (email.isEmpty() || !email.contains("@")) {
+        if (!PasswordPolicy.isValidEmail(email)) {
             _uiState.update { it.copy(errorMessage = "Format email tidak valid") }
             return
         }
-        if (city.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Lokasi kota wajib dipilih") }
+        if (!s.hasSelectedLocation) {
+            _uiState.update { it.copy(errorMessage = "Pilih lokasi domisili Anda di peta terlebih dahulu") }
             return
         }
-        if (s.password.length < 6) {
-            _uiState.update { it.copy(errorMessage = "Password minimal 6 karakter") }
+        PasswordPolicy.validateNewPassword(s.password)?.let { msg ->
+            _uiState.update { it.copy(errorMessage = msg) }
             return
         }
         if (s.password != s.confirmPassword) {
@@ -100,26 +103,43 @@ class RegisterViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val result = authRepository.register(
-                name = name,
-                email = email,
-                rawPassword = s.password,
-                city = city,
-                latitude = s.latitude,
-                longitude = s.longitude
-            )
-            when (result) {
+            when (
+                val result = authRepository.register(
+                    name = name,
+                    email = email,
+                    rawPassword = s.password,
+                    city = city,
+                    latitude = s.latitude,
+                    longitude = s.longitude
+                )
+            ) {
                 is AuthResult.Success -> {
                     _uiState.update { it.copy(isSubmitting = false) }
                     onSuccess()
                 }
                 is AuthResult.EmailAlreadyRegistered -> {
-                    _uiState.update { it.copy(isSubmitting = false, errorMessage = "Email sudah terdaftar. Silakan gunakan email lain.") }
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Email sudah terdaftar. Silakan gunakan email lain."
+                        )
+                    }
                 }
                 is AuthResult.ValidationFailed -> {
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = result.message) }
                 }
-                else -> {
+                is AuthResult.RateLimited -> {
+                    _uiState.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+                }
+                is AuthResult.DatabaseError -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = result.failure.message ?: "Pendaftaran gagal. Coba lagi."
+                        )
+                    }
+                }
+                AuthResult.InvalidCredentials -> {
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = "Pendaftaran gagal. Coba lagi.") }
                 }
             }

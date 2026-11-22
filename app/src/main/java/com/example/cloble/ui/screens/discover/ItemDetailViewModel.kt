@@ -38,6 +38,7 @@ data class ItemDetailUiState(
     val relatedMatchId: Long? = null,
     val relatedMatchStatus: MatchStatus? = null,
     val canReofferAfterCancelled: Boolean = false,
+    val canReofferAfterInvalidated: Boolean = false,
     val isLockedByOtherMatch: Boolean = false,
     val isItemUnavailable: Boolean = false,
     val isLoading: Boolean = true,
@@ -115,6 +116,9 @@ class ItemDetailViewModel(
                 val canReofferAfterCancelled = outgoing?.matchStatus == MatchStatus.CANCELLED &&
                     !lockedByOther &&
                     !itemUnavailable
+                val canReofferAfterInvalidated = outgoing?.interestStatus == InterestStatus.INVALIDATED &&
+                    !lockedByOther &&
+                    !itemUnavailable
 
                 _uiState.update {
                     it.copy(
@@ -127,6 +131,7 @@ class ItemDetailViewModel(
                         relatedMatchId = outgoing?.matchId,
                         relatedMatchStatus = outgoing?.matchStatus,
                         canReofferAfterCancelled = canReofferAfterCancelled,
+                        canReofferAfterInvalidated = canReofferAfterInvalidated,
                         isLockedByOtherMatch = lockedByOther,
                         isItemUnavailable = itemUnavailable,
                         interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
@@ -147,9 +152,11 @@ class ItemDetailViewModel(
     fun sendInterest() {
         val state = _uiState.value
         val item = state.item ?: return
-        if (state.isLockedByOtherMatch ||
+        val canReoffer = state.canReofferAfterCancelled || state.canReofferAfterInvalidated
+        if (state.isSendingInterest ||
+            state.isLockedByOtherMatch ||
             state.isItemUnavailable ||
-            (state.existingInterestStatus != null && !state.canReofferAfterCancelled)
+            (state.existingInterestStatus != null && !canReoffer)
         ) return
 
         viewModelScope.launch {
@@ -175,6 +182,7 @@ class ItemDetailViewModel(
                             relatedMatchId = result.matchId ?: outgoingAfter?.matchId,
                             relatedMatchStatus = if (result.matchId != null) MatchStatus.ACTIVE else outgoingAfter?.matchStatus,
                             canReofferAfterCancelled = false,
+                            canReofferAfterInvalidated = false,
                             requiresBarterItemCta = false,
                             actionMessage = if (result.matchId != null) {
                                 "Match langsung terbentuk karena pemilik juga menyukai pakaian Anda!"

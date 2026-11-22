@@ -126,7 +126,8 @@ serve(async (req) => {
   try {
     const payload = await req.json();
     const cleanEmail = String(payload?.email ?? "").trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes("@")) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
       return jsonResponse({ code: "VALIDATION_FAILED", message: "Format email tidak valid" });
     }
 
@@ -135,17 +136,15 @@ serve(async (req) => {
     if (!gmailUser || !gmailAppPassword) {
       return jsonResponse({
         code: "SMTP_NOT_CONFIGURED",
-        message: "Pengiriman email OTP Gmail SMTP belum dikonfigurasi di Supabase Secrets (GMAIL_USER / GMAIL_APP_PASSWORD).",
+        message: "Layanan email OTP sedang tidak tersedia. Silakan coba lagi nanti.",
       });
     }
 
     const otpCode = generateSixDigitOtp();
-    const nowMillis = Date.now();
 
     const { data: issueResult, error: issueError } = await supabase.rpc("rpc_issue_password_reset_otp", {
       p_email: cleanEmail,
       p_otp_code: otpCode,
-      p_now_millis: nowMillis,
     });
 
     if (issueError) {

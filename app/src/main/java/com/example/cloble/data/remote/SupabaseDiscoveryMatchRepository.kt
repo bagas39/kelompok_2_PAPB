@@ -22,15 +22,15 @@ import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.util.DistanceCalculator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -79,8 +79,14 @@ class SupabaseDiscoveryMatchRepository(
         filter: DiscoverFilter
     ): Flow<List<DiscoverCandidate>> =
         combine(
-            invalidator.discoveryTrigger.onStart { emit(Unit) },
-            invalidator.userTrigger.onStart { emit(Unit) }
+            kotlinx.coroutines.flow.flow {
+                emit(Unit)
+                invalidator.discoveryTrigger.collect { emit(Unit) }
+            },
+            kotlinx.coroutines.flow.flow {
+                emit(Unit)
+                invalidator.userTrigger.collect { emit(Unit) }
+            }
         ) { _, _ ->
             fetchDiscoverCandidates(viewerUserId, filter)
         }.flowOn(Dispatchers.IO)
@@ -90,7 +96,9 @@ class SupabaseDiscoveryMatchRepository(
         filter: DiscoverFilter
     ): List<DiscoverCandidate> {
         return try {
-            val viewerJson = client.getJsonObjectOrNull("users?id=eq.$viewerUserId") ?: return emptyList()
+            val viewerResp = client.rpc("rpc_get_user_profile", JSONObject().put("p_target_user_id", viewerUserId))
+            if (viewerResp.optString("code") != "SUCCESS") return emptyList()
+            val viewerJson = viewerResp.optJSONObject("user") ?: return emptyList()
             val viewerCity = viewerJson.optString("city", "Bandung, Jawa Barat")
             val (viewerLat, viewerLon) = DistanceCalculator.resolveEffectiveCoordinates(
                 city = viewerCity,
@@ -114,7 +122,7 @@ class SupabaseDiscoveryMatchRepository(
                     "matches?or=(user1Id.eq.$viewerUserId,user2Id.eq.$viewerUserId)&select=id,sourceInterestId,user1ItemId,user2ItemId,status"
                 )
             } catch (_: Exception) {
-                org.json.JSONArray()
+                JSONArray()
             }
             val nonCancelledMatchSourceIds = mutableSetOf<Long>()
             val nonCancelledMatchItemIds = mutableSetOf<Long>()
@@ -145,9 +153,40 @@ class SupabaseDiscoveryMatchRepository(
             }
 
             val rawItemsArr = client.getJsonArray(
-                "clothing_items?select=*,users:ownerId(id,name,city,latitude,longitude,avatarUri)" +
+                "clothing_items?select=*,users:ownerId(id,name,city,avatarUri)" +
                         "&status=eq.AVAILABLE&isBarterAllowed=eq.true&ownerId=neq.$viewerUserId&order=createdAt.desc"
             )
+
+            val ownerIdsSet = linkedSetOf<Long>()
+            for (i in 0 until rawItemsArr.length()) {
+                val raw = rawItemsArr.getJSONObject(i)
+                val ownerJson = raw.optJSONObject("users")
+                val ownerId = ownerJson?.optLong("id", raw.optLong("ownerId")) ?: raw.optLong("ownerId")
+                if (ownerId > 0L) ownerIdsSet.add(ownerId)
+            }
+
+            val ownerCoordsMap = mutableMapOf<Long, Pair<Double, Double>>()
+            if (ownerIdsSet.isNotEmpty()) {
+                try {
+                    val locsResp = client.rpc(
+                        "rpc_get_users_coarse_locations",
+                        JSONObject().put("p_user_ids", JSONArray(ownerIdsSet.toList()))
+                    )
+                    val locsArr = locsResp.optJSONArray("locations")
+                    if (locsArr != null) {
+                        for (i in 0 until locsArr.length()) {
+                            val loc = locsArr.getJSONObject(i)
+                            val uid = loc.optLong("id")
+                            val lat = loc.optDouble("latitude", Double.NaN)
+                            val lon = loc.optDouble("longitude", Double.NaN)
+                            if (uid > 0L && !lat.isNaN() && !lon.isNaN()) {
+                                ownerCoordsMap[uid] = lat to lon
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
 
             val ratingSumsByOwner = mutableMapOf<Long, Pair<Double, Int>>()
             try {
@@ -177,10 +216,11 @@ class SupabaseDiscoveryMatchRepository(
                 val ownerJson = raw.optJSONObject("users") ?: JSONObject()
                 val ownerId = ownerJson.optLong("id", raw.optLong("ownerId"))
                 val ownerCity = ownerJson.optString("city", "Bandung")
+                val ownerCoords = ownerCoordsMap[ownerId]
                 val (ownerLat, ownerLon) = DistanceCalculator.resolveEffectiveCoordinates(
                     city = ownerCity,
-                    latitude = ownerJson.optDouble("latitude", Double.NaN),
-                    longitude = ownerJson.optDouble("longitude", Double.NaN)
+                    latitude = ownerCoords?.first ?: Double.NaN,
+                    longitude = ownerCoords?.second ?: Double.NaN
                 )
 
                 val distanceKm = DistanceCalculator.calculateKm(
@@ -223,13 +263,20 @@ class SupabaseDiscoveryMatchRepository(
         matchId: Long,
         viewerUserId: Long
     ): Flow<VerifiedMatchDetail?> = channelFlow {
+        val matchTopic = "realtime:match_$matchId"
+        val userTopic = "realtime:user_threads_$viewerUserId"
+        realtimeClient?.subscribeTopic(matchTopic)
+        realtimeClient?.subscribeTopic(userTopic)
+
         val refreshTrigger = Channel<Unit>(Channel.CONFLATED)
+        var cacheJob: Job? = null
+        val syncJob: Job
 
         if (cacheDao != null) {
             val initialSyncDone = AtomicBoolean(false)
             val hasEmittedCache = AtomicBoolean(false)
 
-            val cacheJob = launch {
+            cacheJob = launch {
                 cacheDao.observeMatchDetail(viewerUserId, matchId).collect { entity ->
                     if (entity != null) {
                         hasEmittedCache.set(true)
@@ -240,7 +287,7 @@ class SupabaseDiscoveryMatchRepository(
                 }
             }
 
-            val syncJob = launch {
+            syncJob = launch {
                 for (unit in refreshTrigger) {
                     when (val result = fetchMatchDetailResult(matchId, viewerUserId)) {
                         is RemoteMatchDetailResult.Found -> {
@@ -263,28 +310,11 @@ class SupabaseDiscoveryMatchRepository(
                     }
                 }
             }
-
-            refreshTrigger.trySend(Unit)
-
-            val discoveryJob = launch {
-                invalidator.discoveryTrigger.collect { refreshTrigger.trySend(Unit) }
-            }
-            val chatJob = launch {
-                invalidator.chatTrigger.collect { refreshTrigger.trySend(Unit) }
-            }
-
-            awaitClose {
-                refreshTrigger.close()
-                cacheJob.cancel()
-                syncJob.cancel()
-                discoveryJob.cancel()
-                chatJob.cancel()
-            }
         } else {
             var lastKnownDetail: VerifiedMatchDetail? = null
             var hasEmitted = false
 
-            val syncJob = launch {
+            syncJob = launch {
                 for (unit in refreshTrigger) {
                     when (val result = fetchMatchDetailResult(matchId, viewerUserId)) {
                         is RemoteMatchDetailResult.Found -> {
@@ -306,22 +336,33 @@ class SupabaseDiscoveryMatchRepository(
                     }
                 }
             }
+        }
 
-            refreshTrigger.trySend(Unit)
+        refreshTrigger.trySend(Unit)
 
-            val discoveryJob = launch {
-                invalidator.discoveryTrigger.collect { refreshTrigger.trySend(Unit) }
+        val realtimeJob = launch {
+            realtimeClient?.incomingMessages?.collect { (incomingTopic, _) ->
+                if (incomingTopic == matchTopic || incomingTopic == userTopic) {
+                    refreshTrigger.trySend(Unit)
+                }
             }
-            val chatJob = launch {
-                invalidator.chatTrigger.collect { refreshTrigger.trySend(Unit) }
-            }
+        }
+        val discoveryJob = launch {
+            invalidator.discoveryTrigger.collect { refreshTrigger.trySend(Unit) }
+        }
+        val chatJob = launch {
+            invalidator.chatTrigger.collect { refreshTrigger.trySend(Unit) }
+        }
 
-            awaitClose {
-                refreshTrigger.close()
-                syncJob.cancel()
-                discoveryJob.cancel()
-                chatJob.cancel()
-            }
+        awaitClose {
+            refreshTrigger.close()
+            cacheJob?.cancel()
+            syncJob.cancel()
+            realtimeJob.cancel()
+            discoveryJob.cancel()
+            chatJob.cancel()
+            realtimeClient?.unsubscribeTopic(matchTopic)
+            realtimeClient?.unsubscribeTopic(userTopic)
         }
     }.flowOn(Dispatchers.IO)
 
@@ -405,11 +446,49 @@ class SupabaseDiscoveryMatchRepository(
         }
     }
 
+    private fun <T> observeWithUserRealtime(
+        userId: Long,
+        trigger: Flow<Unit>,
+        fetcher: suspend () -> T
+    ): Flow<T> = channelFlow {
+        val userTopic = "realtime:user_threads_$userId"
+        realtimeClient?.subscribeTopic(userTopic)
+        val refreshTrigger = Channel<Unit>(Channel.CONFLATED)
+
+        val syncJob = launch {
+            for (unit in refreshTrigger) {
+                send(fetcher())
+            }
+        }
+
+        refreshTrigger.trySend(Unit)
+
+        val triggerJob = launch {
+            trigger.collect { refreshTrigger.trySend(Unit) }
+        }
+        val realtimeJob = launch {
+            realtimeClient?.incomingMessages?.collect { (incomingTopic, _) ->
+                if (incomingTopic == userTopic || incomingTopic.startsWith("realtime:match_")) {
+                    refreshTrigger.trySend(Unit)
+                }
+            }
+        }
+
+        awaitClose {
+            refreshTrigger.close()
+            syncJob.cancel()
+            triggerJob.cancel()
+            realtimeJob.cancel()
+            realtimeClient?.unsubscribeTopic(userTopic)
+        }
+    }.flowOn(Dispatchers.IO)
+
     override fun observeNotifications(userId: Long): Flow<List<NotificationFeedItem>> =
-        invalidator.notificationsTrigger
-            .onStart { emit(Unit) }
-            .map { fetchNotifications(userId) }
-            .flowOn(Dispatchers.IO)
+        observeWithUserRealtime(
+            userId = userId,
+            trigger = invalidator.notificationsTrigger,
+            fetcher = { fetchNotifications(userId) }
+        )
 
     private suspend fun fetchNotifications(userId: Long): List<NotificationFeedItem> {
         return try {
@@ -444,10 +523,11 @@ class SupabaseDiscoveryMatchRepository(
     }
 
     override fun observeUnreadNotificationCount(userId: Long): Flow<Int> =
-        invalidator.notificationsTrigger
-            .onStart { emit(Unit) }
-            .map { fetchUnreadNotificationCount(userId) }
-            .flowOn(Dispatchers.IO)
+        observeWithUserRealtime(
+            userId = userId,
+            trigger = invalidator.notificationsTrigger,
+            fetcher = { fetchUnreadNotificationCount(userId) }
+        )
 
     private suspend fun fetchUnreadNotificationCount(userId: Long): Int {
         return try {
@@ -459,15 +539,16 @@ class SupabaseDiscoveryMatchRepository(
     }
 
     override fun observeOutgoingInterests(userId: Long): Flow<List<OutgoingInterestSummary>> =
-        invalidator.discoveryTrigger
-            .onStart { emit(Unit) }
-            .map { fetchOutgoingInterests(userId) }
-            .flowOn(Dispatchers.IO)
+        observeWithUserRealtime(
+            userId = userId,
+            trigger = invalidator.discoveryTrigger,
+            fetcher = { fetchOutgoingInterests(userId) }
+        )
 
     private suspend fun fetchOutgoingInterests(userId: Long): List<OutgoingInterestSummary> {
         return try {
             val arr = client.getJsonArray(
-                "interests?senderUserId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(*)),matches(*)&order=createdAt.desc"
+                "interests?senderUserId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(id,name,city,avatarUri)),matches(*)&order=createdAt.desc"
             )
             val myMatchesArr = try {
                 client.getJsonArray(
@@ -552,10 +633,8 @@ class SupabaseDiscoveryMatchRepository(
                 }
 
                 val isLockedByOther = resolvedMatchId == null && (
-                        interestStatus == InterestStatus.RESOLVED_BY_MATCH ||
-                                interestStatus == InterestStatus.INVALIDATED ||
-                                itemStatus != ItemStatus.AVAILABLE ||
-                                otherActiveItemIds.contains(targetItemId)
+                        otherActiveItemIds.contains(targetItemId) ||
+                                (interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
                         )
 
                 list.add(
@@ -574,15 +653,16 @@ class SupabaseDiscoveryMatchRepository(
     }
 
     override fun observePassedClothing(userId: Long): Flow<List<PassedClothingSummary>> =
-        invalidator.discoveryTrigger
-            .onStart { emit(Unit) }
-            .map { fetchPassedClothing(userId) }
-            .flowOn(Dispatchers.IO)
+        observeWithUserRealtime(
+            userId = userId,
+            trigger = invalidator.discoveryTrigger,
+            fetcher = { fetchPassedClothing(userId) }
+        )
 
     private suspend fun fetchPassedClothing(userId: Long): List<PassedClothingSummary> {
         return try {
             val arr = client.getJsonArray(
-                "swipe_passes?userId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(*))&order=createdAt.desc"
+                "swipe_passes?userId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(id,name,city,avatarUri))&order=createdAt.desc"
             )
             val activeItemIds = fetchActiveMatchContext().activeItemIds
 
@@ -603,8 +683,8 @@ class SupabaseDiscoveryMatchRepository(
         }
     }
 
-    override suspend fun passCandidate(userId: Long, targetItemId: Long) {
-        try {
+    override suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean {
+        return try {
             val body = JSONObject().apply {
                 put("userId", userId)
                 put("targetItemId", targetItemId)
@@ -612,7 +692,9 @@ class SupabaseDiscoveryMatchRepository(
             }
             client.post("swipe_passes", body.toString())
             invalidator.invalidateDiscovery()
+            true
         } catch (_: Exception) {
+            false
         }
     }
 
@@ -629,12 +711,15 @@ class SupabaseDiscoveryMatchRepository(
                 "SUCCESS" -> {
                     val isMutual = res.optBoolean("isMutualMatch", false)
                     val matchId = if (isMutual && !res.isNull("matchId")) res.optLong("matchId") else null
+                    val receiverUserId = res.optLong("receiverUserId", 0L)
                     invalidator.invalidateDiscovery()
                     invalidator.invalidateNotifications()
                     if (matchId != null) {
                         invalidator.invalidateChat()
                         invalidator.invalidateWardrobe()
                         notifyMatchParticipantsViaRealtime(matchId)
+                    } else if (receiverUserId > 0L) {
+                        notifyUserViaRealtime(receiverUserId, "interest_updated")
                     }
                     SendInterestResult.Success(res.optLong("interestId"), matchId)
                 }
@@ -654,8 +739,8 @@ class SupabaseDiscoveryMatchRepository(
                 "PAIR_ALREADY_MATCHED" -> SendInterestResult.PairAlreadyMatched
                 else -> SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Aksi gagal"))
             }
-        } catch (e: Exception) {
-            SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -671,8 +756,12 @@ class SupabaseDiscoveryMatchRepository(
             val res = client.rpc("rpc_cancel_outgoing_interest", params)
             when (res.optString("code")) {
                 "SUCCESS" -> {
+                    val receiverUserId = res.optLong("receiverUserId", 0L)
                     invalidator.invalidateDiscovery()
                     invalidator.invalidateNotifications()
+                    if (receiverUserId > 0L) {
+                        notifyUserViaRealtime(receiverUserId, "interest_updated")
+                    }
                     CancelInterestResult.Success
                 }
                 "INTEREST_NOT_FOUND" -> CancelInterestResult.InterestNotFound
@@ -687,8 +776,8 @@ class SupabaseDiscoveryMatchRepository(
                 }
                 else -> CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal membatalkan minat"))
             }
-        } catch (e: Exception) {
-            CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -740,8 +829,8 @@ class SupabaseDiscoveryMatchRepository(
                 "PAIR_ALREADY_MATCHED" -> RespondInterestResult.PairAlreadyMatched
                 else -> RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Respon gagal"))
             }
-        } catch (e: Exception) {
-            RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -758,15 +847,19 @@ class SupabaseDiscoveryMatchRepository(
             val res = client.rpc("rpc_decline_incoming_interest", params)
             when (res.optString("code")) {
                 "SUCCESS" -> {
+                    val senderUserId = res.optLong("senderUserId", 0L)
                     invalidator.invalidateNotifications()
                     invalidator.invalidateDiscovery()
+                    if (senderUserId > 0L) {
+                        notifyUserViaRealtime(senderUserId, "interest_updated")
+                    }
                     DeclineInterestResult.Success
                 }
                 "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> DeclineInterestResult.InterestAlreadyProcessedOrInvalid
                 else -> DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Tolak tawaran gagal"))
             }
-        } catch (e: Exception) {
-            DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -799,8 +892,8 @@ class SupabaseDiscoveryMatchRepository(
                 }
                 else -> CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Batal gagal"))
             }
-        } catch (e: Exception) {
-            CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -839,18 +932,32 @@ class SupabaseDiscoveryMatchRepository(
                 "ITEMS_NO_LONGER_AVAILABLE" -> CompleteMatchResult.ItemsNoLongerAvailable
                 else -> CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Selesai barter gagal"))
             }
-        } catch (e: Exception) {
-            CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
+        }
+    }
+
+    private fun notifyUserViaRealtime(targetUserId: Long, event: String) {
+        if (targetUserId <= 0L) return
+        val rt = realtimeClient ?: return
+        try {
+            rt.broadcast(
+                "realtime:user_threads_$targetUserId",
+                event,
+                JSONObject().put("userId", targetUserId)
+            )
+        } catch (_: Exception) {
         }
     }
 
     private suspend fun notifyMatchParticipantsViaRealtime(matchId: Long) {
         val rt = realtimeClient ?: return
         try {
+            val payload = JSONObject().put("matchId", matchId)
+            rt.broadcast("realtime:match_$matchId", "match_updated", payload)
             val matchObj = client.getJsonObjectOrNull("matches?id=eq.$matchId&select=user1Id,user2Id") ?: return
             val u1 = matchObj.optLong("user1Id")
             val u2 = matchObj.optLong("user2Id")
-            val payload = JSONObject().put("matchId", matchId)
             if (u1 > 0L) rt.broadcast("realtime:user_threads_$u1", "thread_updated", payload)
             if (u2 > 0L) rt.broadcast("realtime:user_threads_$u2", "thread_updated", payload)
         } catch (_: Exception) {
@@ -873,5 +980,9 @@ class SupabaseDiscoveryMatchRepository(
             invalidator.invalidateNotifications()
         } catch (_: Exception) {
         }
+    }
+
+    private companion object {
+        const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
     }
 }
