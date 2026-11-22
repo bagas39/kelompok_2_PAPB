@@ -35,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.cloble.BuildConfig
 import com.example.cloble.CloBleApplication
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
@@ -53,7 +54,6 @@ import com.example.cloble.ui.screens.profile.EditProfileScreen
 import com.example.cloble.ui.screens.profile.MyProfileScreen
 import com.example.cloble.ui.screens.profile.OtherUserProfileScreen
 import com.example.cloble.ui.screens.review.RateUserScreen
-import com.example.cloble.ui.screens.showcase.DesignSystemShowcaseScreen
 import com.example.cloble.ui.screens.wardrobe.AddEditClothingScreen
 import com.example.cloble.ui.screens.wardrobe.WardrobeScreen
 import com.example.cloble.ui.theme.CloBleColors
@@ -181,7 +181,7 @@ fun CloBleNavGraph(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .semantics { testTagsAsResourceId = true }
+                .semantics { testTagsAsResourceId = BuildConfig.DEBUG }
                 .testTag("session_gate_loading"),
             contentAlignment = Alignment.Center
         ) {
@@ -192,13 +192,9 @@ fun CloBleNavGraph(
             navController = navController,
             startDestination = effectiveStartDestination!!,
             modifier = modifier.semantics {
-                testTagsAsResourceId = true
+                testTagsAsResourceId = BuildConfig.DEBUG
             }
         ) {
-
-            composable(route = CloBleDestinations.PHASE_1_SHOWCASE) {
-                DesignSystemShowcaseScreen()
-            }
 
             composable(route = CloBleDestinations.LOGIN) {
                 LoginScreen(

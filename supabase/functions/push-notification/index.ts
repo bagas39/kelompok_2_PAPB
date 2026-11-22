@@ -27,15 +27,19 @@ serve(async (req) => {
   }
 
   try {
-    const expectedSecret = Deno.env.get("PUSH_WEBHOOK_SECRET");
-    if (expectedSecret) {
-      const providedSecret = req.headers.get("x-webhook-secret");
-      if (providedSecret !== expectedSecret) {
-        return new Response(JSON.stringify({ error: "Unauthorized webhook caller" }), {
-          status: 401,
-          headers: jsonHeaders,
-        });
-      }
+    const expectedSecret = (Deno.env.get("PUSH_WEBHOOK_SECRET") ?? "").trim();
+    if (!expectedSecret) {
+      return new Response(JSON.stringify({ error: "Push webhook secret is not configured" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+    const providedSecret = req.headers.get("x-webhook-secret");
+    if (providedSecret !== expectedSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized webhook caller" }), {
+        status: 401,
+        headers: jsonHeaders,
+      });
     }
 
     const payload = await req.json();
@@ -222,6 +226,25 @@ serve(async (req) => {
     };
 
     const response = await admin.messaging().sendEachForMulticast(messagePayload);
+
+    const invalidTokens: string[] = [];
+    response.responses.forEach((res, idx) => {
+      const errCode = res.error?.code;
+      if (
+        !res.success &&
+        (errCode === "messaging/registration-token-not-registered" ||
+          errCode === "messaging/invalid-registration-token")
+      ) {
+        const badToken = tokens[idx];
+        if (badToken) {
+          invalidTokens.push(badToken);
+        }
+      }
+    });
+
+    if (invalidTokens.length > 0) {
+      await supabase.from("user_fcm_tokens").delete().in("fcmToken", invalidTokens);
+    }
 
     return new Response(
       JSON.stringify({

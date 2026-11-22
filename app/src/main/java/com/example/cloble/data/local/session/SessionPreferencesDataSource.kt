@@ -3,7 +3,6 @@ package com.example.cloble.data.local.session
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -22,7 +21,6 @@ class SessionPreferencesDataSource(private val context: Context) {
     private object PreferencesKeys {
         val KEY_LOGGED_IN_USER_ID = longPreferencesKey("logged_in_user_id")
         val KEY_SESSION_TOKEN = stringPreferencesKey("session_token")
-        val KEY_IS_DEMO_SEEDED = booleanPreferencesKey("is_demo_seeded")
         val KEY_FCM_TOKEN = stringPreferencesKey("fcm_token")
     }
 
@@ -62,18 +60,6 @@ class SessionPreferencesDataSource(private val context: Context) {
             preferences[PreferencesKeys.KEY_FCM_TOKEN]
         }
 
-    val isDemoSeededFlow: Flow<Boolean> = context.dataStore.data
-        .catch { exception ->
-            if (exception is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw exception
-            }
-        }
-        .map { preferences ->
-            preferences[PreferencesKeys.KEY_IS_DEMO_SEEDED] ?: false
-        }
-
     suspend fun setLoggedInUserId(userId: Long?) {
         context.dataStore.edit { preferences ->
             if (userId != null) {
@@ -108,12 +94,6 @@ class SessionPreferencesDataSource(private val context: Context) {
         }
     }
 
-    suspend fun setDemoSeeded(seeded: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.KEY_IS_DEMO_SEEDED] = seeded
-        }
-    }
-
     suspend fun setFcmToken(token: String?) {
         context.dataStore.edit { preferences ->
             if (token != null) {
@@ -130,9 +110,5 @@ class SessionPreferencesDataSource(private val context: Context) {
 
     suspend fun getFcmTokenOnce(): String? {
         return fcmTokenFlow.first()
-    }
-
-    suspend fun isDemoSeededOnce(): Boolean {
-        return isDemoSeededFlow.first()
     }
 }

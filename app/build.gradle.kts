@@ -1,4 +1,6 @@
+import java.io.File
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     alias(libs.plugins.android.application)
@@ -13,8 +15,31 @@ val localProperties = Properties().apply {
         localPropertiesFile.inputStream().use { load(it) }
     }
 }
-val supabaseUrl = localProperties.getProperty("supabase.url") ?: "https://ifgfvvhygsvknmstescf.supabase.co"
-val supabaseKey = localProperties.getProperty("supabase.key") ?: "sb_publishable_1iMaK9v19ANFw2keVqFAAg_zg7BfBbM"
+
+fun readConfig(propKey: String, envKey: String): String {
+    return (providers.gradleProperty(propKey).orNull
+        ?: localProperties.getProperty(propKey)
+        ?: System.getenv(envKey)
+        ?: "").trim()
+}
+
+fun resolveKeystoreFile(path: String): File {
+    val candidate = File(path)
+    return if (candidate.isAbsolute) candidate else rootProject.file(path)
+}
+
+val supabaseUrl = readConfig("supabase.url", "SUPABASE_URL")
+val supabaseKey = readConfig("supabase.key", "SUPABASE_KEY")
+if (supabaseUrl.isBlank() || supabaseKey.isBlank()) {
+    throw GradleException(
+        "Missing supabase.url / SUPABASE_URL or supabase.key / SUPABASE_KEY in local.properties, -P properties, or environment variables."
+    )
+}
+
+val releaseStoreFile = readConfig("release.storeFile", "RELEASE_STORE_FILE")
+val releaseStorePassword = readConfig("release.storePassword", "RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = readConfig("release.keyAlias", "RELEASE_KEY_ALIAS")
+val releaseKeyPassword = readConfig("release.keyPassword", "RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "com.example.cloble"
@@ -35,11 +60,29 @@ android {
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile.isNotBlank()) {
+                storeFile = resolveKeystoreFile(releaseStoreFile)
+            }
+            if (releaseStorePassword.isNotBlank()) {
+                storePassword = releaseStorePassword
+            }
+            if (releaseKeyAlias.isNotBlank()) {
+                keyAlias = releaseKeyAlias
+            }
+            if (releaseKeyPassword.isNotBlank()) {
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
+            isShrinkResources = true
             optimization {
-                enable = false
+                enable = true
             }
         }
     }
@@ -56,8 +99,23 @@ android {
     }
 }
 
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
+gradle.taskGraph.whenReady {
+    val hasReleaseTask = allTasks.any { it.name.contains("Release", ignoreCase = true) }
+    if (hasReleaseTask) {
+        if (releaseStoreFile.isBlank() ||
+            releaseStorePassword.isBlank() ||
+            releaseKeyAlias.isBlank() ||
+            releaseKeyPassword.isBlank()
+        ) {
+            throw GradleException(
+                "Release signing tidak lengkap. Atur release.storeFile, release.storePassword, release.keyAlias, dan release.keyPassword di local.properties, -P, atau environment variable."
+            )
+        }
+        val ks = resolveKeystoreFile(releaseStoreFile)
+        if (!ks.exists()) {
+            throw GradleException("File keystore release tidak ditemukan di: ${ks.absolutePath}")
+        }
+    }
 }
 
 dependencies {

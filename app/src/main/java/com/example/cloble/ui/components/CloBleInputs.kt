@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -56,6 +57,7 @@ fun CloBleLabeledTextField(
     minHeight: Dp = if (singleLine) 48.dp else 82.dp,
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: (@Composable () -> Unit)? = null,
     inputTestTag: String? = null
@@ -88,6 +90,7 @@ fun CloBleLabeledTextField(
             singleLine = singleLine,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = CloBleColors.TextPrimary),
             keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
             visualTransformation = visualTransformation,
             cursorBrush = SolidColor(CloBleColors.Primary),
             modifier = Modifier

@@ -10,6 +10,7 @@ import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
 import com.example.cloble.domain.result.RequestPasswordResetOtpResult
 import com.example.cloble.domain.result.ResetPasswordResult
+import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +30,8 @@ data class LoginUiState(
     val resetOtpCode: String = "",
     val resetNewPassword: String = "",
     val resetConfirmPassword: String = "",
+    val isResetNewPasswordVisible: Boolean = false,
+    val isResetConfirmPasswordVisible: Boolean = false,
     val isResetSubmitting: Boolean = false,
     val resetErrorMessage: String? = null,
     val resetInfoMessage: String? = null
@@ -62,6 +65,8 @@ class LoginViewModel(
                 resetOtpCode = "",
                 resetNewPassword = "",
                 resetConfirmPassword = "",
+                isResetNewPasswordVisible = false,
+                isResetConfirmPasswordVisible = false,
                 resetErrorMessage = null,
                 resetInfoMessage = null
             )
@@ -74,6 +79,8 @@ class LoginViewModel(
                 showResetDialog = false,
                 resetStep = 1,
                 isResetSubmitting = false,
+                isResetNewPasswordVisible = false,
+                isResetConfirmPasswordVisible = false,
                 resetErrorMessage = null,
                 resetInfoMessage = null
             )
@@ -101,9 +108,17 @@ class LoginViewModel(
         _uiState.update { it.copy(resetConfirmPassword = newConfirm, resetErrorMessage = null) }
     }
 
+    fun toggleResetNewPasswordVisibility() {
+        _uiState.update { it.copy(isResetNewPasswordVisible = !it.isResetNewPasswordVisible) }
+    }
+
+    fun toggleResetConfirmPasswordVisibility() {
+        _uiState.update { it.copy(isResetConfirmPasswordVisible = !it.isResetConfirmPasswordVisible) }
+    }
+
     fun requestResetOtp() {
         val email = _uiState.value.resetEmail.trim()
-        if (email.isEmpty() || !email.contains("@")) {
+        if (!PasswordPolicy.isValidEmail(email)) {
             _uiState.update { it.copy(resetErrorMessage = "Format email tidak valid") }
             return
         }
@@ -166,7 +181,7 @@ class LoginViewModel(
         val newPassword = state.resetNewPassword
         val confirm = state.resetConfirmPassword
 
-        if (email.isEmpty() || !email.contains("@")) {
+        if (!PasswordPolicy.isValidEmail(email)) {
             _uiState.update { it.copy(resetErrorMessage = "Format email tidak valid") }
             return
         }
@@ -174,8 +189,8 @@ class LoginViewModel(
             _uiState.update { it.copy(resetErrorMessage = "Kode OTP harus terdiri dari 6 digit angka") }
             return
         }
-        if (newPassword.length < 6) {
-            _uiState.update { it.copy(resetErrorMessage = "Password baru minimal 6 karakter") }
+        PasswordPolicy.validateNewPassword(newPassword)?.let { msg ->
+            _uiState.update { it.copy(resetErrorMessage = msg) }
             return
         }
         if (newPassword != confirm) {
@@ -193,6 +208,8 @@ class LoginViewModel(
                             showResetDialog = false,
                             resetStep = 1,
                             resetOtpCode = "",
+                            isResetNewPasswordVisible = false,
+                            isResetConfirmPasswordVisible = false,
                             email = email,
                             password = "",
                             errorMessage = null,
@@ -269,6 +286,9 @@ class LoginViewModel(
                 }
                 is AuthResult.EmailAlreadyRegistered -> {
                     _uiState.update { it.copy(isLoading = false, errorMessage = "Email sudah terdaftar") }
+                }
+                is AuthResult.RateLimited -> {
+                    _uiState.update { it.copy(isLoading = false, errorMessage = result.message) }
                 }
                 is AuthResult.ValidationFailed -> {
                     _uiState.update { it.copy(isLoading = false, errorMessage = result.message) }

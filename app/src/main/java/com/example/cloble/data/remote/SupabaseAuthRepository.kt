@@ -2,8 +2,6 @@ package com.example.cloble.data.remote
 
 import com.example.cloble.data.local.dao.OfflineChatCacheDao
 import com.example.cloble.data.local.session.SessionPreferencesDataSource
-import com.example.cloble.domain.model.CityPreset
-import com.example.cloble.domain.model.DemoAccountSummary
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
@@ -13,6 +11,7 @@ import com.example.cloble.domain.result.RequestPasswordResetOtpResult
 import com.example.cloble.domain.result.ResetPasswordResult
 import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.domain.util.PasswordHasher
+import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -67,36 +65,6 @@ class SupabaseAuthRepository(
     private suspend fun fetchUserProfile(userId: Long): UserProfile? =
         fetchUserProfileViaRpc(client, userId)
 
-    override fun getDemoAccounts(): Flow<List<DemoAccountSummary>> = flow {
-        try {
-            val resp = client.rpc("rpc_get_demo_accounts", JSONObject())
-            val usersArr = resp.optJSONArray("accounts") ?: org.json.JSONArray()
-            val list = mutableListOf<DemoAccountSummary>()
-            for (i in 0 until usersArr.length()) {
-                val u = usersArr.getJSONObject(i)
-                val email = u.optString("email")
-                val role = when (email.lowercase()) {
-                    "raka@cloble.demo" -> "Pengirim & pemilik multi-item (Bandung)"
-                    "naya@cloble.demo" -> "Penerima Interest & koleksi barter (Bandung)"
-                    "bagas@cloble.demo" -> "0 pakaian barter & ulasan 2 bintang (Cimahi)"
-                    "dinda@cloble.demo" -> "Filter jarak >50km & reputasi rendah (Jakarta)"
-                    else -> "Akun pengguna"
-                }
-                list.add(
-                    DemoAccountSummary(
-                        id = u.optLong("id"),
-                        name = u.optString("name"),
-                        email = email,
-                        roleDescription = role
-                    )
-                )
-            }
-            emit(list)
-        } catch (_: Exception) {
-            emit(emptyList())
-        }
-    }.flowOn(Dispatchers.IO)
-
     override suspend fun login(email: String, rawPassword: String): AuthResult {
         return try {
             val trimmedEmail = email.trim().lowercase()
@@ -118,48 +86,28 @@ class SupabaseAuthRepository(
                 ?: return AuthResult.InvalidCredentials
 
             val sessionParams = JSONObject().apply {
-                put("p_user_id", JSONObject.NULL)
-                put("p_password_hash", computedHash)
-                put("p_is_demo", false)
                 put("p_email", trimmedEmail)
+                put("p_password_hash", computedHash)
             }
             val sessionResp = client.rpc("rpc_create_session", sessionParams)
-            if (sessionResp.optString("code") != "SUCCESS") {
-                return AuthResult.InvalidCredentials
+            when (sessionResp.optString("code")) {
+                "SUCCESS" -> {
+                    val userId = sessionResp.optLong("userId", 0L)
+                    val token = sessionResp.optString("sessionToken")
+                    if (userId <= 0L || token.isBlank()) {
+                        return AuthResult.InvalidCredentials
+                    }
+                    clearOfflineCacheIfAccountChanged(userId)
+                    client.setSessionToken(token)
+                    sessionPrefs.setSession(userId, token)
+                    invalidator.invalidateAll()
+                    AuthResult.Success(userId)
+                }
+                "RATE_LIMITED" -> AuthResult.RateLimited(
+                    sessionResp.optString("message", "Terlalu banyak percobaan login gagal. Coba lagi nanti.")
+                )
+                else -> AuthResult.InvalidCredentials
             }
-
-            val userId = sessionResp.optLong("userId", 0L)
-            val token = sessionResp.optString("sessionToken")
-            if (userId <= 0L || token.isBlank()) {
-                return AuthResult.InvalidCredentials
-            }
-            clearOfflineCacheIfAccountChanged(userId)
-            client.setSessionToken(token)
-            sessionPrefs.setSession(userId, token)
-            invalidator.invalidateAll()
-            AuthResult.Success(userId)
-        } catch (_: Exception) {
-            AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
-        }
-    }
-
-    override suspend fun loginDemoAccount(userId: Long): AuthResult {
-        return try {
-            val sessionParams = JSONObject().apply {
-                put("p_user_id", userId)
-                put("p_is_demo", true)
-            }
-            val sessionResp = client.rpc("rpc_create_session", sessionParams)
-            if (sessionResp.optString("code") != "SUCCESS") {
-                return AuthResult.InvalidCredentials
-            }
-
-            val token = sessionResp.optString("sessionToken")
-            clearOfflineCacheIfAccountChanged(userId)
-            client.setSessionToken(token)
-            sessionPrefs.setSession(userId, token)
-            invalidator.invalidateAll()
-            AuthResult.Success(userId)
         } catch (_: Exception) {
             AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -167,7 +115,7 @@ class SupabaseAuthRepository(
 
     override suspend fun requestPasswordResetOtp(email: String): RequestPasswordResetOtpResult {
         val trimmedEmail = email.trim().lowercase()
-        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+        if (!PasswordPolicy.isValidEmail(trimmedEmail)) {
             return RequestPasswordResetOtpResult.ValidationFailed("Format email tidak valid")
         }
 
@@ -182,7 +130,7 @@ class SupabaseAuthRepository(
                     resp.optString("message", "Tunggu 30 detik sebelum meminta kode OTP baru.")
                 )
                 "SMTP_NOT_CONFIGURED" -> RequestPasswordResetOtpResult.SmtpNotConfigured(
-                    resp.optString("message", "Layanan email OTP Gmail SMTP belum dikonfigurasi oleh admin.")
+                    resp.optString("message", "Layanan email OTP sedang tidak tersedia. Silakan coba lagi nanti.")
                 )
                 "VALIDATION_FAILED" -> RequestPasswordResetOtpResult.ValidationFailed(
                     resp.optString("message", "Format email tidak valid")
@@ -203,14 +151,14 @@ class SupabaseAuthRepository(
     ): ResetPasswordResult {
         val trimmedEmail = email.trim().lowercase()
         val cleanOtp = otpCode.trim()
-        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+        if (!PasswordPolicy.isValidEmail(trimmedEmail)) {
             return ResetPasswordResult.ValidationFailed("Format email tidak valid")
         }
         if (!cleanOtp.matches(Regex("^[0-9]{6}$"))) {
             return ResetPasswordResult.ValidationFailed("Kode OTP harus 6 digit angka")
         }
-        if (newRawPassword.length < 6) {
-            return ResetPasswordResult.ValidationFailed("Password minimal 6 karakter")
+        PasswordPolicy.validateNewPassword(newRawPassword)?.let { msg ->
+            return ResetPasswordResult.ValidationFailed(msg)
         }
 
         return try {
@@ -219,7 +167,6 @@ class SupabaseAuthRepository(
                 put("p_email", trimmedEmail)
                 put("p_otp_code", cleanOtp)
                 put("p_new_password_hash", newHash)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val resp = client.rpc("rpc_verify_otp_and_reset_password", params)
             when (resp.optString("code")) {
@@ -246,8 +193,8 @@ class SupabaseAuthRepository(
         if (currentRawPassword.isEmpty()) {
             return ChangePasswordResult.ValidationFailed("Password saat ini wajib diisi")
         }
-        if (newRawPassword.length < 6) {
-            return ChangePasswordResult.ValidationFailed("Password baru minimal 6 karakter")
+        PasswordPolicy.validateNewPassword(newRawPassword)?.let { msg ->
+            return ChangePasswordResult.ValidationFailed(msg)
         }
         if (currentRawPassword == newRawPassword) {
             return ChangePasswordResult.ValidationFailed("Password baru tidak boleh sama dengan password saat ini")
@@ -271,7 +218,6 @@ class SupabaseAuthRepository(
             val params = JSONObject().apply {
                 put("p_current_password_hash", currentHash)
                 put("p_new_password_hash", newHash)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val resp = client.rpc("rpc_change_password_authenticated", params)
             when (resp.optString("code")) {
@@ -300,42 +246,28 @@ class SupabaseAuthRepository(
     ): AuthResult {
         val trimmedEmail = email.trim().lowercase()
         val trimmedName = name.trim()
+        val trimmedCity = city.trim()
 
         if (trimmedName.isEmpty()) return AuthResult.ValidationFailed("Nama tidak boleh kosong")
-        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) return AuthResult.ValidationFailed("Format email tidak valid")
-        if (rawPassword.length < 6) return AuthResult.ValidationFailed("Password minimal 6 karakter")
+        if (!PasswordPolicy.isValidEmail(trimmedEmail)) return AuthResult.ValidationFailed("Format email tidak valid")
+        if (trimmedCity.isEmpty() || latitude == null || longitude == null) {
+            return AuthResult.ValidationFailed("Lokasi domisili wajib dipilih")
+        }
+        PasswordPolicy.validateNewPassword(rawPassword)?.let { msg ->
+            return AuthResult.ValidationFailed(msg)
+        }
 
         return try {
-            val resolvedCity: String
-            val resolvedLat: Double
-            val resolvedLon: Double
-            if (latitude != null && longitude != null) {
-                resolvedCity = city.trim().ifEmpty { CityPreset.BANDUNG.displayName }
-                val effective = DistanceCalculator.resolveEffectiveCoordinates(resolvedCity, latitude, longitude)
-                resolvedLat = effective.first
-                resolvedLon = effective.second
-            } else {
-                val preset = CityPreset.fromDisplayName(city)
-                resolvedCity = if (city.isNotBlank() && city != preset.displayName) city.trim() else preset.displayName
-                val effective = DistanceCalculator.resolveEffectiveCoordinates(
-                    resolvedCity,
-                    preset.latitude,
-                    preset.longitude
-                )
-                resolvedLat = effective.first
-                resolvedLon = effective.second
-            }
+            val effective = DistanceCalculator.resolveEffectiveCoordinates(trimmedCity, latitude, longitude)
             val hash = PasswordHasher.hash(rawPassword)
-            val now = System.currentTimeMillis()
 
             val regParams = JSONObject().apply {
                 put("p_name", trimmedName)
                 put("p_email", trimmedEmail)
                 put("p_password_hash", hash)
-                put("p_city", resolvedCity)
-                put("p_latitude", resolvedLat)
-                put("p_longitude", resolvedLon)
-                put("p_now_millis", now)
+                put("p_city", trimmedCity)
+                put("p_latitude", effective.first)
+                put("p_longitude", effective.second)
             }
 
             val regResp = client.rpc("rpc_register_user", regParams)
@@ -386,9 +318,6 @@ class SupabaseAuthRepository(
         } catch (_: Exception) {
         }
         clearInvalidLocalSession()
-    }
-
-    override suspend fun ensureSeeded() {
     }
 
     private companion object {

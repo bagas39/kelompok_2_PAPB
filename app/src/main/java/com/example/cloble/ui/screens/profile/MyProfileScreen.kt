@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -39,19 +41,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.cloble.BuildConfig
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
@@ -452,6 +460,17 @@ fun MyProfileScreen(
                         }
                     }
                 }
+
+                Text(
+                    text = "CloBle v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CloBleColors.TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .testTag("text_app_version")
+                )
             }
         }
     }
@@ -502,6 +521,7 @@ fun MyProfileScreen(
     }
 
     if (uiState.showChangePasswordDialog) {
+        val dialogFocusManager = LocalFocusManager.current
         AlertDialog(
             onDismissRequest = {
                 if (!uiState.isUpdatingPassword) {
@@ -520,7 +540,7 @@ fun MyProfileScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Verifikasi password saat ini dan masukkan password baru (minimal 6 karakter).",
+                        text = "Verifikasi password saat ini dan masukkan password baru (minimal 8 karakter, huruf & angka).",
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary
                     )
@@ -539,8 +559,34 @@ fun MyProfileScreen(
                         value = uiState.currentPassword,
                         onValueChange = viewModel::onCurrentPasswordChanged,
                         placeholder = "Masukkan password saat ini",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = if (uiState.isCurrentPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = viewModel::toggleCurrentPasswordVisibility,
+                                enabled = !uiState.isUpdatingPassword,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_profile_current_password")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isCurrentPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                    contentDescription = if (uiState.isCurrentPasswordVisible) "Sembunyikan password saat ini" else "Tampilkan password saat ini",
+                                    tint = CloBleColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
                         enabled = !uiState.isUpdatingPassword,
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_profile_current_password"
@@ -549,9 +595,35 @@ fun MyProfileScreen(
                         label = "Password Baru",
                         value = uiState.newPassword,
                         onValueChange = viewModel::onNewPasswordChanged,
-                        placeholder = "Minimal 6 karakter",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        placeholder = "Min. 8 karakter (huruf & angka)",
+                        visualTransformation = if (uiState.isNewPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = viewModel::toggleNewPasswordVisibility,
+                                enabled = !uiState.isUpdatingPassword,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_profile_new_password")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isNewPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                    contentDescription = if (uiState.isNewPasswordVisible) "Sembunyikan password baru" else "Tampilkan password baru",
+                                    tint = CloBleColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
                         enabled = !uiState.isUpdatingPassword,
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_profile_new_password"
@@ -561,8 +633,39 @@ fun MyProfileScreen(
                         value = uiState.confirmPassword,
                         onValueChange = viewModel::onConfirmPasswordChanged,
                         placeholder = "Ulangi password baru",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = if (uiState.isConfirmPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                dialogFocusManager.clearFocus()
+                                if (!uiState.isUpdatingPassword) {
+                                    viewModel.submitChangePassword()
+                                }
+                            }
+                        ),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = viewModel::toggleConfirmPasswordVisibility,
+                                enabled = !uiState.isUpdatingPassword,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_profile_confirm_password")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isConfirmPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                    contentDescription = if (uiState.isConfirmPasswordVisible) "Sembunyikan konfirmasi password" else "Tampilkan konfirmasi password",
+                                    tint = CloBleColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
                         enabled = !uiState.isUpdatingPassword,
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_profile_confirm_password"

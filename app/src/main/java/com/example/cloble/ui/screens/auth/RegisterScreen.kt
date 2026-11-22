@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,9 +34,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -43,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.domain.model.CityPreset
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
@@ -61,6 +66,7 @@ fun RegisterScreen(
     viewModel: RegisterViewModel = viewModel(factory = RegisterViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
     var showLocationPicker by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -134,6 +140,10 @@ fun RegisterScreen(
                         value = uiState.name,
                         onValueChange = viewModel::onNameChanged,
                         placeholder = "Nama Anda",
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_register_name"
                     )
@@ -143,7 +153,13 @@ fun RegisterScreen(
                         value = uiState.email,
                         onValueChange = viewModel::onEmailChanged,
                         placeholder = "nama@email.com",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_register_email"
                     )
@@ -164,7 +180,10 @@ fun RegisterScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable(role = Role.Button) { showLocationPicker = true }
+                                .clickable(role = Role.Button) {
+                                    focusManager.clearFocus()
+                                    showLocationPicker = true
+                                }
                                 .testTag("btn_open_register_map_picker")
                         ) {
                             Row(
@@ -190,19 +209,31 @@ fun RegisterScreen(
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = uiState.city,
+                                        text = if (uiState.hasSelectedLocation) {
+                                            uiState.city
+                                        } else {
+                                            "Pilih lokasi domisilimu"
+                                        },
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = CloBleColors.TextPrimary,
+                                        color = if (uiState.hasSelectedLocation) {
+                                            CloBleColors.TextPrimary
+                                        } else {
+                                            CloBleColors.TextSecondary
+                                        },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = String.format(
-                                            Locale.US,
-                                            "%.4f, %.4f · Ketuk untuk ubah di peta",
-                                            uiState.latitude,
-                                            uiState.longitude
-                                        ),
+                                        text = if (uiState.hasSelectedLocation) {
+                                            String.format(
+                                                Locale.US,
+                                                "%.4f, %.4f · Ketuk untuk ubah di peta",
+                                                uiState.latitude!!,
+                                                uiState.longitude!!
+                                            )
+                                        } else {
+                                            "Ketuk untuk memilih kota atau titik di peta"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = CloBleColors.TextSecondary,
                                         maxLines = 1,
@@ -222,17 +253,25 @@ fun RegisterScreen(
                         label = "Password",
                         value = uiState.password,
                         onValueChange = viewModel::onPasswordChanged,
-                        placeholder = "Minimal 6 karakter",
+                        placeholder = "Min. 8 karakter (huruf & angka)",
                         visualTransformation = if (uiState.isPasswordVisible) {
                             VisualTransformation.None
                         } else {
                             PasswordVisualTransformation()
                         },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         trailingIcon = {
                             IconButton(
                                 onClick = viewModel::togglePasswordVisibility,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_register_password")
                             ) {
                                 Icon(
                                     imageVector = if (uiState.isPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
@@ -256,11 +295,24 @@ fun RegisterScreen(
                         } else {
                             PasswordVisualTransformation()
                         },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                focusManager.clearFocus()
+                                if (!uiState.isSubmitting) {
+                                    viewModel.submitRegister(onRegisterSuccess)
+                                }
+                            }
+                        ),
                         trailingIcon = {
                             IconButton(
                                 onClick = viewModel::toggleConfirmPasswordVisibility,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_register_confirm_password")
                             ) {
                                 Icon(
                                     imageVector = if (uiState.isConfirmPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
@@ -291,7 +343,10 @@ fun RegisterScreen(
                     } else {
                         CloBlePrimaryButton(
                             text = "Daftar",
-                            onClick = { viewModel.submitRegister(onRegisterSuccess) },
+                            onClick = {
+                                focusManager.clearFocus()
+                                viewModel.submitRegister(onRegisterSuccess)
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("btn_submit_register")
@@ -327,9 +382,9 @@ fun RegisterScreen(
 
     if (showLocationPicker) {
         CloBleLocationPickerDialog(
-            initialCity = uiState.city,
-            initialLatitude = uiState.latitude,
-            initialLongitude = uiState.longitude,
+            initialCity = uiState.city.ifBlank { CityPreset.BANDUNG.displayName },
+            initialLatitude = uiState.latitude ?: CityPreset.BANDUNG.latitude,
+            initialLongitude = uiState.longitude ?: CityPreset.BANDUNG.longitude,
             onDismiss = { showLocationPicker = false },
             onLocationConfirmed = { selectedCity, lat, lon ->
                 viewModel.onLocationSelected(selectedCity, lat, lon)

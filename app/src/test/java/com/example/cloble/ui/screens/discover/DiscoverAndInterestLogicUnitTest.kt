@@ -3,7 +3,6 @@ package com.example.cloble.ui.screens.discover
 import androidx.lifecycle.SavedStateHandle
 import com.example.cloble.domain.model.ClothingDraft
 import com.example.cloble.domain.model.ClothingItem
-import com.example.cloble.domain.model.DemoAccountSummary
 import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.model.InterestStatus
@@ -112,9 +111,7 @@ class DiscoverAndInterestLogicUnitTest {
 
         override fun observeLoggedInUserId(): Flow<Long?> = userIdFlow
         override fun observeCurrentUser(): Flow<UserProfile?> = userFlow
-        override fun getDemoAccounts(): Flow<List<DemoAccountSummary>> = flowOf(emptyList())
         override suspend fun login(email: String, rawPassword: String) = AuthResult.InvalidCredentials
-        override suspend fun loginDemoAccount(userId: Long) = AuthResult.InvalidCredentials
         override suspend fun requestPasswordResetOtp(email: String) = RequestPasswordResetOtpResult.Success
         override suspend fun verifyOtpAndResetPassword(email: String, otpCode: String, newRawPassword: String) =
             ResetPasswordResult.Success
@@ -129,7 +126,6 @@ class DiscoverAndInterestLogicUnitTest {
             longitude: Double?
         ) = AuthResult.InvalidCredentials
         override suspend fun logout() {}
-        override suspend fun ensureSeeded() {}
     }
 
     private class FakeDiscoveryMatchRepository(
