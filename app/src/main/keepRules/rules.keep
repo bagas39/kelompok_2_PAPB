@@ -4,6 +4,7 @@
 -keep class com.example.cloble.data.local.dao.** { *; }
 -keep class com.example.cloble.data.local.entity.** { *; }
 -keep class com.example.cloble.data.local.converter.** { *; }
+-keep class com.example.cloble.data.local.session.** { *; }
 -keep class com.example.cloble.domain.model.** { *; }
 -keep class com.example.cloble.service.CloBleFirebaseMessagingService { *; }
 

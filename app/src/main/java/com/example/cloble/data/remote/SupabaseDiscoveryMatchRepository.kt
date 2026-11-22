@@ -19,7 +19,6 @@ import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
 import com.example.cloble.domain.result.SendInterestResult
-import com.example.cloble.domain.util.DistanceCalculator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,31 +46,14 @@ class SupabaseDiscoveryMatchRepository(
         data object NetworkError : RemoteMatchDetailResult
     }
 
-    private data class ActiveMatchContext(
-        val activeItemIds: Set<Long>,
-        val otherActiveItemIds: Set<Long>
-    )
-
-    private suspend fun fetchActiveMatchContext(): ActiveMatchContext {
-        val activeItems = mutableSetOf<Long>()
-        val otherActiveItems = mutableSetOf<Long>()
-        try {
-            val ctx = client.rpc("rpc_get_active_match_context", JSONObject())
-            ctx.optJSONArray("activeItemIds")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val id = arr.optLong(i)
-                    if (id > 0L) activeItems.add(id)
-                }
-            }
-            ctx.optJSONArray("otherActiveItemIds")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val id = arr.optLong(i)
-                    if (id > 0L) otherActiveItems.add(id)
-                }
-            }
-        } catch (_: Exception) {
+    private fun parseLongIdSet(arr: JSONArray?): Set<Long> {
+        if (arr == null) return emptySet()
+        val set = mutableSetOf<Long>()
+        for (i in 0 until arr.length()) {
+            val id = arr.optLong(i)
+            if (id > 0L) set.add(id)
         }
-        return ActiveMatchContext(activeItems, otherActiveItems)
+        return set
     }
 
     override fun observeDiscoverCandidates(
@@ -96,161 +78,22 @@ class SupabaseDiscoveryMatchRepository(
         filter: DiscoverFilter
     ): List<DiscoverCandidate> {
         return try {
-            val viewerResp = client.rpc("rpc_get_user_profile", JSONObject().put("p_target_user_id", viewerUserId))
-            if (viewerResp.optString("code") != "SUCCESS") return emptyList()
-            val viewerJson = viewerResp.optJSONObject("user") ?: return emptyList()
-            val viewerCity = viewerJson.optString("city", "Bandung, Jawa Barat")
-            val (viewerLat, viewerLon) = DistanceCalculator.resolveEffectiveCoordinates(
-                city = viewerCity,
-                latitude = viewerJson.optDouble("latitude", -6.9175),
-                longitude = viewerJson.optDouble("longitude", 107.6191)
-            )
-            val prefRadius = viewerJson.optInt("preferredRadiusKm", 10)
-            val maxRadius = filter.maxRadiusKm ?: prefRadius
-
-            val matchContext = fetchActiveMatchContext()
-            val activeItemIds = matchContext.activeItemIds
-
-            val passesArr = client.getJsonArray("swipe_passes?userId=eq.$viewerUserId&select=targetItemId")
-            val passedItemIds = mutableSetOf<Long>()
-            for (i in 0 until passesArr.length()) {
-                passedItemIds.add(passesArr.getJSONObject(i).optLong("targetItemId"))
+            val params = JSONObject().apply {
+                put("p_sizes", if (filter.selectedSizes.isNotEmpty()) JSONArray(filter.selectedSizes.toList()) else JSONObject.NULL)
+                put("p_genders", if (filter.selectedGenders.isNotEmpty()) JSONArray(filter.selectedGenders.toList()) else JSONObject.NULL)
+                put("p_categories", if (filter.selectedCategories.isNotEmpty()) JSONArray(filter.selectedCategories.toList()) else JSONObject.NULL)
+                put("p_colors", if (filter.selectedColors.isNotEmpty()) JSONArray(filter.selectedColors.toList()) else JSONObject.NULL)
+                put("p_max_radius_km", filter.maxRadiusKm ?: JSONObject.NULL)
             }
-
-            val myMatchesArr = try {
-                client.getJsonArray(
-                    "matches?or=(user1Id.eq.$viewerUserId,user2Id.eq.$viewerUserId)&select=id,sourceInterestId,user1ItemId,user2ItemId,status"
-                )
-            } catch (_: Exception) {
-                JSONArray()
-            }
-            val nonCancelledMatchSourceIds = mutableSetOf<Long>()
-            val nonCancelledMatchItemIds = mutableSetOf<Long>()
-            for (i in 0 until myMatchesArr.length()) {
-                val m = myMatchesArr.getJSONObject(i)
-                val status = m.optString("status")
-                if (status == "ACTIVE" || status == "COMPLETED") {
-                    nonCancelledMatchSourceIds.add(m.optLong("sourceInterestId"))
-                    nonCancelledMatchItemIds.add(m.optLong("user1ItemId"))
-                    nonCancelledMatchItemIds.add(m.optLong("user2ItemId"))
-                }
-            }
-
-            val interestsArr = client.getJsonArray("interests?senderUserId=eq.$viewerUserId&select=id,targetItemId,status")
-            val interestedItemIds = mutableSetOf<Long>()
-            for (i in 0 until interestsArr.length()) {
-                val row = interestsArr.getJSONObject(i)
-                val iid = row.optLong("id")
-                val targetId = row.optLong("targetItemId")
-                val status = row.optString("status")
-                val stillBlocking = status == "PENDING" ||
-                        status == "DECLINED" ||
-                        ((status == "ACCEPTED_MATCHED" || status == "RESOLVED_BY_MATCH") &&
-                                (nonCancelledMatchSourceIds.contains(iid) || nonCancelledMatchItemIds.contains(targetId)))
-                if (stillBlocking) {
-                    interestedItemIds.add(targetId)
-                }
-            }
-
-            val rawItemsArr = client.getJsonArray(
-                "clothing_items?select=*,users:ownerId(id,name,city,avatarUri)" +
-                        "&status=eq.AVAILABLE&isBarterAllowed=eq.true&ownerId=neq.$viewerUserId&order=createdAt.desc"
-            )
-
-            val ownerIdsSet = linkedSetOf<Long>()
-            for (i in 0 until rawItemsArr.length()) {
-                val raw = rawItemsArr.getJSONObject(i)
-                val ownerJson = raw.optJSONObject("users")
-                val ownerId = ownerJson?.optLong("id", raw.optLong("ownerId")) ?: raw.optLong("ownerId")
-                if (ownerId > 0L) ownerIdsSet.add(ownerId)
-            }
-
-            val ownerCoordsMap = mutableMapOf<Long, Pair<Double, Double>>()
-            if (ownerIdsSet.isNotEmpty()) {
-                try {
-                    val locsResp = client.rpc(
-                        "rpc_get_users_coarse_locations",
-                        JSONObject().put("p_user_ids", JSONArray(ownerIdsSet.toList()))
-                    )
-                    val locsArr = locsResp.optJSONArray("locations")
-                    if (locsArr != null) {
-                        for (i in 0 until locsArr.length()) {
-                            val loc = locsArr.getJSONObject(i)
-                            val uid = loc.optLong("id")
-                            val lat = loc.optDouble("latitude", Double.NaN)
-                            val lon = loc.optDouble("longitude", Double.NaN)
-                            if (uid > 0L && !lat.isNaN() && !lon.isNaN()) {
-                                ownerCoordsMap[uid] = lat to lon
-                            }
-                        }
-                    }
-                } catch (_: Exception) {
-                }
-            }
-
-            val ratingSumsByOwner = mutableMapOf<Long, Pair<Double, Int>>()
-            try {
-                val reviewsArr = client.getJsonArray("reviews?select=revieweeId,rating")
-                for (r in 0 until reviewsArr.length()) {
-                    val rev = reviewsArr.getJSONObject(r)
-                    val rid = rev.optLong("revieweeId")
-                    val rating = rev.optDouble("rating", 0.0)
-                    val prev = ratingSumsByOwner[rid]
-                    if (prev == null) {
-                        ratingSumsByOwner[rid] = rating to 1
-                    } else {
-                        ratingSumsByOwner[rid] = (prev.first + rating) to (prev.second + 1)
-                    }
-                }
-            } catch (_: Exception) {
-            }
-
+            val resp = client.rpc("rpc_get_discover_candidates", params)
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val arr = resp.optJSONArray("candidates") ?: return emptyList()
             val candidates = mutableListOf<DiscoverCandidate>()
-            for (i in 0 until rawItemsArr.length()) {
-                val raw = rawItemsArr.getJSONObject(i)
-                val itemId = raw.optLong("id")
-                if (activeItemIds.contains(itemId)) continue
-                if (passedItemIds.contains(itemId)) continue
-                if (interestedItemIds.contains(itemId)) continue
-
-                val ownerJson = raw.optJSONObject("users") ?: JSONObject()
-                val ownerId = ownerJson.optLong("id", raw.optLong("ownerId"))
-                val ownerCity = ownerJson.optString("city", "Bandung")
-                val ownerCoords = ownerCoordsMap[ownerId]
-                val (ownerLat, ownerLon) = DistanceCalculator.resolveEffectiveCoordinates(
-                    city = ownerCity,
-                    latitude = ownerCoords?.first ?: Double.NaN,
-                    longitude = ownerCoords?.second ?: Double.NaN
-                )
-
-                val distanceKm = DistanceCalculator.calculateKm(
-                    lat1 = viewerLat,
-                    lon1 = viewerLon,
-                    lat2 = ownerLat,
-                    lon2 = ownerLon
-                )
-
-                if (distanceKm > maxRadius) continue
-
-                val category = raw.optString("category")
-                val size = raw.optString("size")
-                val gender = raw.optString("gender")
-                val color = raw.optString("color")
-
-                if (filter.selectedCategories.isNotEmpty() && !filter.selectedCategories.contains(category)) continue
-                if (filter.selectedSizes.isNotEmpty() && !filter.selectedSizes.contains(size)) continue
-                if (filter.selectedColors.isNotEmpty() && !filter.selectedColors.contains(color)) continue
-                if (filter.selectedGenders.isNotEmpty()) {
-                    val matchGender = filter.selectedGenders.contains(gender) ||
-                            filter.selectedGenders.contains("Uniseks") ||
-                            gender.equals("Uniseks", ignoreCase = true)
-                    if (!matchGender) continue
-                }
-
-                val stats = ratingSumsByOwner[ownerId]
-                val count = stats?.second ?: 0
-                val avg = if (count > 0 && stats != null) stats.first / count else 0.0
-
+            for (i in 0 until arr.length()) {
+                val raw = arr.getJSONObject(i)
+                val distanceKm = raw.optInt("distanceKm", 0)
+                val avg = raw.optDouble("ownerAverageRating", 0.0)
+                val count = raw.optInt("ownerReviewCount", 0)
                 candidates.add(SupabaseMappers.parseDiscoverCandidate(raw, distanceKm, avg, count))
             }
             candidates
@@ -371,75 +214,49 @@ class SupabaseDiscoveryMatchRepository(
         viewerUserId: Long
     ): RemoteMatchDetailResult {
         return try {
-            val matchArr = client.getJsonArray(
-                "matches?id=eq.$matchId&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri)," +
-                        "i1:user1ItemId(*),i2:user2ItemId(*)"
+            val resp = client.rpc(
+                "rpc_get_match_detail",
+                JSONObject().put("p_match_id", matchId)
             )
-            if (matchArr.length() == 0) return RemoteMatchDetailResult.NotFoundOrForbidden
-            val m = matchArr.getJSONObject(0)
-            val user1Id = m.optLong("user1Id")
-            val user2Id = m.optLong("user2Id")
-            if (viewerUserId != user1Id && viewerUserId != user2Id) {
-                return RemoteMatchDetailResult.NotFoundOrForbidden
-            }
-
-            val isViewerUser1 = viewerUserId == user1Id
-            val partnerUserId = if (isViewerUser1) user2Id else user1Id
-            val partnerObj = if (isViewerUser1) m.optJSONObject("u2") else m.optJSONObject("u1")
-            val partnerName = partnerObj?.optString("name", "Pengguna") ?: "Pengguna"
-            val partnerCity = partnerObj?.optString("city", "Bandung") ?: "Bandung"
-            val partnerAvatarUri = partnerObj?.optString("avatarUri")
-                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-
-            var partnerAvg = 0.0
-            var partnerCount = 0
-            try {
-                val reviewsArr = client.getJsonArray("reviews?revieweeId=eq.$partnerUserId&select=rating")
-                partnerCount = reviewsArr.length()
-                if (partnerCount > 0) {
-                    var sum = 0.0
-                    for (i in 0 until partnerCount) {
-                        sum += reviewsArr.getJSONObject(i).optDouble("rating", 0.0)
+            when (resp.optString("code")) {
+                "SUCCESS" -> {
+                    val m = resp.optJSONObject("match") ?: return RemoteMatchDetailResult.NotFoundOrForbidden
+                    val partnerObj = resp.optJSONObject("partner") ?: return RemoteMatchDetailResult.NotFoundOrForbidden
+                    val myItemObj = resp.optJSONObject("myItem") ?: return RemoteMatchDetailResult.NotFoundOrForbidden
+                    val partnerItemObj = resp.optJSONObject("partnerItem") ?: return RemoteMatchDetailResult.NotFoundOrForbidden
+                    val myItem = SupabaseMappers.parseClothingItem(myItemObj)
+                    val partnerItem = SupabaseMappers.parseClothingItem(partnerItemObj)
+                    val matchStatus = try {
+                        MatchStatus.valueOf(m.optString("status", "ACTIVE"))
+                    } catch (_: Exception) {
+                        MatchStatus.ACTIVE
                     }
-                    partnerAvg = sum / partnerCount
+                    val partnerAvatarUri = partnerObj.optString("avatarUri")
+                        .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+                    RemoteMatchDetailResult.Found(
+                        VerifiedMatchDetail(
+                            matchId = matchId,
+                            status = matchStatus,
+                            meetingLocation = m.optString("meetingLocation").takeIf {
+                                it.isNotBlank() && !it.equals("null", ignoreCase = true)
+                            },
+                            createdAt = m.optLong("createdAt"),
+                            updatedAt = m.optLong("updatedAt"),
+                            myUserId = resp.optLong("myUserId", viewerUserId),
+                            partnerUserId = partnerObj.optLong("id"),
+                            partnerName = partnerObj.optString("name", "Pengguna").ifBlank { "Pengguna" },
+                            partnerCity = partnerObj.optString("city", ""),
+                            partnerAvatarUri = partnerAvatarUri,
+                            partnerAverageRating = partnerObj.optDouble("averageRating", 0.0),
+                            partnerReviewCount = partnerObj.optInt("reviewCount", 0),
+                            myItem = myItem,
+                            partnerItem = partnerItem
+                        )
+                    )
                 }
-            } catch (_: Exception) {
+                else -> RemoteMatchDetailResult.NotFoundOrForbidden
             }
-
-            val myItemObj = if (isViewerUser1) m.optJSONObject("i1") else m.optJSONObject("i2")
-            val partnerItemObj = if (isViewerUser1) m.optJSONObject("i2") else m.optJSONObject("i1")
-
-            val myItem = myItemObj?.let { SupabaseMappers.parseClothingItem(it) }
-                ?: return RemoteMatchDetailResult.NotFoundOrForbidden
-            val partnerItem = partnerItemObj?.let { SupabaseMappers.parseClothingItem(it) }
-                ?: return RemoteMatchDetailResult.NotFoundOrForbidden
-
-            val matchStatus = try {
-                MatchStatus.valueOf(m.optString("status", "ACTIVE"))
-            } catch (_: Exception) {
-                MatchStatus.ACTIVE
-            }
-
-            RemoteMatchDetailResult.Found(
-                VerifiedMatchDetail(
-                    matchId = matchId,
-                    status = matchStatus,
-                    meetingLocation = m.optString("meetingLocation").takeIf {
-                        it.isNotBlank() && !it.equals("null", ignoreCase = true)
-                    },
-                    createdAt = m.optLong("createdAt"),
-                    updatedAt = m.optLong("updatedAt"),
-                    myUserId = viewerUserId,
-                    partnerUserId = partnerUserId,
-                    partnerName = partnerName,
-                    partnerCity = partnerCity,
-                    partnerAvatarUri = partnerAvatarUri,
-                    partnerAverageRating = partnerAvg,
-                    partnerReviewCount = partnerCount,
-                    myItem = myItem,
-                    partnerItem = partnerItem
-                )
-            )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             RemoteMatchDetailResult.NetworkError
@@ -492,26 +309,17 @@ class SupabaseDiscoveryMatchRepository(
 
     private suspend fun fetchNotifications(userId: Long): List<NotificationFeedItem> {
         return try {
-            val ctx = fetchActiveMatchContext()
-            val reviewedMatchIds = mutableSetOf<Long>()
-            try {
-                val revArr = client.getJsonArray("reviews?reviewerId=eq.$userId&select=matchId")
-                for (i in 0 until revArr.length()) {
-                    val mid = revArr.getJSONObject(i).optLong("matchId")
-                    if (mid > 0L) reviewedMatchIds.add(mid)
-                }
-            } catch (_: Exception) {
-            }
-
-            val arr = client.getJsonArray(
-                "notifications?userId=eq.$userId&select=*,interests:relatedInterestId(*,users:senderUserId(id,name),clothing_items:targetItemId(id,name,status,isBarterAllowed,mainPhotoUri)),matches:relatedMatchId(*,user1:user1Id(id,name),user2:user2Id(id,name))&order=createdAt.desc"
-            )
+            val resp = client.rpc("rpc_get_notifications", JSONObject())
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val activeItemIds = parseLongIdSet(resp.optJSONArray("activeItemIds"))
+            val reviewedMatchIds = parseLongIdSet(resp.optJSONArray("reviewedMatchIds"))
+            val arr = resp.optJSONArray("notifications") ?: return emptyList()
             val list = mutableListOf<NotificationFeedItem>()
             for (i in 0 until arr.length()) {
                 list.add(
                     SupabaseMappers.parseNotification(
                         json = arr.getJSONObject(i),
-                        activeItemIds = ctx.activeItemIds,
+                        activeItemIds = activeItemIds,
                         reviewedMatchIds = reviewedMatchIds
                     )
                 )
@@ -531,8 +339,8 @@ class SupabaseDiscoveryMatchRepository(
 
     private suspend fun fetchUnreadNotificationCount(userId: Long): Int {
         return try {
-            val arr = client.getJsonArray("notifications?userId=eq.$userId&isRead=eq.false&select=id")
-            arr.length()
+            val resp = client.rpc("rpc_get_unread_notification_count", JSONObject())
+            if (resp.optString("code") == "SUCCESS") resp.optInt("count", 0) else 0
         } catch (_: Exception) {
             0
         }
@@ -547,25 +355,16 @@ class SupabaseDiscoveryMatchRepository(
 
     private suspend fun fetchOutgoingInterests(userId: Long): List<OutgoingInterestSummary> {
         return try {
-            val arr = client.getJsonArray(
-                "interests?senderUserId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(id,name,city,avatarUri)),matches(*)&order=createdAt.desc"
-            )
-            val myMatchesArr = try {
-                client.getJsonArray(
-                    "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=id,sourceInterestId,user1Id,user2Id,user1ItemId,user2ItemId,status,createdAt&order=updatedAt.desc"
-                )
-            } catch (_: Exception) {
-                org.json.JSONArray()
-            }
-            val otherActiveItemIds = fetchActiveMatchContext().otherActiveItemIds
+            val resp = client.rpc("rpc_get_outgoing_interests", JSONObject())
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val arr = resp.optJSONArray("interests") ?: return emptyList()
+            val otherActiveItemIds = parseLongIdSet(resp.optJSONArray("otherActiveItemIds"))
 
             val list = mutableListOf<OutgoingInterestSummary>()
             for (i in 0 until arr.length()) {
                 val raw = arr.getJSONObject(i)
-                val interestId = raw.optLong("id")
                 val targetItemId = raw.optLong("targetItemId")
                 val targetItemJson = raw.optJSONObject("clothing_items")
-                val ownerId = targetItemJson?.optLong("ownerId") ?: -1L
                 val itemStatus = try {
                     ItemStatus.valueOf(targetItemJson?.optString("status", "AVAILABLE") ?: "AVAILABLE")
                 } catch (_: Exception) {
@@ -592,50 +391,10 @@ class SupabaseDiscoveryMatchRepository(
                     }
                 }
 
-                if (resolvedMatchId == null && (interestStatus == InterestStatus.ACCEPTED_MATCHED || interestStatus == InterestStatus.RESOLVED_BY_MATCH)) {
-                    for (j in 0 until myMatchesArr.length()) {
-                        val mm = myMatchesArr.getJSONObject(j)
-                        if (mm.optLong("sourceInterestId") == interestId) {
-                            resolvedMatchId = mm.optLong("id")
-                            resolvedMatchStatus = try {
-                                MatchStatus.valueOf(mm.optString("status", "ACTIVE"))
-                            } catch (_: Exception) {
-                                null
-                            }
-                            break
-                        }
-                    }
-                    if (resolvedMatchId == null) {
-                        val interestCreatedAt = raw.optLong("createdAt")
-                        var bestScore = Long.MAX_VALUE
-                        for (j in 0 until myMatchesArr.length()) {
-                            val mm = myMatchesArr.getJSONObject(j)
-                            val mUser1 = mm.optLong("user1Id")
-                            val mUser2 = mm.optLong("user2Id")
-                            val mItem1 = mm.optLong("user1ItemId")
-                            val mItem2 = mm.optLong("user2ItemId")
-                            val matchesByItemAndOwner = (mItem1 == targetItemId || mItem2 == targetItemId) &&
-                                    ((mUser1 == userId && mUser2 == ownerId) || (mUser2 == userId && mUser1 == ownerId))
-                            if (matchesByItemAndOwner) {
-                                val diff = kotlin.math.abs(mm.optLong("createdAt") - interestCreatedAt)
-                                if (diff < bestScore) {
-                                    bestScore = diff
-                                    resolvedMatchId = mm.optLong("id")
-                                    resolvedMatchStatus = try {
-                                        MatchStatus.valueOf(mm.optString("status", "ACTIVE"))
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 val isLockedByOther = resolvedMatchId == null && (
-                        otherActiveItemIds.contains(targetItemId) ||
-                                (interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
-                        )
+                    otherActiveItemIds.contains(targetItemId) ||
+                        (interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
+                    )
 
                 list.add(
                     SupabaseMappers.parseOutgoingInterest(
@@ -661,11 +420,10 @@ class SupabaseDiscoveryMatchRepository(
 
     private suspend fun fetchPassedClothing(userId: Long): List<PassedClothingSummary> {
         return try {
-            val arr = client.getJsonArray(
-                "swipe_passes?userId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(id,name,city,avatarUri))&order=createdAt.desc"
-            )
-            val activeItemIds = fetchActiveMatchContext().activeItemIds
-
+            val resp = client.rpc("rpc_get_passed_clothing", JSONObject())
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val activeItemIds = parseLongIdSet(resp.optJSONArray("activeItemIds"))
+            val arr = resp.optJSONArray("passes") ?: return emptyList()
             val list = mutableListOf<PassedClothingSummary>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
@@ -685,14 +443,16 @@ class SupabaseDiscoveryMatchRepository(
 
     override suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean {
         return try {
-            val body = JSONObject().apply {
-                put("userId", userId)
-                put("targetItemId", targetItemId)
-                put("createdAt", System.currentTimeMillis())
+            val resp = client.rpc(
+                "rpc_pass_candidate",
+                JSONObject().put("p_target_item_id", targetItemId)
+            )
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateDiscovery()
+                true
+            } else {
+                false
             }
-            client.post("swipe_passes", body.toString())
-            invalidator.invalidateDiscovery()
-            true
         } catch (_: Exception) {
             false
         }
@@ -703,7 +463,6 @@ class SupabaseDiscoveryMatchRepository(
             val params = JSONObject().apply {
                 put("p_sender_user_id", senderId)
                 put("p_target_item_id", targetItemId)
-                put("p_now_millis", System.currentTimeMillis())
                 put("p_delete_swipe_pass", true)
             }
             val res = client.rpc("rpc_send_interest", params)
@@ -717,7 +476,11 @@ class SupabaseDiscoveryMatchRepository(
                     if (matchId != null) {
                         invalidator.invalidateChat()
                         invalidator.invalidateWardrobe()
-                        notifyMatchParticipantsViaRealtime(matchId)
+                        notifyMatchParticipantsViaRealtime(
+                            matchId = matchId,
+                            user1Id = res.optLong("user1Id", 0L),
+                            user2Id = res.optLong("user2Id", 0L)
+                        )
                     } else if (receiverUserId > 0L) {
                         notifyUserViaRealtime(receiverUserId, "interest_updated")
                     }
@@ -787,9 +550,16 @@ class SupabaseDiscoveryMatchRepository(
 
     override suspend fun restorePassToDiscover(userId: Long, targetItemId: Long): Boolean {
         return try {
-            client.delete("swipe_passes?userId=eq.$userId&targetItemId=eq.$targetItemId")
-            invalidator.invalidateDiscovery()
-            true
+            val resp = client.rpc(
+                "rpc_restore_pass_to_discover",
+                JSONObject().put("p_target_item_id", targetItemId)
+            )
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateDiscovery()
+                true
+            } else {
+                false
+            }
         } catch (_: Exception) {
             false
         }
@@ -805,7 +575,6 @@ class SupabaseDiscoveryMatchRepository(
                 put("p_actor_user_id", actorUserId)
                 put("p_interest_id", interestId)
                 put("p_chosen_sender_item_id", chosenSenderItemId)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_respond_to_interest_and_create_match", params)
             when (res.optString("code")) {
@@ -815,7 +584,11 @@ class SupabaseDiscoveryMatchRepository(
                     invalidator.invalidateNotifications()
                     invalidator.invalidateWardrobe()
                     invalidator.invalidateChat()
-                    notifyMatchParticipantsViaRealtime(matchId)
+                    notifyMatchParticipantsViaRealtime(
+                        matchId = matchId,
+                        user1Id = res.optLong("user1Id", 0L),
+                        user2Id = res.optLong("user2Id", 0L)
+                    )
                     RespondInterestResult.Success(matchId)
                 }
                 "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> RespondInterestResult.InterestAlreadyProcessedOrInvalid
@@ -842,7 +615,6 @@ class SupabaseDiscoveryMatchRepository(
             val params = JSONObject().apply {
                 put("p_actor_user_id", actorUserId)
                 put("p_interest_id", interestId)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_decline_incoming_interest", params)
             when (res.optString("code")) {
@@ -868,7 +640,6 @@ class SupabaseDiscoveryMatchRepository(
             val params = JSONObject().apply {
                 put("p_match_id", matchId)
                 put("p_actor_user_id", actorUserId)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_cancel_match", params)
             when (res.optString("code")) {
@@ -877,7 +648,11 @@ class SupabaseDiscoveryMatchRepository(
                     invalidator.invalidateNotifications()
                     invalidator.invalidateWardrobe()
                     invalidator.invalidateChat()
-                    notifyMatchParticipantsViaRealtime(matchId)
+                    notifyMatchParticipantsViaRealtime(
+                        matchId = matchId,
+                        user1Id = res.optLong("user1Id", 0L),
+                        user2Id = res.optLong("user2Id", 0L)
+                    )
                     CancelMatchResult.Success
                 }
                 "MATCH_NOT_FOUND" -> CancelMatchResult.MatchNotFound
@@ -907,7 +682,6 @@ class SupabaseDiscoveryMatchRepository(
                 put("p_match_id", matchId)
                 put("p_actor_user_id", actorUserId)
                 put("p_meeting_location", meetingLocation ?: "")
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_complete_match_exchange", params)
             when (res.optString("code")) {
@@ -916,7 +690,11 @@ class SupabaseDiscoveryMatchRepository(
                     invalidator.invalidateNotifications()
                     invalidator.invalidateWardrobe()
                     invalidator.invalidateChat()
-                    notifyMatchParticipantsViaRealtime(matchId)
+                    notifyMatchParticipantsViaRealtime(
+                        matchId = matchId,
+                        user1Id = res.optLong("user1Id", 0L),
+                        user2Id = res.optLong("user2Id", 0L)
+                    )
                     CompleteMatchResult.Success
                 }
                 "MATCH_NOT_FOUND" -> CompleteMatchResult.MatchNotFound
@@ -944,40 +722,42 @@ class SupabaseDiscoveryMatchRepository(
             rt.broadcast(
                 "realtime:user_threads_$targetUserId",
                 event,
-                JSONObject().put("userId", targetUserId)
+                JSONObject().put("type", "sync")
             )
         } catch (_: Exception) {
         }
     }
 
-    private suspend fun notifyMatchParticipantsViaRealtime(matchId: Long) {
+    private fun notifyMatchParticipantsViaRealtime(matchId: Long, user1Id: Long, user2Id: Long) {
         val rt = realtimeClient ?: return
         try {
-            val payload = JSONObject().put("matchId", matchId)
+            val payload = JSONObject().put("type", "sync")
             rt.broadcast("realtime:match_$matchId", "match_updated", payload)
-            val matchObj = client.getJsonObjectOrNull("matches?id=eq.$matchId&select=user1Id,user2Id") ?: return
-            val u1 = matchObj.optLong("user1Id")
-            val u2 = matchObj.optLong("user2Id")
-            if (u1 > 0L) rt.broadcast("realtime:user_threads_$u1", "thread_updated", payload)
-            if (u2 > 0L) rt.broadcast("realtime:user_threads_$u2", "thread_updated", payload)
+            if (user1Id > 0L) rt.broadcast("realtime:user_threads_$user1Id", "thread_updated", payload)
+            if (user2Id > 0L) rt.broadcast("realtime:user_threads_$user2Id", "thread_updated", payload)
         } catch (_: Exception) {
         }
     }
 
     override suspend fun markNotificationsRead(userId: Long) {
         try {
-            val body = JSONObject().put("isRead", true)
-            client.patch("notifications?userId=eq.$userId&isRead=eq.false", body.toString())
-            invalidator.invalidateNotifications()
+            val resp = client.rpc("rpc_mark_notifications_read", JSONObject())
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateNotifications()
+            }
         } catch (_: Exception) {
         }
     }
 
     override suspend fun markNotificationReadById(notificationId: Long) {
         try {
-            val body = JSONObject().put("isRead", true)
-            client.patch("notifications?id=eq.$notificationId", body.toString())
-            invalidator.invalidateNotifications()
+            val resp = client.rpc(
+                "rpc_mark_notification_read_by_id",
+                JSONObject().put("p_notification_id", notificationId)
+            )
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateNotifications()
+            }
         } catch (_: Exception) {
         }
     }

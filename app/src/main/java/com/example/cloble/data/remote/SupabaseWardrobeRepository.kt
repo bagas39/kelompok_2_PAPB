@@ -44,32 +44,30 @@ class SupabaseWardrobeRepository(
 
     private suspend fun fetchMyWardrobe(ownerId: Long): List<WardrobeItemSummary> {
         return try {
-            val itemsArr = client.getJsonArray("clothing_items?ownerId=eq.$ownerId&status=neq.HIDDEN_DELETED&order=createdAt.desc")
-            val activeItemIds = fetchActiveMatchItemIds()
-
-            val sendersByItemId = mutableMapOf<Long, MutableList<String>>()
-            try {
-                val pendingArr = client.getJsonArray(
-                    "interests?receiverUserId=eq.$ownerId&status=eq.PENDING&select=targetItemId,users:senderUserId(name)"
-                )
-                for (i in 0 until pendingArr.length()) {
-                    val row = pendingArr.getJSONObject(i)
-                    val targetId = row.optLong("targetItemId")
-                    val senderName = row.optJSONObject("users")?.optString("name")?.takeIf { it.isNotBlank() }
-                    if (targetId > 0L && senderName != null) {
-                        sendersByItemId.getOrPut(targetId) { mutableListOf() }.add(senderName)
+            val resp = client.rpc("rpc_get_my_wardrobe", JSONObject())
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val arr = resp.optJSONArray("items") ?: return emptyList()
+            val list = mutableListOf<WardrobeItemSummary>()
+            for (i in 0 until arr.length()) {
+                val entry = arr.getJSONObject(i)
+                val itemJson = entry.optJSONObject("item") ?: continue
+                if (itemJson.optLong("ownerId") != ownerId) continue
+                val isInActiveMatch = entry.optBoolean("isInActiveMatch", false)
+                val sendersArr = entry.optJSONArray("interestedSenderNames")
+                val interestedSenders = mutableListOf<String>()
+                if (sendersArr != null) {
+                    for (j in 0 until sendersArr.length()) {
+                        val name = sendersArr.optString(j).takeIf { it.isNotBlank() }
+                        if (name != null) interestedSenders.add(name)
                     }
                 }
-            } catch (_: Exception) {
-            }
-
-            val list = mutableListOf<WardrobeItemSummary>()
-            for (i in 0 until itemsArr.length()) {
-                val itemJson = itemsArr.getJSONObject(i)
-                val itemId = itemJson.optLong("id")
-                val isInActiveMatch = activeItemIds.contains(itemId)
-                val interestedSenders = sendersByItemId[itemId]?.distinct() ?: emptyList()
-                list.add(SupabaseMappers.parseWardrobeItemSummary(itemJson, isInActiveMatch, interestedSenders))
+                list.add(
+                    SupabaseMappers.parseWardrobeItemSummary(
+                        itemJson,
+                        isInActiveMatch,
+                        interestedSenders.distinct()
+                    )
+                )
             }
             list
         } catch (_: Exception) {
@@ -85,17 +83,18 @@ class SupabaseWardrobeRepository(
 
     private suspend fun fetchUserPublicWardrobe(ownerId: Long): List<WardrobeItemSummary> {
         return try {
-            val itemsArr = client.getJsonArray("clothing_items?ownerId=eq.$ownerId&status=eq.AVAILABLE&isBarterAllowed=eq.true&order=createdAt.desc")
-            val activeItemIds = try {
-                fetchActiveMatchItemIds()
-            } catch (_: Exception) {
-                emptySet()
-            }
+            val resp = client.rpc(
+                "rpc_get_user_public_wardrobe",
+                JSONObject().put("p_owner_id", ownerId)
+            )
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val arr = resp.optJSONArray("items") ?: return emptyList()
             val list = mutableListOf<WardrobeItemSummary>()
-            for (i in 0 until itemsArr.length()) {
-                val itemJson = itemsArr.getJSONObject(i)
-                val itemId = itemJson.optLong("id")
-                if (!activeItemIds.contains(itemId)) {
+            for (i in 0 until arr.length()) {
+                val entry = arr.getJSONObject(i)
+                val itemJson = entry.optJSONObject("item") ?: continue
+                val isInActiveMatch = entry.optBoolean("isInActiveMatch", false)
+                if (!isInActiveMatch) {
                     list.add(SupabaseMappers.parseWardrobeItemSummary(itemJson, isInActiveMatch = false))
                 }
             }
@@ -112,15 +111,21 @@ class SupabaseWardrobeRepository(
             .flowOn(Dispatchers.IO)
 
     override suspend fun getClothingItem(itemId: Long): ClothingItem? {
-        val json = client.getJsonObjectOrNull("clothing_items?id=eq.$itemId") ?: return null
-        return SupabaseMappers.parseClothingItem(json)
+        return try {
+            val resp = client.rpc("rpc_get_clothing_item", JSONObject().put("p_item_id", itemId))
+            if (resp.optString("code") != "SUCCESS") return null
+            val itemJson = resp.optJSONObject("item") ?: return null
+            SupabaseMappers.parseClothingItem(itemJson)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     override suspend fun isItemLocked(itemId: Long): Boolean {
         return try {
-            val existing = getClothingItem(itemId) ?: return false
-            if (existing.status != ItemStatus.AVAILABLE) return true
-            fetchActiveMatchItemIds().contains(itemId)
+            val resp = client.rpc("rpc_get_clothing_item", JSONObject().put("p_item_id", itemId))
+            if (resp.optString("code") != "SUCCESS") return false
+            resp.optBoolean("isLocked", false)
         } catch (_: Exception) {
             false
         }
@@ -134,33 +139,32 @@ class SupabaseWardrobeRepository(
         if (name.isEmpty()) return WardrobeMutationResult.ValidationFailed("Nama pakaian tidak boleh kosong")
 
         return try {
-            val now = System.currentTimeMillis()
-            val body = JSONObject().apply {
-                put("ownerId", ownerId)
-                put("name", name)
-                put("description", draft.description.trim())
-                put("category", draft.category)
-                put("size", draft.size)
-                put("gender", draft.gender)
-                put("color", draft.color)
-                put("condition", draft.condition)
-                put("mainPhotoUri", draft.mainPhotoUri ?: JSONObject.NULL)
-                put("detailPhotoUri", draft.detailPhotoUri ?: JSONObject.NULL)
-                put("extraPhotoUri", draft.extraPhotoUri ?: JSONObject.NULL)
-                put("isBarterAllowed", draft.isBarterAllowed)
-                put("status", "AVAILABLE")
-                put("createdAt", now)
-                put("updatedAt", now)
+            val params = JSONObject().apply {
+                put("p_name", name)
+                put("p_description", draft.description.trim())
+                put("p_category", draft.category)
+                put("p_size", draft.size)
+                put("p_gender", draft.gender)
+                put("p_color", draft.color)
+                put("p_condition", draft.condition)
+                put("p_main_photo_uri", draft.mainPhotoUri ?: JSONObject.NULL)
+                put("p_detail_photo_uri", draft.detailPhotoUri ?: JSONObject.NULL)
+                put("p_extra_photo_uri", draft.extraPhotoUri ?: JSONObject.NULL)
+                put("p_is_barter_allowed", draft.isBarterAllowed)
             }
 
-            val resp = client.post("clothing_items", body.toString(), returnRepresentation = true)
-            val createdArr = JSONArray(resp)
-            if (createdArr.length() > 0) {
-                invalidator.invalidateWardrobe()
-                invalidator.invalidateDiscovery()
-                WardrobeMutationResult.Success(createdArr.getJSONObject(0).optLong("id"))
-            } else {
-                WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal menambah pakaian"))
+            val resp = client.rpc("rpc_add_clothing_item", params)
+            when (resp.optString("code")) {
+                "SUCCESS" -> {
+                    invalidator.invalidateWardrobe()
+                    invalidator.invalidateDiscovery()
+                    WardrobeMutationResult.Success(resp.optLong("itemId"))
+                }
+                "UNAUTHORIZED" -> WardrobeMutationResult.InvalidOwnership
+                "VALIDATION_FAILED" -> WardrobeMutationResult.ValidationFailed(
+                    resp.optString("message", "Validasi gagal")
+                )
+                else -> WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal menambah pakaian"))
             }
         } catch (_: Exception) {
             WardrobeMutationResult.DatabaseError(
@@ -192,7 +196,6 @@ class SupabaseWardrobeRepository(
                 put("p_detail_photo_uri", draft.detailPhotoUri ?: JSONObject.NULL)
                 put("p_extra_photo_uri", draft.extraPhotoUri ?: JSONObject.NULL)
                 put("p_is_barter_allowed", draft.isBarterAllowed)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_update_clothing_protected", params)
             when (res.optString("code")) {
@@ -229,7 +232,6 @@ class SupabaseWardrobeRepository(
                 put("p_actor_user_id", actorUserId)
                 put("p_item_id", itemId)
                 put("p_allowed", allowed)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_set_barter_allowed_protected", params)
             when (res.optString("code")) {
@@ -261,7 +263,6 @@ class SupabaseWardrobeRepository(
             val params = JSONObject().apply {
                 put("p_item_id", itemId)
                 put("p_actor_user_id", actorUserId)
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_soft_delete_clothing_protected", params)
             when (res.optString("code")) {
@@ -313,18 +314,11 @@ class SupabaseWardrobeRepository(
 
     override suspend fun countEligibleBarterItems(ownerId: Long): Int {
         return try {
-            val arr = client.getJsonArray("clothing_items?ownerId=eq.$ownerId&status=eq.AVAILABLE&isBarterAllowed=eq.true&select=id")
-            val activeIds = try {
-                fetchActiveMatchItemIds()
-            } catch (_: Exception) {
-                emptySet()
-            }
-            var count = 0
-            for (i in 0 until arr.length()) {
-                val id = arr.getJSONObject(i).optLong("id")
-                if (!activeIds.contains(id)) count++
-            }
-            count
+            val resp = client.rpc(
+                "rpc_count_eligible_barter_items",
+                JSONObject().put("p_owner_id", ownerId)
+            )
+            if (resp.optString("code") == "SUCCESS") resp.optInt("count", 0) else 0
         } catch (_: Exception) {
             0
         }

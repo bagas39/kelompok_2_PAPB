@@ -16,7 +16,10 @@ import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cloble_session_prefs")
 
-class SessionPreferencesDataSource(private val context: Context) {
+class SessionPreferencesDataSource(
+    private val context: Context,
+    private val tokenCipher: SessionTokenCipher = SessionTokenCipher()
+) {
 
     private object PreferencesKeys {
         val KEY_LOGGED_IN_USER_ID = longPreferencesKey("logged_in_user_id")
@@ -45,7 +48,7 @@ class SessionPreferencesDataSource(private val context: Context) {
             }
         }
         .map { preferences ->
-            preferences[PreferencesKeys.KEY_SESSION_TOKEN]
+            tokenCipher.decrypt(preferences[PreferencesKeys.KEY_SESSION_TOKEN])
         }
 
     val fcmTokenFlow: Flow<String?> = context.dataStore.data
@@ -71,16 +74,18 @@ class SessionPreferencesDataSource(private val context: Context) {
     }
 
     suspend fun setSession(userId: Long, sessionToken: String) {
+        val storedToken = tokenCipher.encrypt(sessionToken)
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.KEY_LOGGED_IN_USER_ID] = userId
-            preferences[PreferencesKeys.KEY_SESSION_TOKEN] = sessionToken
+            preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken
         }
     }
 
     suspend fun setSessionToken(token: String?) {
+        val storedToken = token?.let { tokenCipher.encrypt(it) }
         context.dataStore.edit { preferences ->
-            if (token != null) {
-                preferences[PreferencesKeys.KEY_SESSION_TOKEN] = token
+            if (storedToken != null) {
+                preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken
             } else {
                 preferences.remove(PreferencesKeys.KEY_SESSION_TOKEN)
             }

@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -110,14 +111,35 @@ class ConversationViewModel(
                         }
                 }
 
+                val lastAutoMarkedMessageIdByMatch = mutableMapOf<Long, Long>()
+
                 launch {
                     selectedMatchIdFlow
                         .flatMapLatest { activeId ->
-                            if (activeId > 0L) chatRepository.observeMessages(activeId, userId)
-                            else flowOf(emptyList())
+                            if (activeId > 0L) {
+                                chatRepository.observeMessages(activeId, userId).map { msgs ->
+                                    activeId to msgs
+                                }
+                            } else {
+                                flowOf(-1L to emptyList())
+                            }
                         }
-                        .collect { msgs ->
+                        .collect { (activeId, msgs) ->
                             _uiState.update { it.copy(messages = msgs) }
+                            if (activeId > 0L) {
+                                val maxUnreadIncomingId = msgs
+                                    .filter { !it.isFromMe && !it.isRead }
+                                    .maxOfOrNull { it.id }
+                                val lastMarkedId = lastAutoMarkedMessageIdByMatch[activeId]
+                                if (maxUnreadIncomingId != null &&
+                                    (lastMarkedId == null || maxUnreadIncomingId > lastMarkedId)
+                                ) {
+                                    lastAutoMarkedMessageIdByMatch[activeId] = maxUnreadIncomingId
+                                    launch {
+                                        chatRepository.markMessagesRead(activeId, userId)
+                                    }
+                                }
+                            }
                         }
                 }
 

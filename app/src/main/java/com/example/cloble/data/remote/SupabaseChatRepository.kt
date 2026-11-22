@@ -33,81 +33,47 @@ class SupabaseChatRepository(
         partnerUserIdFilter: Long? = null
     ): List<ChatThreadSummary>? {
         return try {
-            val matchesArr = client.getJsonArray(
-                "matches?or=(user1Id.eq.$userId,user2Id.eq.$userId)&select=*,u1:user1Id(name,city,avatarUri),u2:user2Id(name,city,avatarUri),i1:user1ItemId(name,mainPhotoUri),i2:user2ItemId(name,mainPhotoUri)&order=updatedAt.desc"
-            )
-
-            val ratingsByUserId = mutableMapOf<Long, Pair<Double, Int>>()
-            try {
-                val reviewsArr = client.getJsonArray("reviews?select=revieweeId,rating")
-                for (r in 0 until reviewsArr.length()) {
-                    val rev = reviewsArr.getJSONObject(r)
-                    val rid = rev.optLong("revieweeId")
-                    val rating = rev.optDouble("rating", 0.0)
-                    val prev = ratingsByUserId[rid]
-                    if (prev == null) {
-                        ratingsByUserId[rid] = rating to 1
-                    } else {
-                        ratingsByUserId[rid] = (prev.first + rating) to (prev.second + 1)
-                    }
+            val params = JSONObject().apply {
+                if (partnerUserIdFilter != null) {
+                    put("p_partner_user_id", partnerUserIdFilter)
                 }
-            } catch (_: Exception) {
             }
-
+            val resp = client.rpc("rpc_get_chat_threads", params)
+            if (resp.optString("code") != "SUCCESS") return null
+            val arr = resp.optJSONArray("threads") ?: return emptyList()
             val list = mutableListOf<ChatThreadSummary>()
-            for (i in 0 until matchesArr.length()) {
-                val m = matchesArr.getJSONObject(i)
-                val matchId = m.optLong("id")
-                val isViewerUser1 = userId == m.optLong("user1Id")
-                val partnerUserId = if (isViewerUser1) m.optLong("user2Id") else m.optLong("user1Id")
-                if (partnerUserIdFilter != null && partnerUserId != partnerUserIdFilter) continue
-
-                val partnerObj = if (isViewerUser1) m.optJSONObject("u2") else m.optJSONObject("u1")
-                val partnerName = partnerObj?.optString("name", "Pengguna") ?: "Pengguna"
-                val partnerCity = partnerObj?.optString("city", "Bandung") ?: "Bandung"
-                val partnerAvatarUri = partnerObj?.optString("avatarUri")
-                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-
-                val ratingStats = ratingsByUserId[partnerUserId]
-                val partnerAvgRating = if (ratingStats != null && ratingStats.second > 0) {
-                    ratingStats.first / ratingStats.second
-                } else {
-                    0.0
-                }
-
-                val myItemObj = if (isViewerUser1) m.optJSONObject("i1") else m.optJSONObject("i2")
-                val partnerItemObj = if (isViewerUser1) m.optJSONObject("i2") else m.optJSONObject("i1")
-                val myItemName = myItemObj?.optString("name", "Pakaian") ?: "Pakaian"
-                val partnerItemName = partnerItemObj?.optString("name", "Pakaian") ?: "Pakaian"
-
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
                 val matchStatus = try {
-                    MatchStatus.valueOf(m.optString("status", "ACTIVE"))
+                    MatchStatus.valueOf(obj.optString("status", "ACTIVE"))
                 } catch (_: Exception) {
                     MatchStatus.ACTIVE
                 }
-
-                val latestMsgArr = client.getJsonArray("chat_messages?matchId=eq.$matchId&order=sentAt.desc&limit=1")
-                val lastMessage = if (latestMsgArr.length() > 0) latestMsgArr.getJSONObject(0).optString("messageText") else "Match baru terhubung"
-                val lastSentAt = if (latestMsgArr.length() > 0) latestMsgArr.getJSONObject(0).optLong("sentAt") else m.optLong("createdAt")
-
-                val unreadArr = client.getJsonArray("chat_messages?matchId=eq.$matchId&senderId=neq.$userId&isRead=eq.false&select=id")
-                val unreadCount = unreadArr.length()
+                val lastMessageText = obj.optString("lastMessageText")
+                    .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    ?: "Match baru terhubung"
+                val hasLastSentAt = !obj.isNull("lastMessageSentAt") && obj.optLong("lastMessageSentAt", 0L) > 0L
+                val updatedAt = obj.optLong("updatedAt", 0L)
+                val lastSentAt = if (hasLastSentAt) obj.optLong("lastMessageSentAt") else updatedAt
+                val avatarUri = obj.optString("partnerAvatarUri")
+                    .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 
                 list.add(
                     ChatThreadSummary(
-                        matchId = matchId,
-                        partnerUserId = partnerUserId,
-                        partnerName = partnerName,
-                        partnerCity = partnerCity,
-                        partnerAvatarUri = partnerAvatarUri,
-                        partnerAverageRating = partnerAvgRating,
-                        myItemName = myItemName,
-                        partnerItemName = partnerItemName,
+                        matchId = obj.optLong("matchId"),
+                        partnerUserId = obj.optLong("partnerUserId"),
+                        partnerName = obj.optString("partnerName", "Pengguna").ifBlank { "Pengguna" },
+                        partnerCity = obj.optString("partnerCity", ""),
+                        partnerAvatarUri = avatarUri,
+                        partnerAverageRating = obj.optDouble("partnerAverageRating", 0.0),
+                        myItemName = obj.optString("myItemName", "Pakaian").ifBlank { "Pakaian" },
+                        partnerItemName = obj.optString("partnerItemName", "Pakaian").ifBlank { "Pakaian" },
                         status = matchStatus,
-                        lastMessageText = lastMessage,
+                        lastMessageText = lastMessageText,
                         lastMessageSentAt = lastSentAt,
-                        unreadCount = unreadCount,
-                        updatedAt = m.optLong("updatedAt", System.currentTimeMillis())
+                        unreadCount = obj.optInt("unreadCount", 0),
+                        updatedAt = updatedAt,
+                        totalMatchesWithPartner = obj.optInt("totalMatchesWithPartner", 1).coerceAtLeast(1)
                     )
                 )
             }
@@ -266,7 +232,12 @@ class SupabaseChatRepository(
 
         suspend fun reloadMessagesFromServer() {
             try {
-                val arr = client.getJsonArray("chat_messages?matchId=eq.$matchId&select=*,users:senderId(name)&order=sentAt.asc")
+                val resp = client.rpc(
+                    "rpc_get_chat_messages",
+                    JSONObject().put("p_match_id", matchId)
+                )
+                if (resp.optString("code") != "SUCCESS") return
+                val arr = resp.optJSONArray("messages") ?: return
                 val fetched = mutableListOf<ChatMessage>()
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
@@ -305,45 +276,9 @@ class SupabaseChatRepository(
         refreshTrigger.trySend(Unit)
 
         val job = launch {
-            realtimeClient.incomingMessages.collect { (incomingTopic, data) ->
+            realtimeClient.incomingMessages.collect { (incomingTopic, _) ->
                 if (incomingTopic == topic) {
-                    val id = data.optLong("id")
-                    val mId = data.optLong("matchId")
-                    if (mId == matchId && id > 0L) {
-                        val senderId = data.optLong("senderId")
-                        val senderName = data.optString("senderName", "Pengguna")
-                        val messageText = data.optString("messageText")
-                        val sentAt = data.optLong("sentAt")
-                        val isFromMe = senderId == viewerUserId
-
-                        val newMsg = ChatMessage(
-                            id = id,
-                            matchId = mId,
-                            senderId = senderId,
-                            senderName = senderName,
-                            messageText = messageText,
-                            sentAt = sentAt,
-                            isFromMe = isFromMe,
-                            isRead = false
-                        )
-                        if (cacheDao != null) {
-                            cacheDao.upsertMessage(OfflineChatCacheMappers.toEntity(newMsg))
-                            cacheDao.updateThreadLastMessage(mId, messageText, sentAt)
-                        } else {
-                            val updatedSnapshot = synchronized(currentMessages) {
-                                if (currentMessages.none { it.id == id }) {
-                                    currentMessages.add(newMsg)
-                                    currentMessages.toList()
-                                } else {
-                                    null
-                                }
-                            }
-                            if (updatedSnapshot != null) {
-                                hasEmitted = true
-                                send(updatedSnapshot)
-                            }
-                        }
-                    }
+                    refreshTrigger.trySend(Unit)
                 }
             }
         }
@@ -373,78 +308,50 @@ class SupabaseChatRepository(
         if (trimmed.isEmpty()) return SendMessageResult.EmptyMessage
 
         return try {
-            val matchJson = client.getJsonObjectOrNull("matches?id=eq.$matchId")
-                ?: return SendMessageResult.MatchNotFound
-
-            val user1Id = matchJson.optLong("user1Id")
-            val user2Id = matchJson.optLong("user2Id")
-            if (senderId != user1Id && senderId != user2Id) {
-                return SendMessageResult.NotMatchParticipant
+            val params = JSONObject().apply {
+                put("p_match_id", matchId)
+                put("p_message_text", trimmed)
             }
+            val resp = client.rpc("rpc_send_chat_message", params)
+            when (resp.optString("code")) {
+                "SUCCESS" -> {
+                    val newId = resp.optLong("messageId")
+                    val senderName = resp.optString("senderName", "Pengguna").ifBlank { "Pengguna" }
+                    val sentAt = resp.optLong("sentAt", System.currentTimeMillis())
+                    val recipientId = resp.optLong("recipientId", 0L)
 
-            val status = matchJson.optString("status")
-            if (status != "ACTIVE") {
-                val parsedStatus = runCatching { MatchStatus.valueOf(status) }.getOrNull()
-                if (parsedStatus != null) {
-                    val syncedAt = System.currentTimeMillis()
+                    val cachedMessage = ChatMessage(
+                        id = newId,
+                        matchId = matchId,
+                        senderId = senderId,
+                        senderName = senderName,
+                        messageText = trimmed,
+                        isRead = false,
+                        sentAt = sentAt,
+                        isFromMe = true
+                    )
                     runCatching {
-                        cacheDao?.updateThreadStatus(matchId, parsedStatus, syncedAt)
-                        cacheDao?.updateMatchDetailStatus(matchId, parsedStatus, null, syncedAt)
+                        cacheDao?.upsertMessage(OfflineChatCacheMappers.toEntity(cachedMessage))
+                        cacheDao?.updateThreadLastMessage(matchId, trimmed, sentAt)
                     }
+
+                    val syncPing = JSONObject().put("type", "sync")
+                    realtimeClient.broadcast("realtime:match_$matchId", "chat_sync", syncPing)
+                    if (recipientId > 0L) {
+                        realtimeClient.broadcast("realtime:user_threads_$recipientId", "thread_sync", syncPing)
+                    }
+                    invalidator.invalidateChat()
+
+                    SendMessageResult.Success(newId)
                 }
-                return SendMessageResult.ChatReadOnly
-            }
-
-            val now = System.currentTimeMillis()
-            val body = JSONObject().apply {
-                put("matchId", matchId)
-                put("senderId", senderId)
-                put("messageText", trimmed)
-                put("isRead", false)
-                put("sentAt", now)
-            }
-
-            val resp = client.post("chat_messages", body.toString(), returnRepresentation = true)
-            val created = JSONArray(resp)
-            if (created.length() > 0) {
-                val newId = created.getJSONObject(0).optLong("id")
-                client.patch("matches?id=eq.$matchId", JSONObject().put("updatedAt", now).toString())
-
-                val senderJson = client.getJsonObjectOrNull("users?id=eq.$senderId&select=name")
-                val senderName = senderJson?.optString("name", "Pengguna") ?: "Pengguna"
-
-                val cachedMessage = ChatMessage(
-                    id = newId,
-                    matchId = matchId,
-                    senderId = senderId,
-                    senderName = senderName,
-                    messageText = trimmed,
-                    isRead = false,
-                    sentAt = now,
-                    isFromMe = true
+                "MATCH_NOT_FOUND" -> SendMessageResult.MatchNotFound
+                "NOT_MATCH_PARTICIPANT", "UNAUTHORIZED" -> SendMessageResult.NotMatchParticipant
+                "CHAT_READ_ONLY" -> SendMessageResult.ChatReadOnly
+                "EMPTY_MESSAGE" -> SendMessageResult.EmptyMessage
+                "VALIDATION_FAILED" -> SendMessageResult.DatabaseError(
+                    DbFailure.UnexpectedDatabaseError(resp.optString("message", "Pesan tidak valid"))
                 )
-                runCatching {
-                    cacheDao?.upsertMessage(OfflineChatCacheMappers.toEntity(cachedMessage))
-                    cacheDao?.updateThreadLastMessage(matchId, trimmed, now)
-                }
-
-                val broadcastData = JSONObject().apply {
-                    put("id", newId)
-                    put("matchId", matchId)
-                    put("senderId", senderId)
-                    put("senderName", senderName)
-                    put("messageText", trimmed)
-                    put("sentAt", now)
-                }
-                realtimeClient.broadcast("realtime:match_$matchId", "new_chat_message", broadcastData)
-
-                val recipientId = if (senderId == user1Id) user2Id else user1Id
-                realtimeClient.broadcast("realtime:user_threads_$recipientId", "thread_updated", broadcastData)
-                invalidator.invalidateChat()
-
-                SendMessageResult.Success(newId)
-            } else {
-                SendMessageResult.DatabaseError(
+                else -> SendMessageResult.DatabaseError(
                     DbFailure.UnexpectedDatabaseError("Gagal mengirim pesan. Silakan coba lagi.")
                 )
             }
@@ -456,13 +363,17 @@ class SupabaseChatRepository(
 
     override suspend fun markMessagesRead(matchId: Long, viewerUserId: Long) {
         try {
-            val body = JSONObject().put("isRead", true)
-            client.patch("chat_messages?matchId=eq.$matchId&senderId=neq.$viewerUserId&isRead=eq.false", body.toString())
-            runCatching {
-                cacheDao?.markMessagesReadLocal(matchId, viewerUserId)
-                cacheDao?.clearThreadUnreadCount(viewerUserId, matchId)
+            val resp = client.rpc(
+                "rpc_mark_chat_messages_read",
+                JSONObject().put("p_match_id", matchId)
+            )
+            if (resp.optString("code") == "SUCCESS") {
+                runCatching {
+                    cacheDao?.markMessagesReadLocal(matchId, viewerUserId)
+                    cacheDao?.clearThreadUnreadCount(viewerUserId, matchId)
+                }
+                invalidator.invalidateChat()
             }
-            invalidator.invalidateChat()
         } catch (_: Exception) {
         }
     }

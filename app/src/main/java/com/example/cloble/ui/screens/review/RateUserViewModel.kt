@@ -85,6 +85,7 @@ class RateUserViewModel(
 
     fun submitReview() {
         val state = _uiState.value
+        if (state.isSubmitting) return
         val userId = state.currentUserId ?: return
 
         if (state.alreadyReviewed) {

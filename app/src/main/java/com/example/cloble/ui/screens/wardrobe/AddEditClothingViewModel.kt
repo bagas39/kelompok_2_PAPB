@@ -38,6 +38,7 @@ data class AddEditClothingUiState(
     val isLoading: Boolean = false,
     val isUploadingPhoto: Boolean = false,
     val isSaving: Boolean = false,
+    val isDeleting: Boolean = false,
     val showDeleteDialog: Boolean = false,
     val errorMessage: String? = null
 )
@@ -151,7 +152,7 @@ class AddEditClothingViewModel(
                 _uiState.update {
                     it.copy(
                         isUploadingPhoto = false,
-                        errorMessage = "Gagal mengunggah foto pakaian. Periksa koneksi internet atau pilih foto lain."
+                        errorMessage = "Gagal mengunggah foto pakaian. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB."
                     )
                 }
             }
@@ -192,35 +193,44 @@ class AddEditClothingViewModel(
 
     fun confirmDelete(onSuccess: () -> Unit) {
         val s = _uiState.value
+        if (s.isDeleting || s.isSaving) return
         val userId = s.currentUserId ?: return
         viewModelScope.launch {
-            when (val res = wardrobeRepository.softDeleteClothingItem(userId, s.itemId)) {
-                is WardrobeMutationResult.Success -> {
-                    _uiState.update { it.copy(showDeleteDialog = false) }
-                    onSuccess()
-                }
-                is WardrobeMutationResult.LockedInActiveMatch -> {
-                    _uiState.update {
-                        it.copy(
-                            showDeleteDialog = false,
-                            errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dihapus."
-                        )
+            _uiState.update { it.copy(isDeleting = true, errorMessage = null) }
+            try {
+                when (wardrobeRepository.softDeleteClothingItem(userId, s.itemId)) {
+                    is WardrobeMutationResult.Success -> {
+                        _uiState.update { it.copy(showDeleteDialog = false, isDeleting = false) }
+                        onSuccess()
+                    }
+                    is WardrobeMutationResult.LockedInActiveMatch -> {
+                        _uiState.update {
+                            it.copy(
+                                showDeleteDialog = false,
+                                isDeleting = false,
+                                errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dihapus."
+                            )
+                        }
+                    }
+                    else -> {
+                        _uiState.update {
+                            it.copy(
+                                showDeleteDialog = false,
+                                isDeleting = false,
+                                errorMessage = "Gagal menghapus pakaian."
+                            )
+                        }
                     }
                 }
-                else -> {
-                    _uiState.update {
-                        it.copy(
-                            showDeleteDialog = false,
-                            errorMessage = "Gagal menghapus pakaian."
-                        )
-                    }
-                }
+            } finally {
+                _uiState.update { it.copy(isDeleting = false) }
             }
         }
     }
 
     fun save(onSuccess: () -> Unit) {
         val s = _uiState.value
+        if (s.isSaving || s.isDeleting) return
         if (s.isLockedInActiveMatch) {
             _uiState.update { it.copy(errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.") }
             return
