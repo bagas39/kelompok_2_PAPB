@@ -61,15 +61,23 @@ abstract class InterestMatchDao {
 
     @Query(
         """
-        SELECT * FROM interests
-        WHERE senderUserId = :senderUserId
-          AND receiverUserId = :receiverUserId
-          AND status = 'PENDING'
-        ORDER BY createdAt DESC
+        SELECT i.* FROM interests i
+        JOIN clothing_items c ON c.id = i.targetItemId
+        WHERE i.senderUserId = :senderUserId
+          AND i.receiverUserId = :receiverUserId
+          AND i.status = 'PENDING'
+          AND c.ownerId = :receiverUserId
+          AND c.status = 'AVAILABLE'
+          AND c.isBarterAllowed = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM matches m
+            WHERE m.status = 'ACTIVE' AND (m.user1ItemId = c.id OR m.user2ItemId = c.id)
+          )
+        ORDER BY i.createdAt DESC, i.id DESC
         LIMIT 1
         """
     )
-    abstract suspend fun getPendingInterestBetweenUsers(senderUserId: Long, receiverUserId: Long): InterestEntity?
+    abstract suspend fun getEligiblePendingInterestBetweenUsers(senderUserId: Long, receiverUserId: Long): InterestEntity?
 
     @Query("SELECT * FROM matches WHERE id = :matchId LIMIT 1")
     abstract suspend fun getMatchById(matchId: Long): MatchEntity?
@@ -98,15 +106,6 @@ abstract class InterestMatchDao {
         """
     )
     abstract suspend fun countActiveOrCompletedMatchForPair(itemA: Long, itemB: Long): Int
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM matches
-        WHERE status = 'ACTIVE'
-          AND ((user1Id = :userA AND user2Id = :userB) OR (user1Id = :userB AND user2Id = :userA))
-        """
-    )
-    abstract suspend fun countActiveMatchBetweenUsers(userA: Long, userB: Long): Int
 
     @Query(
         """
@@ -245,7 +244,7 @@ abstract class InterestMatchDao {
             return SendInterestDaoResult.TargetItemNotEligible
         }
 
-        val reverseInterest = getPendingInterestBetweenUsers(targetItem.ownerId, senderUserId)
+        val reverseInterest = getEligiblePendingInterestBetweenUsers(targetItem.ownerId, senderUserId)
         if (reverseInterest != null) {
             val reverseItem = getClothingById(reverseInterest.targetItemId)
             if (reverseItem != null &&
@@ -253,8 +252,7 @@ abstract class InterestMatchDao {
                 reverseItem.status == ItemStatus.AVAILABLE &&
                 reverseItem.isBarterAllowed &&
                 countActiveMatchesUsingItem(reverseItem.id) == 0 &&
-                countActiveOrCompletedMatchForPair(targetItem.id, reverseItem.id) == 0 &&
-                countActiveMatchBetweenUsers(senderUserId, targetItem.ownerId) == 0
+                countActiveOrCompletedMatchForPair(targetItem.id, reverseItem.id) == 0
             ) {
                 val targetUserName = getUserNameById(targetItem.ownerId) ?: "Pengguna"
 
@@ -390,9 +388,6 @@ abstract class InterestMatchDao {
             return RespondInterestDaoResult.ItemAlreadyInActiveMatch
         }
         if (countActiveOrCompletedMatchForPair(targetItem.id, chosenSenderItem.id) > 0) {
-            return RespondInterestDaoResult.PairAlreadyMatched
-        }
-        if (countActiveMatchBetweenUsers(actorUserId, interest.senderUserId) > 0) {
             return RespondInterestDaoResult.PairAlreadyMatched
         }
 

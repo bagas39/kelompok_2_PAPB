@@ -126,6 +126,100 @@ class CloBleTransactionAndConcurrencyTest {
     }
 
     @Test
+    fun parallelMatches_samePartners_keepOtherItemsAndTransactionsIndependent() = runBlocking {
+        val userA = insertTestUser("User A", "a@test.com")
+        val userB = insertTestUser("User B", "b@test.com")
+        val itemsA = (1..4).map { insertTestItem(userA, "Item A$it") }
+        val itemsB = (1..4).map { insertTestItem(userB, "Item B$it") }
+        val dao = db.interestMatchDao()
+        val now = System.currentTimeMillis()
+        val matches = mutableListOf<Long>()
+
+        for (i in itemsA.indices) {
+            val candidates = db.discoveryDao().getDiscoverCandidatesFlow(userA).first()
+            assertTrue("Available item must remain discoverable", candidates.any { it.item.id == itemsB[i] })
+            val sent = dao.sendInterest(userA, itemsB[i], now + i) as SendInterestDaoResult.Success
+            val notification = db.notificationDao().getNotifications(userB)
+                .single { it.relatedInterestId == sent.interestId }
+            assertTrue("An existing partner must be able to reply for a different item", notification.canReplyToInterest)
+            val reply = dao.respondToInterestAndCreateMatch(userB, sent.interestId, itemsA[i], now + i)
+            assertTrue("Different item pairs must match in parallel", reply is RespondInterestDaoResult.Success)
+            matches.add((reply as RespondInterestDaoResult.Success).matchId)
+        }
+        assertEquals(4, matches.toSet().size)
+        matches.forEachIndexed { i, matchId ->
+            assertEquals(MatchStatus.ACTIVE, dao.getMatchById(matchId)?.status)
+            assertEquals(1, dao.countActiveMatchesUsingItem(itemsA[i]))
+            assertEquals(1, dao.countActiveMatchesUsingItem(itemsB[i]))
+            assertTrue(db.chatDao().sendMessageProtected(matchId, userA, "Barter $i", now) is SendMessageDaoResult.Success)
+            assertEquals(listOf("Barter $i"), db.chatDao().getMessagesForMatch(matchId).map { it.messageText })
+        }
+
+        assertEquals(CancelMatchDaoResult.Success, dao.cancelMatch(matches[0], userA, now + 10))
+        assertEquals(CompleteMatchDaoResult.Success, dao.completeMatchExchange(matches[1], userB, "Kampus", now + 11))
+        assertEquals(0, dao.countActiveMatchesUsingItem(itemsA[0]))
+        assertEquals(ItemStatus.AVAILABLE, dao.getClothingById(itemsA[0])?.status)
+        assertEquals(ItemStatus.EXCHANGED, dao.getClothingById(itemsA[1])?.status)
+        assertEquals(ItemStatus.EXCHANGED, dao.getClothingById(itemsB[1])?.status)
+        for (i in 2..3) {
+            assertEquals(MatchStatus.ACTIVE, dao.getMatchById(matches[i])?.status)
+            assertEquals(ItemStatus.AVAILABLE, dao.getClothingById(itemsA[i])?.status)
+            assertEquals(1, dao.countActiveMatchesUsingItem(itemsA[i]))
+            assertTrue(db.chatDao().sendMessageProtected(matches[i], userB, "Masih aktif", now + 12) is SendMessageDaoResult.Success)
+        }
+    }
+
+    @Test
+    fun parallelMatches_crossInterest_skipsLockedReverseItem() = runBlocking {
+        val userA = insertTestUser("User A", "a@test.com")
+        val userB = insertTestUser("User B", "b@test.com")
+        val itemsA = (1..3).map { insertTestItem(userA, "Item A$it") }
+        val itemsB = (1..3).map { insertTestItem(userB, "Item B$it") }
+        val dao = db.interestMatchDao()
+        val now = System.currentTimeMillis()
+        val first = dao.sendInterest(userA, itemsB[0], now) as SendInterestDaoResult.Success
+        val firstMatch = dao.respondToInterestAndCreateMatch(userB, first.interestId, itemsA[0], now)
+        assertTrue(firstMatch is RespondInterestDaoResult.Success)
+
+        val availableReverse = dao.sendInterest(userA, itemsB[1], now + 1) as SendInterestDaoResult.Success
+        dao.sendInterest(userA, itemsB[2], now + 2)
+        val userC = insertTestUser("User C", "c@test.com")
+        val itemC = insertTestItem(userC, "Item C1")
+        val lockingInterest = dao.sendInterest(userC, itemsB[2], now + 3) as SendInterestDaoResult.Success
+        assertTrue(dao.respondToInterestAndCreateMatch(userB, lockingInterest.interestId, itemC, now + 3) is RespondInterestDaoResult.Success)
+        assertEquals(1, dao.countActiveMatchesUsingItem(itemsB[2]))
+
+        val cross = dao.sendInterest(userB, itemsA[2], now + 4) as SendInterestDaoResult.Success
+        assertNotNull("Another eligible reverse interest must still create a match", cross.matchId)
+        val match = dao.getMatchById(requireNotNull(cross.matchId))
+        assertEquals(availableReverse.interestId, match?.sourceInterestId)
+        assertEquals(itemsB[1], match?.user2ItemId)
+        assertEquals(MatchStatus.ACTIVE, dao.getMatchById((firstMatch as RespondInterestDaoResult.Success).matchId)?.status)
+    }
+
+    @Test
+    fun parallelMatches_competingRequests_cannotReuseSameSenderItem() = runBlocking {
+        val userA = insertTestUser("User A", "a@test.com")
+        val userB = insertTestUser("User B", "b@test.com")
+        val itemA = insertTestItem(userA, "Item A1")
+        val itemB1 = insertTestItem(userB, "Item B1")
+        val itemB2 = insertTestItem(userB, "Item B2")
+        val dao = db.interestMatchDao()
+        val now = System.currentTimeMillis()
+        val first = dao.sendInterest(userA, itemB1, now) as SendInterestDaoResult.Success
+        val second = dao.sendInterest(userA, itemB2, now) as SendInterestDaoResult.Success
+
+        val results = listOf(first.interestId, second.interestId).map { interestId ->
+            async(Dispatchers.Default) {
+                dao.respondToInterestAndCreateMatch(userB, interestId, itemA, now + 1)
+            }
+        }.awaitAll()
+        assertEquals(1, results.count { it is RespondInterestDaoResult.Success })
+        assertEquals(1, results.count { it == RespondInterestDaoResult.ItemAlreadyInActiveMatch })
+        assertEquals(1, dao.countActiveMatchesUsingItem(itemA))
+    }
+
+    @Test
     fun tc01_sendInterest_happyPath() = runBlocking {
         val userA = insertTestUser("User A", "a@test.com")
         val userB = insertTestUser("User B", "b@test.com")

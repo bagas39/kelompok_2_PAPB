@@ -39,7 +39,6 @@ interface NotificationDao {
               AND item.status = 'AVAILABLE'
               AND item.isBarterAllowed = 1
               AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND (m.user1ItemId = item.id OR m.user2ItemId = item.id)) = 0
-              AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND ((m.user1Id = :userId AND m.user2Id = sender.id) OR (m.user2Id = :userId AND m.user1Id = sender.id))) = 0
             ) THEN 1 ELSE 0 END AS canReplyToInterest,
             CASE
               WHEN i.status = 'ACCEPTED_MATCHED' THEN 'Sudah terhubung dalam Match'
@@ -86,7 +85,6 @@ interface NotificationDao {
               AND item.status = 'AVAILABLE'
               AND item.isBarterAllowed = 1
               AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND (m.user1ItemId = item.id OR m.user2ItemId = item.id)) = 0
-              AND (SELECT COUNT(*) FROM matches m WHERE m.status = 'ACTIVE' AND ((m.user1Id = :userId AND m.user2Id = sender.id) OR (m.user2Id = :userId AND m.user1Id = sender.id))) = 0
             ) THEN 1 ELSE 0 END AS canReplyToInterest,
             CASE
               WHEN i.status = 'ACCEPTED_MATCHED' THEN 'Sudah terhubung dalam Match'
