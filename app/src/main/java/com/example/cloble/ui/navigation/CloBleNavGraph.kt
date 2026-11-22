@@ -400,6 +400,9 @@ fun CloBleNavGraph(
                 },
                 onNavigateToHistory = {
                     navController.navigate(CloBleDestinations.ACTIVITY_HISTORY)
+                },
+                onNavigateToMatch = { matchId ->
+                    navController.navigate(CloBleDestinations.matchedRoute(matchId))
                 }
             )
         }

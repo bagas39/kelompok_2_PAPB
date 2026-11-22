@@ -64,25 +64,13 @@ class SupabaseAuthRepository(
             }
         }
 
-    private suspend fun fetchUserProfile(userId: Long): UserProfile? {
-        return try {
-            val userJson = client.getJsonObjectOrNull("users?id=eq.$userId") ?: return null
-            val reviewsArr = client.getJsonArray("reviews?revieweeId=eq.$userId&select=rating")
-            var sum = 0.0
-            for (i in 0 until reviewsArr.length()) {
-                sum += reviewsArr.getJSONObject(i).optDouble("rating", 0.0)
-            }
-            val count = reviewsArr.length()
-            val avg = if (count > 0) sum / count else 0.0
-            SupabaseMappers.parseUserProfile(userJson, avg, count)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private suspend fun fetchUserProfile(userId: Long): UserProfile? =
+        fetchUserProfileViaRpc(client, userId)
 
     override fun getDemoAccounts(): Flow<List<DemoAccountSummary>> = flow {
         try {
-            val usersArr = client.getJsonArray("users?order=id.asc")
+            val resp = client.rpc("rpc_get_demo_accounts", JSONObject())
+            val usersArr = resp.optJSONArray("accounts") ?: org.json.JSONArray()
             val list = mutableListOf<DemoAccountSummary>()
             for (i in 0 until usersArr.length()) {
                 val u = usersArr.getJSONObject(i)

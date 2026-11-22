@@ -139,14 +139,19 @@ class LocalDiscoveryMatchRepository(
         }
     }
 
-    override suspend fun passCandidate(userId: Long, targetItemId: Long) {
-        discoveryDao.insertSwipePass(
-            SwipePassEntity(
-                userId = userId,
-                targetItemId = targetItemId,
-                createdAt = System.currentTimeMillis()
+    override suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean {
+        return try {
+            discoveryDao.insertSwipePass(
+                SwipePassEntity(
+                    userId = userId,
+                    targetItemId = targetItemId,
+                    createdAt = System.currentTimeMillis()
+                )
             )
-        )
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     override suspend fun restorePassToDiscover(userId: Long, targetItemId: Long): Boolean {

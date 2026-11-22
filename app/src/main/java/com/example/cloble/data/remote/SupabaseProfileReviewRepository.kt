@@ -33,21 +33,8 @@ class SupabaseProfileReviewRepository(
             .map { fetchUserProfile(userId) }
             .flowOn(Dispatchers.IO)
 
-    private suspend fun fetchUserProfile(userId: Long): UserProfile? {
-        return try {
-            val userJson = client.getJsonObjectOrNull("users?id=eq.$userId") ?: return null
-            val reviewsArr = client.getJsonArray("reviews?revieweeId=eq.$userId&select=rating")
-            var sum = 0.0
-            for (i in 0 until reviewsArr.length()) {
-                sum += reviewsArr.getJSONObject(i).optDouble("rating", 0.0)
-            }
-            val count = reviewsArr.length()
-            val avg = if (count > 0) sum / count else 0.0
-            SupabaseMappers.parseUserProfile(userJson, avg, count)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private suspend fun fetchUserProfile(userId: Long): UserProfile? =
+        fetchUserProfileViaRpc(client, userId)
 
     override fun observeUserReviews(userId: Long): Flow<List<UserReview>> =
         invalidator.userTrigger
@@ -197,5 +184,18 @@ class SupabaseProfileReviewRepository(
                 DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi ke server. Silakan coba lagi.")
             )
         }
+    }
+}
+
+internal suspend fun fetchUserProfileViaRpc(client: SupabaseClient, userId: Long): UserProfile? {
+    return try {
+        val resp = client.rpc("rpc_get_user_profile", JSONObject().put("p_target_user_id", userId))
+        if (resp.optString("code") != "SUCCESS") return null
+        val userJson = resp.optJSONObject("user") ?: return null
+        val avg = resp.optDouble("averageRating", 0.0)
+        val count = resp.optInt("reviewCount", 0)
+        SupabaseMappers.parseUserProfile(userJson, avg, count)
+    } catch (_: Exception) {
+        null
     }
 }

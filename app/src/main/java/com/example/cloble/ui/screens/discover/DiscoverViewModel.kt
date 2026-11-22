@@ -33,6 +33,7 @@ data class DiscoverUiState(
     val preferredRadiusKm: Int = 10,
     val unreadNotificationCount: Int = 0,
     val isLoading: Boolean = true,
+    val isActionInProgress: Boolean = false,
     val bannerMessage: String? = null,
     val requiresBarterItemCta: Boolean = false,
     val currentUserId: Long? = null
@@ -62,6 +63,7 @@ sealed interface DiscoverNavigationEvent {
     data object OpenFilter : DiscoverNavigationEvent
     data object OpenNotifications : DiscoverNavigationEvent
     data object OpenWardrobeForAdd : DiscoverNavigationEvent
+    data class OpenMatch(val matchId: Long) : DiscoverNavigationEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -147,101 +149,131 @@ class DiscoverViewModel(
 
     fun passCurrentCandidate() {
         val state = _uiState.value
+        if (state.isActionInProgress) return
         val candidate = state.currentCandidate ?: return
         val userId = state.currentUserId ?: return
 
         viewModelScope.launch {
-            discoveryMatchRepository.passCandidate(userId, candidate.item.id)
-            _uiState.update { current ->
-                val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
-                val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
-                current.copy(
-                    candidates = remaining,
-                    currentIndex = nextIdx,
-                    bannerMessage = null,
-                    requiresBarterItemCta = false
-                )
+            _uiState.update { it.copy(isActionInProgress = true) }
+            try {
+                val saved = discoveryMatchRepository.passCandidate(userId, candidate.item.id)
+                _uiState.update { current ->
+                    if (saved) {
+                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                        current.copy(
+                            candidates = remaining,
+                            currentIndex = nextIdx,
+                            bannerMessage = null,
+                            requiresBarterItemCta = false
+                        )
+                    } else {
+                        current.copy(
+                            bannerMessage = "Gagal menyimpan aksi lewati. Periksa koneksi internet Anda.",
+                            requiresBarterItemCta = false
+                        )
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isActionInProgress = false) }
             }
         }
     }
 
     fun likeCurrentCandidate() {
         val state = _uiState.value
+        if (state.isActionInProgress) return
         val candidate = state.currentCandidate ?: return
         val userId = state.currentUserId ?: return
 
         viewModelScope.launch {
-            val result = discoveryMatchRepository.sendInterest(userId, candidate.item.id)
-            when (result) {
-                is SendInterestResult.Success -> {
-                    val message = if (result.matchId != null) {
-                        "Match terverifikasi! Anda dan ${candidate.ownerName} saling menyukai pakaian barter!"
-                    } else {
-                        "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!"
+            _uiState.update { it.copy(isActionInProgress = true) }
+            try {
+                val result = discoveryMatchRepository.sendInterest(userId, candidate.item.id)
+                when (result) {
+                    is SendInterestResult.Success -> {
+                        val message = if (result.matchId != null) {
+                            "Match terverifikasi! Anda dan ${candidate.ownerName} saling menyukai pakaian barter!"
+                        } else {
+                            "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!"
+                        }
+                        _uiState.update { current ->
+                            val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                            val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                            current.copy(
+                                candidates = remaining,
+                                currentIndex = nextIdx,
+                                bannerMessage = message,
+                                requiresBarterItemCta = false
+                            )
+                        }
+                        if (result.matchId != null) {
+                            _events.emit(DiscoverNavigationEvent.OpenMatch(result.matchId))
+                        }
                     }
-                    _uiState.update { current ->
-                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
-                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
-                        current.copy(
-                            candidates = remaining,
-                            currentIndex = nextIdx,
-                            bannerMessage = message,
-                            requiresBarterItemCta = false
-                        )
+                    is SendInterestResult.RequiresBarterableItemInWardrobe -> {
+                        _uiState.update {
+                            it.copy(
+                                bannerMessage = "Anda belum memiliki pakaian yang diizinkan untuk barter di Lemari. Tambahkan pakaian barter terlebih dahulu.",
+                                requiresBarterItemCta = true
+                            )
+                        }
+                    }
+                    is SendInterestResult.AlreadyInterested -> {
+                        _uiState.update { current ->
+                            val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                            val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                            current.copy(
+                                candidates = remaining,
+                                currentIndex = nextIdx,
+                                bannerMessage = "Anda sudah pernah mengirim ketertarikan untuk pakaian ini (${result.existingStatus.name}).",
+                                requiresBarterItemCta = false
+                            )
+                        }
+                    }
+                    is SendInterestResult.TargetItemNotEligible -> {
+                        _uiState.update { current ->
+                            val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                            val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                            current.copy(
+                                candidates = remaining,
+                                currentIndex = nextIdx,
+                                bannerMessage = "Pakaian ini sudah tidak tersedia untuk dibarter.",
+                                requiresBarterItemCta = false
+                            )
+                        }
+                    }
+                    is SendInterestResult.CannotInterestOwnItem -> {
+                        _uiState.update { current ->
+                            val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
+                            val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
+                            current.copy(
+                                candidates = remaining,
+                                currentIndex = nextIdx,
+                                bannerMessage = "Pakaian ini adalah milik Anda sendiri.",
+                                requiresBarterItemCta = false
+                            )
+                        }
+                    }
+                    is SendInterestResult.PairAlreadyMatched -> {
+                        _uiState.update {
+                            it.copy(
+                                bannerMessage = "Pasangan pakaian ini sudah memiliki pertukaran aktif atau sudah selesai ditukar.",
+                                requiresBarterItemCta = false
+                            )
+                        }
+                    }
+                    else -> {
+                        _uiState.update {
+                            it.copy(
+                                bannerMessage = "Gagal mengirim interest. Silakan coba lagi.",
+                                requiresBarterItemCta = false
+                            )
+                        }
                     }
                 }
-                is SendInterestResult.RequiresBarterableItemInWardrobe -> {
-                    _uiState.update {
-                        it.copy(
-                            bannerMessage = "Anda belum memiliki pakaian yang diizinkan untuk barter di Lemari. Tambahkan pakaian barter terlebih dahulu.",
-                            requiresBarterItemCta = true
-                        )
-                    }
-                }
-                is SendInterestResult.AlreadyInterested -> {
-                    _uiState.update { current ->
-                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
-                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
-                        current.copy(
-                            candidates = remaining,
-                            currentIndex = nextIdx,
-                            bannerMessage = "Anda sudah pernah mengirim ketertarikan untuk pakaian ini (${result.existingStatus.name}).",
-                            requiresBarterItemCta = false
-                        )
-                    }
-                }
-                is SendInterestResult.TargetItemNotEligible -> {
-                    _uiState.update { current ->
-                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
-                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
-                        current.copy(
-                            candidates = remaining,
-                            currentIndex = nextIdx,
-                            bannerMessage = "Pakaian ini sudah tidak tersedia untuk dibarter.",
-                            requiresBarterItemCta = false
-                        )
-                    }
-                }
-                is SendInterestResult.CannotInterestOwnItem -> {
-                    _uiState.update { current ->
-                        val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
-                        val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
-                        current.copy(
-                            candidates = remaining,
-                            currentIndex = nextIdx,
-                            bannerMessage = "Pakaian ini adalah milik Anda sendiri.",
-                            requiresBarterItemCta = false
-                        )
-                    }
-                }
-                else -> {
-                    _uiState.update {
-                        it.copy(
-                            bannerMessage = "Gagal mengirim interest. Silakan coba lagi.",
-                            requiresBarterItemCta = false
-                        )
-                    }
-                }
+            } finally {
+                _uiState.update { it.copy(isActionInProgress = false) }
             }
         }
     }
