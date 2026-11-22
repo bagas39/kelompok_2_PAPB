@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class NotificationsUiState(
     val notifications: List<NotificationFeedItem> = emptyList(),
@@ -30,16 +31,25 @@ class NotificationsViewModel(
     private val _uiState = MutableStateFlow(NotificationsUiState())
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
 
+    private val isMarkingRead = AtomicBoolean(false)
+
     init {
         viewModelScope.launch {
             val userId = authRepository.observeLoggedInUserId().firstOrNull()
             if (userId != null) {
                 _uiState.update { it.copy(currentUserId = userId) }
 
-                discoveryMatchRepository.markNotificationsRead(userId)
-
                 discoveryMatchRepository.observeNotifications(userId).collect { list ->
                     _uiState.update { it.copy(notifications = list, isLoading = false) }
+                    if (list.any { !it.isRead } && isMarkingRead.compareAndSet(false, true)) {
+                        launch {
+                            try {
+                                discoveryMatchRepository.markNotificationsRead(userId)
+                            } finally {
+                                isMarkingRead.set(false)
+                            }
+                        }
+                    }
                 }
             } else {
                 _uiState.update { it.copy(isLoading = false) }

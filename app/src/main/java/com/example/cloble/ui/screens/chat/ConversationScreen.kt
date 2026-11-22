@@ -78,7 +78,7 @@ fun ConversationScreen(
     var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
     var viewerStartIndex by remember { mutableStateOf(0) }
 
-    LaunchedEffect(uiState.messages.size) {
+    LaunchedEffect(uiState.activeMatchId, uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
             listState.animateScrollToItem(uiState.messages.size - 1)
         }
@@ -283,8 +283,13 @@ fun ConversationScreen(
                                                     .clickable { viewModel.selectMatch(item.matchId) }
                                                     .testTag("match_selector_chip_${item.matchId}")
                                             ) {
+                                                val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
+                                                    " (${item.unreadCount})"
+                                                } else {
+                                                    ""
+                                                }
                                                 Text(
-                                                    text = "$prefix · ${item.myItemName} - ${item.partnerItemName}",
+                                                    text = "$prefix · ${item.myItemName} - ${item.partnerItemName}$unreadSuffix",
                                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                                     color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
                                                     maxLines = 1,
@@ -459,7 +464,7 @@ fun ConversationScreen(
                                             .testTag("chat_input_text_field")
                                     )
 
-                                    val canSend = uiState.draftMessage.isNotBlank() && !uiState.isActionInProgress
+                                    val canSend = uiState.draftMessage.isNotBlank() && !uiState.isActionInProgress && !uiState.isSendingMessage
 
                                     IconButton(
                                         onClick = viewModel::sendMessage,

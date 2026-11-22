@@ -240,6 +240,90 @@ class OfflineChatCacheUnitTest {
         assertEquals(3, CloBleDatabase.MIGRATION_2_3.endVersion)
     }
 
+    @Test
+    fun parallelMatchStatusUpdates_onlyAffectTargetMatch() = runBlocking {
+        val dao = FakeOfflineChatCacheDao()
+        val match1 = OfflineChatCacheMappers.toEntity(
+            viewerUserId = 1L,
+            summary = ChatThreadSummary(
+                matchId = 201L,
+                partnerUserId = 2L,
+                partnerName = "Naya",
+                partnerCity = "Bandung",
+                partnerAverageRating = 4.8,
+                myItemName = "Kemeja A",
+                partnerItemName = "Hoodie A",
+                status = MatchStatus.ACTIVE,
+                lastMessageText = "Match 1",
+                lastMessageSentAt = 1000L,
+                unreadCount = 0,
+                updatedAt = 1000L
+            )
+        )
+        val match2 = match1.copy(
+            matchId = 202L,
+            myItemName = "Jaket B",
+            partnerItemName = "Cardigan B",
+            lastMessageText = "Match 2",
+            updatedAt = 2000L
+        )
+        dao.replaceThreadsForUser(1L, listOf(match1, match2))
+        dao.upsertMatchDetail(
+            OfflineChatCacheMappers.toEntity(
+                VerifiedMatchDetail(
+                    matchId = 201L,
+                    status = MatchStatus.ACTIVE,
+                    meetingLocation = null,
+                    createdAt = 100L,
+                    updatedAt = 1000L,
+                    myUserId = 1L,
+                    partnerUserId = 2L,
+                    partnerName = "Naya",
+                    partnerCity = "Bandung",
+                    partnerAverageRating = 4.8,
+                    partnerReviewCount = 3,
+                    myItem = sampleItem(10L, 1L, "Kemeja A"),
+                    partnerItem = sampleItem(20L, 2L, "Hoodie A")
+                )
+            )
+        )
+        dao.upsertMatchDetail(
+            OfflineChatCacheMappers.toEntity(
+                VerifiedMatchDetail(
+                    matchId = 202L,
+                    status = MatchStatus.ACTIVE,
+                    meetingLocation = null,
+                    createdAt = 100L,
+                    updatedAt = 2000L,
+                    myUserId = 1L,
+                    partnerUserId = 2L,
+                    partnerName = "Naya",
+                    partnerCity = "Bandung",
+                    partnerAverageRating = 4.8,
+                    partnerReviewCount = 3,
+                    myItem = sampleItem(11L, 1L, "Jaket B"),
+                    partnerItem = sampleItem(21L, 2L, "Cardigan B")
+                )
+            )
+        )
+
+        dao.updateThreadStatus(201L, MatchStatus.COMPLETED, 5000L)
+        dao.updateMatchDetailStatus(201L, MatchStatus.COMPLETED, "Dago", 5000L)
+        dao.updateThreadStatus(202L, MatchStatus.CANCELLED, 6000L)
+        dao.updateMatchDetailStatus(202L, MatchStatus.CANCELLED, null, 6000L)
+
+        val detail201 = dao.observeMatchDetail(1L, 201L).first()
+        val detail202 = dao.observeMatchDetail(1L, 202L).first()
+        val threads = dao.observePartnerThreads(1L, 2L).first()
+
+        assertEquals(MatchStatus.COMPLETED, detail201?.status)
+        assertEquals("Dago", detail201?.meetingLocation)
+        assertEquals(MatchStatus.CANCELLED, detail202?.status)
+        assertNull(detail202?.meetingLocation)
+        assertEquals(MatchStatus.COMPLETED, threads.first { it.matchId == 201L }.status)
+        assertEquals(MatchStatus.CANCELLED, threads.first { it.matchId == 202L }.status)
+    }
+
     private class FakeOfflineChatCacheDao : OfflineChatCacheDao() {
         private val threadsState = MutableStateFlow<List<CachedChatThreadEntity>>(emptyList())
         private val messagesState = MutableStateFlow<List<CachedChatMessageEntity>>(emptyList())
@@ -292,6 +376,16 @@ class OfflineChatCacheUnitTest {
             }
         }
 
+        override suspend fun updateThreadStatus(matchId: Long, status: MatchStatus, updatedAt: Long) {
+            threadsState.value = threadsState.value.map {
+                if (it.matchId == matchId && it.status != status) {
+                    it.copy(status = status, updatedAt = updatedAt)
+                } else {
+                    it
+                }
+            }
+        }
+
         override fun observeMessages(matchId: Long): Flow<List<CachedChatMessageEntity>> =
             messagesState.map { list ->
                 list.filter { it.matchId == matchId }
@@ -327,6 +421,25 @@ class OfflineChatCacheUnitTest {
             val map = matchDetailsState.value.associateBy { it.viewerUserId to it.matchId }.toMutableMap()
             map[detail.viewerUserId to detail.matchId] = detail
             matchDetailsState.value = map.values.toList()
+        }
+
+        override suspend fun updateMatchDetailStatus(
+            matchId: Long,
+            status: MatchStatus,
+            meetingLocation: String?,
+            updatedAt: Long
+        ) {
+            matchDetailsState.value = matchDetailsState.value.map {
+                if (it.matchId == matchId && (it.status != status || (meetingLocation != null && it.meetingLocation == null))) {
+                    it.copy(
+                        status = status,
+                        meetingLocation = it.meetingLocation ?: meetingLocation,
+                        updatedAt = updatedAt
+                    )
+                } else {
+                    it
+                }
+            }
         }
 
         override suspend fun deleteMatchDetail(viewerUserId: Long, matchId: Long) {

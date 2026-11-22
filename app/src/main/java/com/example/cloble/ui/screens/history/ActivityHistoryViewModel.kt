@@ -30,6 +30,7 @@ data class ActivityHistoryUiState(
     val passedItems: List<PassedClothingSummary> = emptyList(),
     val isLoading: Boolean = true,
     val cancellingInterestId: Long? = null,
+    val processingPassItemIds: Set<Long> = emptySet(),
     val actionMessage: String? = null,
     val errorMessage: String? = null,
     val currentUserId: Long? = null
@@ -83,10 +84,11 @@ class ActivityHistoryViewModel(
     }
 
     fun cancelOutgoingInterest(interestId: Long) {
+        if (_uiState.value.cancellingInterestId == interestId) return
         val userId = _uiState.value.currentUserId ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(cancellingInterestId = interestId, errorMessage = null) }
-            when (val result = discoveryMatchRepository.cancelOutgoingInterest(userId, interestId)) {
+            when (discoveryMatchRepository.cancelOutgoingInterest(userId, interestId)) {
                 is CancelInterestResult.Success -> {
                     _uiState.update {
                         it.copy(
@@ -127,7 +129,7 @@ class ActivityHistoryViewModel(
                     _uiState.update {
                         it.copy(
                             cancellingInterestId = null,
-                            errorMessage = result.failure.message ?: "Gagal membatalkan minat.",
+                            errorMessage = "Gagal membatalkan minat. Periksa koneksi internet Anda dan coba lagi.",
                             actionMessage = null
                         )
                     }
@@ -137,102 +139,132 @@ class ActivityHistoryViewModel(
     }
 
     fun convertPassToInterest(targetItemId: Long) {
-        val userId = _uiState.value.currentUserId ?: return
+        val current = _uiState.value
+        val userId = current.currentUserId ?: return
+        if (targetItemId in current.processingPassItemIds) return
         viewModelScope.launch {
-            when (val result = discoveryMatchRepository.convertPassToInterest(userId, targetItemId)) {
-                is SendInterestResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            actionMessage = "Berhasil mengirim Tertarik!",
-                            errorMessage = null
-                        )
+            _uiState.update {
+                it.copy(
+                    processingPassItemIds = it.processingPassItemIds + targetItemId,
+                    actionMessage = null,
+                    errorMessage = null
+                )
+            }
+            try {
+                when (discoveryMatchRepository.convertPassToInterest(userId, targetItemId)) {
+                    is SendInterestResult.Success -> {
+                        _uiState.update {
+                            it.copy(
+                                actionMessage = "Berhasil mengirim Tertarik!",
+                                errorMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.AlreadyInterested -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Pakaian ini sudah pernah ditandai Tertarik sebelumnya.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.RequiresBarterableItemInWardrobe -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Tambahkan pakaian berstatus barter di lemari terlebih dahulu.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.TargetItemNotFound -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Pakaian tidak ditemukan.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.TargetItemNotEligible -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Pakaian ini sudah tidak tersedia untuk barter.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.PairAlreadyMatched -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Pasangan pakaian ini sudah memiliki pertukaran aktif atau sudah selesai ditukar.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.CannotInterestOwnItem -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Tidak dapat mengirim Tertarik pada pakaian sendiri.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.InvalidOrMissingSenderSession -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Sesi pengguna tidak valid.",
+                                actionMessage = null
+                            )
+                        }
+                    }
+                    is SendInterestResult.DatabaseError -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Gagal mengirim tawaran. Periksa koneksi internet Anda dan coba lagi.",
+                                actionMessage = null
+                            )
+                        }
                     }
                 }
-                is SendInterestResult.AlreadyInterested -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Pakaian ini sudah pernah ditandai Tertarik sebelumnya.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.RequiresBarterableItemInWardrobe -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Tambahkan pakaian berstatus barter di lemari terlebih dahulu.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.TargetItemNotFound -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Pakaian tidak ditemukan.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.TargetItemNotEligible -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Pakaian ini sudah tidak tersedia untuk barter.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.PairAlreadyMatched -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Anda sedang memiliki Match aktif dengan pemilik pakaian ini.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.CannotInterestOwnItem -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Tidak dapat mengirim Tertarik pada pakaian sendiri.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.InvalidOrMissingSenderSession -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Sesi pengguna tidak valid.",
-                            actionMessage = null
-                        )
-                    }
-                }
-                is SendInterestResult.DatabaseError -> {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "Terjadi kendala penyimpanan: ${result.failure.message ?: "Kesalahan database"}",
-                            actionMessage = null
-                        )
-                    }
+            } finally {
+                _uiState.update {
+                    it.copy(processingPassItemIds = it.processingPassItemIds - targetItemId)
                 }
             }
         }
     }
 
     fun restorePassToDiscover(targetItemId: Long) {
-        val userId = _uiState.value.currentUserId ?: return
+        val current = _uiState.value
+        val userId = current.currentUserId ?: return
+        if (targetItemId in current.processingPassItemIds) return
         viewModelScope.launch {
-            val success = discoveryMatchRepository.restorePassToDiscover(userId, targetItemId)
-            if (success) {
-                _uiState.update {
-                    it.copy(
-                        actionMessage = "Pakaian dikembalikan ke feed Discover.",
-                        errorMessage = null
-                    )
+            _uiState.update {
+                it.copy(
+                    processingPassItemIds = it.processingPassItemIds + targetItemId,
+                    actionMessage = null,
+                    errorMessage = null
+                )
+            }
+            try {
+                val success = discoveryMatchRepository.restorePassToDiscover(userId, targetItemId)
+                if (success) {
+                    _uiState.update {
+                        it.copy(
+                            actionMessage = "Pakaian dikembalikan ke feed Discover.",
+                            errorMessage = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "Gagal mengembalikan pakaian ke feed.",
+                            actionMessage = null
+                        )
+                    }
                 }
-            } else {
+            } finally {
                 _uiState.update {
-                    it.copy(
-                        errorMessage = "Gagal mengembalikan pakaian ke feed.",
-                        actionMessage = null
-                    )
+                    it.copy(processingPassItemIds = it.processingPassItemIds - targetItemId)
                 }
             }
         }

@@ -9,9 +9,6 @@ import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.VerifiedMatchDetail
 
-/**
- * Maps between domain models and Room offline-cache entities.
- */
 object OfflineChatCacheMappers {
 
     fun toEntity(viewerUserId: Long, summary: ChatThreadSummary): CachedChatThreadEntity {

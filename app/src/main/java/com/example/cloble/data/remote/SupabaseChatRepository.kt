@@ -183,6 +183,14 @@ class SupabaseChatRepository(
                         } else {
                             cacheDao.replacePartnerThreadsForUser(userId, partnerUserIdFilter, entities)
                         }
+                        fetched.forEach { thread ->
+                            cacheDao.updateMatchDetailStatus(
+                                matchId = thread.matchId,
+                                status = thread.status,
+                                meetingLocation = null,
+                                updatedAt = thread.updatedAt
+                            )
+                        }
                     } else {
                         hasEmitted = true
                         send(transform(fetched))
@@ -376,6 +384,14 @@ class SupabaseChatRepository(
 
             val status = matchJson.optString("status")
             if (status != "ACTIVE") {
+                val parsedStatus = runCatching { MatchStatus.valueOf(status) }.getOrNull()
+                if (parsedStatus != null) {
+                    val syncedAt = System.currentTimeMillis()
+                    runCatching {
+                        cacheDao?.updateThreadStatus(matchId, parsedStatus, syncedAt)
+                        cacheDao?.updateMatchDetailStatus(matchId, parsedStatus, null, syncedAt)
+                    }
+                }
                 return SendMessageResult.ChatReadOnly
             }
 
@@ -428,10 +444,13 @@ class SupabaseChatRepository(
 
                 SendMessageResult.Success(newId)
             } else {
-                SendMessageResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal mengirim pesan"))
+                SendMessageResult.DatabaseError(
+                    DbFailure.UnexpectedDatabaseError("Gagal mengirim pesan. Silakan coba lagi.")
+                )
             }
         } catch (e: Exception) {
-            SendMessageResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+            if (e is CancellationException) throw e
+            SendMessageResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
     }
 
@@ -446,5 +465,9 @@ class SupabaseChatRepository(
             invalidator.invalidateChat()
         } catch (_: Exception) {
         }
+    }
+
+    private companion object {
+        const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
     }
 }

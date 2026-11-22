@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.ClothingItem
+import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.model.UserReview
 import com.example.cloble.domain.repository.AuthRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -79,22 +81,29 @@ class OtherUserProfileViewModel(
 
     private fun loadData() {
         viewModelScope.launch {
-            val profile = profileReviewRepository.observeUserProfile(targetUserId).firstOrNull()
-            val reviews = profileReviewRepository.observeUserReviews(targetUserId).firstOrNull() ?: emptyList()
-
-            wardrobeRepository.observeUserPublicWardrobe(targetUserId).collect { itemSummaries ->
+            combine(
+                profileReviewRepository.observeUserProfile(targetUserId),
+                profileReviewRepository.observeUserReviews(targetUserId),
+                wardrobeRepository.observeUserPublicWardrobe(targetUserId)
+            ) { profile, reviews, itemSummaries ->
                 val eligibleItems = if (isReplying) {
                     itemSummaries
-                        .filter { !it.isInActiveMatch && it.item.isBarterAllowed && it.item.status == com.example.cloble.domain.model.ItemStatus.AVAILABLE }
+                        .filter { !it.isInActiveMatch && it.item.isBarterAllowed && it.item.status == ItemStatus.AVAILABLE }
                         .map { it.item }
                 } else {
                     itemSummaries.map { it.item }
                 }
-                _uiState.update {
-                    it.copy(
+                Triple(profile, reviews, eligibleItems)
+            }.collect { (profile, reviews, eligibleItems) ->
+                _uiState.update { current ->
+                    val keptSelection = current.selectedItemId?.takeIf { selectedId ->
+                        eligibleItems.any { it.id == selectedId }
+                    }
+                    current.copy(
                         profile = profile,
                         reviews = reviews,
                         wardrobeItems = eligibleItems,
+                        selectedItemId = keptSelection,
                         isLoading = false
                     )
                 }
@@ -111,6 +120,7 @@ class OtherUserProfileViewModel(
 
     fun acceptInterestAndCreateMatch() {
         val state = _uiState.value
+        if (state.isSubmitting || state.isDeclining) return
         val chosenItemId = state.selectedItemId ?: return
 
         viewModelScope.launch {
@@ -148,7 +158,7 @@ class OtherUserProfileViewModel(
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
-                            errorMessage = "Anda sudah memiliki Match aktif dengan pengguna ini."
+                            errorMessage = "Pasangan pakaian ini sudah memiliki pertukaran aktif atau sudah selesai ditukar."
                         )
                     }
                 }
@@ -174,6 +184,8 @@ class OtherUserProfileViewModel(
 
     fun declineInterest() {
         if (!isReplying || interestId <= 0L) return
+        val state = _uiState.value
+        if (state.isSubmitting || state.isDeclining) return
         viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch
             _uiState.update { it.copy(isDeclining = true, showDeclineDialog = false, errorMessage = null) }
