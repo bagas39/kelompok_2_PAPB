@@ -44,6 +44,7 @@ data class ConversationUiState(
     val showCancelDialog: Boolean = false,
     val showCompleteDialog: Boolean = false,
     val meetingLocationInput: String = "",
+    val isSendingMessage: Boolean = false,
     val isActionInProgress: Boolean = false,
     val errorMessage: String? = null,
     val currentUserId: Long? = null,
@@ -147,6 +148,9 @@ class ConversationViewModel(
         _uiState.update {
             it.copy(
                 activeMatchId = targetMatchId,
+                meetingLocationInput = "",
+                hasReviewed = false,
+                canRatePartner = false,
                 errorMessage = null,
                 showCancelDialog = false,
                 showCompleteDialog = false
@@ -184,40 +188,66 @@ class ConversationViewModel(
     }
 
     fun sendMessage() {
-        val text = _uiState.value.draftMessage.trim()
+        val snapshot = _uiState.value
+        if (snapshot.isSendingMessage || snapshot.isReadOnly) return
+        val text = snapshot.draftMessage.trim()
         if (text.isBlank()) return
-        val userId = _uiState.value.currentUserId ?: return
-        val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
+        val userId = snapshot.currentUserId ?: return
+        val activeId = snapshot.activeMatchId.takeIf { it > 0L } ?: matchId
 
         viewModelScope.launch {
-            _uiState.update { it.copy(draftMessage = "") }
-            when (val result = chatRepository.sendMessage(activeId, userId, text)) {
+            _uiState.update { it.copy(isSendingMessage = true, draftMessage = "", errorMessage = null) }
+            when (chatRepository.sendMessage(activeId, userId, text)) {
                 is SendMessageResult.Success -> {
-
+                    _uiState.update { it.copy(isSendingMessage = false) }
                 }
                 is SendMessageResult.ChatReadOnly -> {
-                    _uiState.update { it.copy(errorMessage = "Ruang obrolan read-only karena pertukaran telah selesai atau dibatalkan.") }
+                    _uiState.update {
+                        it.copy(
+                            isSendingMessage = false,
+                            errorMessage = "Ruang obrolan read-only karena pertukaran telah selesai atau dibatalkan."
+                        )
+                    }
                 }
                 is SendMessageResult.NotMatchParticipant -> {
-                    _uiState.update { it.copy(errorMessage = "Anda bukan peserta pada Match ini.") }
+                    _uiState.update {
+                        it.copy(
+                            isSendingMessage = false,
+                            errorMessage = "Anda bukan peserta pada Match ini."
+                        )
+                    }
                 }
                 is SendMessageResult.MatchNotFound -> {
-                    _uiState.update { it.copy(errorMessage = "Match tidak ditemukan.") }
+                    _uiState.update {
+                        it.copy(
+                            isSendingMessage = false,
+                            errorMessage = "Match tidak ditemukan."
+                        )
+                    }
                 }
-                is SendMessageResult.EmptyMessage -> {}
+                is SendMessageResult.EmptyMessage -> {
+                    _uiState.update { it.copy(isSendingMessage = false) }
+                }
                 is SendMessageResult.DatabaseError -> {
-                    _uiState.update { it.copy(errorMessage = "Gagal mengirim pesan: ${result.failure.message}") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isSendingMessage = false,
+                            draftMessage = if (state.draftMessage.isBlank()) text else state.draftMessage,
+                            errorMessage = "Gagal mengirim pesan. Periksa koneksi internet Anda dan coba lagi."
+                        )
+                    }
                 }
             }
         }
     }
 
     fun confirmCancelMatch() {
+        if (_uiState.value.isActionInProgress) return
         val userId = _uiState.value.currentUserId ?: return
         val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         viewModelScope.launch {
             _uiState.update { it.copy(isActionInProgress = true, showCancelDialog = false) }
-            when (val result = discoveryMatchRepository.cancelMatch(activeId, userId)) {
+            when (discoveryMatchRepository.cancelMatch(activeId, userId)) {
                 is CancelMatchResult.Success -> {
                     _uiState.update { it.copy(isActionInProgress = false) }
                 }
@@ -231,21 +261,27 @@ class ConversationViewModel(
                     _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Match tidak ditemukan.") }
                 }
                 is CancelMatchResult.DatabaseError -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Gagal membatalkan Match: ${result.failure.message}") }
+                    _uiState.update {
+                        it.copy(
+                            isActionInProgress = false,
+                            errorMessage = "Gagal membatalkan Match. Periksa koneksi internet Anda dan coba lagi."
+                        )
+                    }
                 }
             }
         }
     }
 
     fun confirmCompleteExchange() {
+        if (_uiState.value.isActionInProgress) return
         val userId = _uiState.value.currentUserId ?: return
         val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         val location = _uiState.value.meetingLocationInput.trim().ifBlank { null }
         viewModelScope.launch {
             _uiState.update { it.copy(isActionInProgress = true, showCompleteDialog = false) }
-            when (val result = discoveryMatchRepository.completeMatchExchange(activeId, userId, location)) {
+            when (discoveryMatchRepository.completeMatchExchange(activeId, userId, location)) {
                 is CompleteMatchResult.Success -> {
-                    _uiState.update { it.copy(isActionInProgress = false) }
+                    _uiState.update { it.copy(isActionInProgress = false, meetingLocationInput = "") }
                 }
                 is CompleteMatchResult.NotMatchParticipant -> {
                     _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Hanya peserta yang dapat menyelesaikan pertukaran.") }
@@ -260,7 +296,12 @@ class ConversationViewModel(
                     _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Match tidak ditemukan.") }
                 }
                 is CompleteMatchResult.DatabaseError -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Gagal menyelesaikan pertukaran: ${result.failure.message}") }
+                    _uiState.update {
+                        it.copy(
+                            isActionInProgress = false,
+                            errorMessage = "Gagal menyelesaikan pertukaran. Periksa koneksi internet Anda dan coba lagi."
+                        )
+                    }
                 }
             }
         }

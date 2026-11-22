@@ -36,6 +36,7 @@ data class AddEditClothingUiState(
     val isBarterAllowed: Boolean = false,
     val isLockedInActiveMatch: Boolean = false,
     val isLoading: Boolean = false,
+    val isUploadingPhoto: Boolean = false,
     val isSaving: Boolean = false,
     val showDeleteDialog: Boolean = false,
     val errorMessage: String? = null
@@ -133,21 +134,33 @@ class AddEditClothingViewModel(
     }
 
     fun onPhotoSelected(photoUri: String, slotIndex: Int = 0) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        val current = _uiState.value
+        if (current.isLockedInActiveMatch || current.isUploadingPhoto || current.isSaving) return
         viewModelScope.launch {
-            val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri) ?: photoUri
-            _uiState.update {
-                when (slotIndex) {
-                    0 -> it.copy(mainPhotoUri = persistedUri)
-                    1 -> it.copy(detailPhotoUri = persistedUri)
-                    else -> it.copy(extraPhotoUri = persistedUri)
+            _uiState.update { it.copy(isUploadingPhoto = true, errorMessage = null) }
+            val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri)
+            if (persistedUri != null) {
+                _uiState.update {
+                    when (slotIndex) {
+                        0 -> it.copy(mainPhotoUri = persistedUri, isUploadingPhoto = false)
+                        1 -> it.copy(detailPhotoUri = persistedUri, isUploadingPhoto = false)
+                        else -> it.copy(extraPhotoUri = persistedUri, isUploadingPhoto = false)
+                    }
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isUploadingPhoto = false,
+                        errorMessage = "Gagal mengunggah foto pakaian. Periksa koneksi internet atau pilih foto lain."
+                    )
                 }
             }
         }
     }
 
     fun onRemovePhoto(slotIndex: Int) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        val current = _uiState.value
+        if (current.isLockedInActiveMatch || current.isUploadingPhoto || current.isSaving) return
         _uiState.update {
             when (slotIndex) {
                 0 -> it.copy(mainPhotoUri = null)
@@ -210,6 +223,10 @@ class AddEditClothingViewModel(
         val s = _uiState.value
         if (s.isLockedInActiveMatch) {
             _uiState.update { it.copy(errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.") }
+            return
+        }
+        if (s.isUploadingPhoto) {
+            _uiState.update { it.copy(errorMessage = "Tunggu hingga proses unggah foto selesai.") }
             return
         }
         val userId = s.currentUserId ?: return

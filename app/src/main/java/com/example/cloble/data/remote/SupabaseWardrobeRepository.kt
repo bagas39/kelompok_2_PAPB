@@ -162,8 +162,10 @@ class SupabaseWardrobeRepository(
             } else {
                 WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal menambah pakaian"))
             }
-        } catch (e: Exception) {
-            WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            WardrobeMutationResult.DatabaseError(
+                DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi saat menambah pakaian. Silakan coba lagi.")
+            )
         }
     }
 
@@ -210,8 +212,10 @@ class SupabaseWardrobeRepository(
                     DbFailure.UnexpectedDatabaseError("Gagal memperbarui pakaian")
                 )
             }
-        } catch (e: Exception) {
-            WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            WardrobeMutationResult.DatabaseError(
+                DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi saat memperbarui pakaian. Silakan coba lagi.")
+            )
         }
     }
 
@@ -242,8 +246,10 @@ class SupabaseWardrobeRepository(
                     DbFailure.UnexpectedDatabaseError("Gagal mengubah status barter")
                 )
             }
-        } catch (e: Exception) {
-            WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            WardrobeMutationResult.DatabaseError(
+                DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi saat mengubah status barter. Silakan coba lagi.")
+            )
         }
     }
 
@@ -269,8 +275,10 @@ class SupabaseWardrobeRepository(
                 "LOCKED_IN_ACTIVE_MATCH" -> WardrobeMutationResult.LockedInActiveMatch
                 else -> WardrobeMutationResult.ItemNotFound
             }
-        } catch (e: Exception) {
-            WardrobeMutationResult.DatabaseError(DbFailure.UnexpectedDatabaseError(e.message))
+        } catch (_: Exception) {
+            WardrobeMutationResult.DatabaseError(
+                DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi saat menghapus pakaian. Silakan coba lagi.")
+            )
         }
     }
 

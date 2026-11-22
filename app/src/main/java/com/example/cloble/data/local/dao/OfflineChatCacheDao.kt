@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import com.example.cloble.data.local.entity.CachedChatMessageEntity
 import com.example.cloble.data.local.entity.CachedChatThreadEntity
 import com.example.cloble.data.local.entity.CachedMatchDetailEntity
+import com.example.cloble.domain.model.MatchStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -54,6 +55,9 @@ abstract class OfflineChatCacheDao {
     @Query("UPDATE cached_chat_threads SET lastMessageText = :messageText, lastMessageSentAt = :sentAt, updatedAt = :sentAt WHERE matchId = :matchId")
     abstract suspend fun updateThreadLastMessage(matchId: Long, messageText: String, sentAt: Long)
 
+    @Query("UPDATE cached_chat_threads SET status = :status, updatedAt = :updatedAt WHERE matchId = :matchId AND status != :status")
+    abstract suspend fun updateThreadStatus(matchId: Long, status: MatchStatus, updatedAt: Long)
+
     @Query("SELECT * FROM cached_chat_messages WHERE matchId = :matchId ORDER BY sentAt ASC, id ASC")
     abstract fun observeMessages(matchId: Long): Flow<List<CachedChatMessageEntity>>
 
@@ -71,6 +75,23 @@ abstract class OfflineChatCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertMatchDetail(detail: CachedMatchDetailEntity)
+
+    @Query(
+        """
+        UPDATE cached_match_details
+        SET status = :status,
+            meetingLocation = COALESCE(:meetingLocation, meetingLocation),
+            updatedAt = :updatedAt
+        WHERE matchId = :matchId
+          AND (status != :status OR (:meetingLocation IS NOT NULL AND meetingLocation IS NULL))
+        """
+    )
+    abstract suspend fun updateMatchDetailStatus(
+        matchId: Long,
+        status: MatchStatus,
+        meetingLocation: String?,
+        updatedAt: Long
+    )
 
     @Query("DELETE FROM cached_match_details WHERE viewerUserId = :viewerUserId AND matchId = :matchId")
     abstract suspend fun deleteMatchDetail(viewerUserId: Long, matchId: Long)

@@ -21,9 +21,17 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
-class SupabaseRealtimeClient(
-    private val config: SupabaseConfig = SupabaseConfig
+class SupabaseRealtimeClient internal constructor(
+    private val config: SupabaseConfig = SupabaseConfig,
+    private val autoConnect: Boolean = true,
+    private val frameSenderOverride: ((String) -> Boolean)? = null
 ) {
+    constructor(config: SupabaseConfig = SupabaseConfig) : this(
+        config = config,
+        autoConnect = true,
+        frameSenderOverride = null
+    )
+
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
@@ -37,8 +45,11 @@ class SupabaseRealtimeClient(
     @Volatile
     private var isConnected = false
 
-    private val activeTopics = ConcurrentHashMap.newKeySet<String>()
+    private val topicLock = Any()
+    private val topicRefCounts = ConcurrentHashMap<String, Int>()
     private val pendingBroadcasts = ConcurrentLinkedQueue<String>()
+    private val pendingEphemeralBroadcasts = ConcurrentHashMap<String, ConcurrentLinkedQueue<String>>()
+    private val ephemeralJoiningTopics = ConcurrentHashMap.newKeySet<String>()
 
     private val _incomingMessages = MutableSharedFlow<Pair<String, JSONObject>>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<Pair<String, JSONObject>> = _incomingMessages.asSharedFlow()
@@ -46,7 +57,16 @@ class SupabaseRealtimeClient(
     private var heartbeatJob: Job? = null
     private var reconnectJob: Job? = null
 
+    internal fun setConnectedForTest(connected: Boolean) {
+        isConnected = connected
+    }
+
+    internal fun activeTopicCount(topic: String): Int = synchronized(topicLock) {
+        topicRefCounts[topic] ?: 0
+    }
+
     fun connect() {
+        if (!autoConnect) return
         if (isConnected || webSocket != null) return
         val wsUrl = "${config.realtimeWsUrl}/websocket?apikey=${config.apiKey}&vsn=1.0.0"
         val request = Request.Builder().url(wsUrl).build()
@@ -55,29 +75,24 @@ class SupabaseRealtimeClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isConnected = true
                 startHeartbeat()
-                activeTopics.forEach { topic ->
+                val topicsToJoin = synchronized(topicLock) {
+                    (topicRefCounts.keys + pendingEphemeralBroadcasts.keys).toSet()
+                }
+                topicsToJoin.forEach { topic ->
+                    val isReferenced = synchronized(topicLock) { (topicRefCounts[topic] ?: 0) > 0 }
+                    if (!isReferenced) {
+                        ephemeralJoiningTopics.add(topic)
+                    }
                     sendJoinTopic(topic)
                 }
                 while (true) {
                     val queued = pendingBroadcasts.poll() ?: break
-                    webSocket.send(queued)
+                    sendFrame(queued)
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    val json = JSONObject(text)
-                    val topic = json.optString("topic")
-                    val event = json.optString("event")
-                    if (event == "broadcast") {
-                        val payloadWrapper = json.optJSONObject("payload")
-                        val broadcastPayload = payloadWrapper?.optJSONObject("payload")
-                        if (broadcastPayload != null) {
-                            _incomingMessages.tryEmit(topic to broadcastPayload)
-                        }
-                    }
-                } catch (_: Exception) {
-                }
+                handleIncomingMessage(text)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -90,15 +105,52 @@ class SupabaseRealtimeClient(
         })
     }
 
+    internal fun handleIncomingMessage(text: String) {
+        try {
+            val json = JSONObject(text)
+            val topic = json.optString("topic")
+            val event = json.optString("event")
+            when (event) {
+                "broadcast" -> {
+                    val payloadWrapper = json.optJSONObject("payload")
+                    val broadcastPayload = payloadWrapper?.optJSONObject("payload")
+                    if (broadcastPayload != null) {
+                        _incomingMessages.tryEmit(topic to broadcastPayload)
+                    }
+                }
+                "phx_reply" -> {
+                    ephemeralJoiningTopics.remove(topic)
+                    val queue = pendingEphemeralBroadcasts.remove(topic)
+                    if (queue != null && queue.isNotEmpty()) {
+                        while (true) {
+                            val queuedMsg = queue.poll() ?: break
+                            if (isConnected) {
+                                sendFrame(queuedMsg)
+                            } else {
+                                pendingBroadcasts.offer(queuedMsg)
+                            }
+                        }
+                        scope.launch {
+                            delay(500)
+                            leaveIfUnreferenced(topic)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun handleDisconnect() {
         isConnected = false
         webSocket = null
+        ephemeralJoiningTopics.clear()
         stopHeartbeat()
         scheduleReconnect()
     }
 
     private fun scheduleReconnect() {
-        if (reconnectJob?.isActive == true) return
+        if (!autoConnect || reconnectJob?.isActive == true) return
         reconnectJob = scope.launch {
             delay(3000)
             connect()
@@ -120,6 +172,11 @@ class SupabaseRealtimeClient(
         heartbeatJob = null
     }
 
+    private fun sendFrame(payload: String): Boolean {
+        frameSenderOverride?.let { return it.invoke(payload) }
+        return webSocket?.send(payload) == true
+    }
+
     private fun sendHeartbeat() {
         val ref = refCounter.incrementAndGet().toString()
         val payload = JSONObject().apply {
@@ -128,20 +185,55 @@ class SupabaseRealtimeClient(
             put("payload", JSONObject())
             put("ref", ref)
         }
-        webSocket?.send(payload.toString())
+        sendFrame(payload.toString())
     }
 
     fun subscribeTopic(topic: String) {
-        activeTopics.add(topic)
+        var shouldJoin = false
+        synchronized(topicLock) {
+            val prev = topicRefCounts[topic] ?: 0
+            topicRefCounts[topic] = prev + 1
+            if (prev == 0) {
+                shouldJoin = true
+            }
+        }
         if (isConnected) {
-            sendJoinTopic(topic)
+            if (shouldJoin) {
+                sendJoinTopic(topic)
+            }
         } else {
             connect()
         }
     }
 
     fun unsubscribeTopic(topic: String) {
-        activeTopics.remove(topic)
+        var shouldLeave = false
+        synchronized(topicLock) {
+            val prev = topicRefCounts[topic] ?: 0
+            if (prev > 1) {
+                topicRefCounts[topic] = prev - 1
+            } else if (prev == 1) {
+                topicRefCounts.remove(topic)
+                if (pendingEphemeralBroadcasts[topic].isNullOrEmpty()) {
+                    shouldLeave = true
+                }
+            }
+        }
+        if (shouldLeave) {
+            sendLeaveTopic(topic)
+        }
+    }
+
+    private fun leaveIfUnreferenced(topic: String) {
+        val shouldLeave = synchronized(topicLock) {
+            (topicRefCounts[topic] ?: 0) == 0 && pendingEphemeralBroadcasts[topic].isNullOrEmpty()
+        }
+        if (shouldLeave && isConnected) {
+            sendLeaveTopic(topic)
+        }
+    }
+
+    private fun sendLeaveTopic(topic: String) {
         val ref = refCounter.incrementAndGet().toString()
         val payload = JSONObject().apply {
             put("topic", topic)
@@ -149,7 +241,7 @@ class SupabaseRealtimeClient(
             put("payload", JSONObject())
             put("ref", ref)
         }
-        webSocket?.send(payload.toString())
+        sendFrame(payload.toString())
     }
 
     private fun sendJoinTopic(topic: String) {
@@ -169,7 +261,7 @@ class SupabaseRealtimeClient(
             put("payload", payloadObj)
             put("ref", ref)
         }
-        webSocket?.send(msg.toString())
+        sendFrame(msg.toString())
     }
 
     fun broadcast(topic: String, eventName: String, data: JSONObject) {
@@ -186,11 +278,29 @@ class SupabaseRealtimeClient(
             put("ref", ref)
         }.toString()
 
-        val ws = webSocket
-        if (isConnected && ws != null) {
-            ws.send(msg)
-        } else {
+        val isSubscribed = synchronized(topicLock) { (topicRefCounts[topic] ?: 0) > 0 }
+        if (isSubscribed) {
+            if (isConnected && sendFrame(msg)) {
+                return
+            }
             pendingBroadcasts.offer(msg)
+            connect()
+            return
+        }
+
+        val queue = pendingEphemeralBroadcasts.computeIfAbsent(topic) { ConcurrentLinkedQueue() }
+        queue.offer(msg)
+        if (isConnected) {
+            if (ephemeralJoiningTopics.add(topic)) {
+                sendJoinTopic(topic)
+                scope.launch {
+                    delay(3000)
+                    ephemeralJoiningTopics.remove(topic)
+                    pendingEphemeralBroadcasts.remove(topic)
+                    leaveIfUnreferenced(topic)
+                }
+            }
+        } else {
             connect()
         }
     }

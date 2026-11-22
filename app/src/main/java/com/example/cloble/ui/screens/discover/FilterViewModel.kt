@@ -19,7 +19,8 @@ data class FilterUiState(
     val selectedCategories: Set<String> = emptySet(),
     val selectedRadiusKm: Int? = null,
     val isCustomRadius: Boolean = false,
-    val customRadiusText: String = ""
+    val customRadiusText: String = "",
+    val errorMessage: String? = null
 )
 
 class FilterViewModel(
@@ -69,9 +70,9 @@ class FilterViewModel(
     fun selectPresetRadius(km: Int) {
         _uiState.update { current ->
             if (!current.isCustomRadius && current.selectedRadiusKm == km) {
-                current.copy(selectedRadiusKm = null, isCustomRadius = false)
+                current.copy(selectedRadiusKm = null, isCustomRadius = false, errorMessage = null)
             } else {
-                current.copy(selectedRadiusKm = km, isCustomRadius = false)
+                current.copy(selectedRadiusKm = km, isCustomRadius = false, errorMessage = null)
             }
         }
     }
@@ -79,33 +80,36 @@ class FilterViewModel(
     fun toggleCustomRadiusMode() {
         _uiState.update { current ->
             if (current.isCustomRadius) {
-                current.copy(isCustomRadius = false, selectedRadiusKm = null)
+                current.copy(isCustomRadius = false, selectedRadiusKm = null, errorMessage = null)
             } else {
-                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }
-                current.copy(isCustomRadius = true, selectedRadiusKm = parsed)
+                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
+                current.copy(isCustomRadius = true, selectedRadiusKm = parsed, errorMessage = null)
             }
         }
     }
 
     fun onCustomRadiusTextChanged(raw: String) {
         val digitsOnly = raw.filter { it.isDigit() }.take(5)
-        val parsed = digitsOnly.toIntOrNull()?.coerceIn(1, 20000)
+        val parsed = digitsOnly.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
         _uiState.update {
             it.copy(
                 isCustomRadius = true,
                 customRadiusText = digitsOnly,
-                selectedRadiusKm = parsed
+                selectedRadiusKm = parsed,
+                errorMessage = null
             )
         }
     }
 
     fun setRadius(radius: Int?) {
-        val isCustom = radius != null && !PRESET_RADII_KM.contains(radius)
+        val sanitized = radius?.takeIf { it > 0 }?.coerceAtMost(20000)
+        val isCustom = sanitized != null && !PRESET_RADII_KM.contains(sanitized)
         _uiState.update {
             it.copy(
-                selectedRadiusKm = radius,
+                selectedRadiusKm = sanitized,
                 isCustomRadius = isCustom,
-                customRadiusText = if (isCustom) radius.toString() else it.customRadiusText
+                customRadiusText = if (isCustom) sanitized.toString() else it.customRadiusText,
+                errorMessage = null
             )
         }
     }
@@ -115,8 +119,19 @@ class FilterViewModel(
         discoverFilterFlow.value = DiscoverFilter()
     }
 
-    fun applyFilter(): DiscoverFilter {
+    fun applyFilter(): DiscoverFilter? {
+        val state = _uiState.value
+        if (state.isCustomRadius) {
+            val parsedRadius = state.customRadiusText.toIntOrNull() ?: 0
+            if (parsedRadius <= 0) {
+                _uiState.update {
+                    it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+                }
+                return null
+            }
+        }
         val built = buildFilter()
+        _uiState.update { it.copy(errorMessage = null) }
         discoverFilterFlow.value = built
         return built
     }
@@ -124,9 +139,9 @@ class FilterViewModel(
     fun buildFilter(): DiscoverFilter {
         val state = _uiState.value
         val effectiveRadius = if (state.isCustomRadius) {
-            state.customRadiusText.toIntOrNull()?.coerceIn(1, 20000)
+            state.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
         } else {
-            state.selectedRadiusKm
+            state.selectedRadiusKm?.takeIf { it > 0 }
         }
         return DiscoverFilter(
             selectedSizes = state.selectedSizes,

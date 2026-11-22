@@ -12,7 +12,7 @@ interface ProfileReviewRepository {
     fun observeUserReviews(userId: Long): Flow<List<UserReview>>
     fun hasUserReviewedMatch(matchId: Long, reviewerId: Long): Flow<Boolean>
 
-    suspend fun updatePreferences(userId: Long, prefs: UserPreferences)
+    suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean
     suspend fun updateBio(userId: Long, bio: String)
     suspend fun updateProfile(userId: Long, update: UserProfileUpdate): Boolean
     suspend fun persistAvatarPhoto(sourceUriString: String): String?

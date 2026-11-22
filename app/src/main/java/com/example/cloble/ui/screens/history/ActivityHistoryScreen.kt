@@ -228,6 +228,7 @@ fun ActivityHistoryScreen(
                     ActivityHistoryTab.DILEWATI -> {
                         PassedClothingList(
                             passedItems = uiState.passedItems,
+                            processingPassItemIds = uiState.processingPassItemIds,
                             onItemClick = { itemId ->
                                 lockedWarningMessage = null
                                 onNavigateToItemDetail(itemId)
@@ -475,6 +476,20 @@ private fun OutgoingInterestCard(
                             style = MaterialTheme.typography.labelSmall,
                             color = CloBleColors.DangerText
                         )
+                    } else if (item.interestStatus == InterestStatus.DECLINED) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tawaran barter ditolak oleh pemilik pakaian.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CloBleColors.DangerText
+                        )
+                    } else if (item.interestStatus == InterestStatus.INVALIDATED) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Pakaian sudah dihapus, ditukar, atau dinonaktifkan untuk barter.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CloBleColors.TextSecondary
+                        )
                     }
                 }
             }
@@ -508,7 +523,9 @@ private fun OutgoingInterestCard(
                         }
                     }
                     item.interestStatus == InterestStatus.DECLINED ->
-                        Triple("Ditolak", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                        Triple("Ditolak Pemilik", CloBleColors.DangerContainer, CloBleColors.DangerText)
+                    item.interestStatus == InterestStatus.INVALIDATED ->
+                        Triple("Dibatalkan Sistem", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                     else ->
                         Triple("Tidak Tersedia", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)
                 }
@@ -569,6 +586,7 @@ private fun OutgoingInterestCard(
 @Composable
 private fun PassedClothingList(
     passedItems: List<PassedClothingSummary>,
+    processingPassItemIds: Set<Long>,
     onItemClick: (Long) -> Unit,
     onLockedItemClick: (String) -> Unit,
     onConvertToInterest: (Long) -> Unit,
@@ -617,6 +635,7 @@ private fun PassedClothingList(
             items(passedItems, key = { it.clothingId }) { item ->
                 PassedClothingCard(
                     item = item,
+                    isProcessing = item.clothingId in processingPassItemIds,
                     dateFormat = dateFormat,
                     onItemClick = onItemClick,
                     onLockedItemClick = onLockedItemClick,
@@ -632,6 +651,7 @@ private fun PassedClothingList(
 @Composable
 private fun PassedClothingCard(
     item: PassedClothingSummary,
+    isProcessing: Boolean,
     dateFormat: SimpleDateFormat,
     onItemClick: (Long) -> Unit,
     onLockedItemClick: (String) -> Unit,
@@ -746,6 +766,7 @@ private fun PassedClothingCard(
                 CloBleOutlinedButton(
                     text = if (isUnavailable) "Hapus Riwayat" else "Kembalikan",
                     leadingIcon = if (isUnavailable) CloBleIcons.Trash else CloBleIcons.RotateCcw,
+                    enabled = !isProcessing,
                     onClick = { onRestoreToDiscover(item.clothingId) },
                     modifier = Modifier
                         .weight(1f)
@@ -755,7 +776,7 @@ private fun PassedClothingCard(
                 CloBlePrimaryButton(
                     text = if (isUnavailable) "Tidak Tersedia" else "Kirim Tertarik",
                     leadingIcon = CloBleIcons.HeartFilled,
-                    enabled = !isUnavailable,
+                    enabled = !isUnavailable && !isProcessing,
                     onClick = { onConvertToInterest(item.clothingId) },
                     modifier = Modifier
                         .weight(1f)

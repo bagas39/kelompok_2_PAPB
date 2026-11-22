@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private val PRESET_RADII_KM = setOf(5, 10, 25, 50, 100)
+
 data class EditProfileUiState(
     val userId: Long? = null,
     val name: String = "",
@@ -28,6 +30,8 @@ data class EditProfileUiState(
     val preferredSize: String = "M",
     val preferredGender: String = "Uniseks",
     val preferredRadiusKm: Int = 10,
+    val isCustomRadius: Boolean = false,
+    val customRadiusText: String = "10",
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isUploadingAvatar: Boolean = false,
@@ -61,6 +65,8 @@ class EditProfileViewModel(
                         preferredSize = user.preferredSize,
                         preferredGender = user.preferredGender,
                         preferredRadiusKm = user.preferredRadiusKm,
+                        isCustomRadius = user.preferredRadiusKm !in PRESET_RADII_KM,
+                        customRadiusText = user.preferredRadiusKm.toString(),
                         isLoading = false
                     )
                 }
@@ -111,15 +117,49 @@ class EditProfileViewModel(
     }
 
     fun onPreferredSizeSelected(size: String) {
-        _uiState.update { it.copy(preferredSize = size) }
+        _uiState.update { it.copy(preferredSize = size, errorMessage = null) }
     }
 
     fun onPreferredGenderSelected(gender: String) {
-        _uiState.update { it.copy(preferredGender = gender) }
+        _uiState.update { it.copy(preferredGender = gender, errorMessage = null) }
     }
 
     fun onPreferredRadiusSelected(radiusKm: Int) {
-        _uiState.update { it.copy(preferredRadiusKm = radiusKm) }
+        _uiState.update {
+            it.copy(
+                preferredRadiusKm = radiusKm,
+                isCustomRadius = radiusKm !in PRESET_RADII_KM,
+                customRadiusText = if (radiusKm > 0) radiusKm.toString() else "",
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onCustomRadiusModeSelected() {
+        _uiState.update {
+            it.copy(
+                isCustomRadius = true,
+                customRadiusText = if (it.customRadiusText.isBlank() && it.preferredRadiusKm > 0) {
+                    it.preferredRadiusKm.toString()
+                } else {
+                    it.customRadiusText
+                },
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onCustomRadiusTextChanged(raw: String) {
+        val digits = raw.filter { it.isDigit() }.take(5)
+        val parsed = digits.toIntOrNull()
+        _uiState.update {
+            it.copy(
+                isCustomRadius = true,
+                customRadiusText = digits,
+                preferredRadiusKm = parsed ?: 0,
+                errorMessage = null
+            )
+        }
     }
 
     fun saveProfile(onSuccess: () -> Unit) {
@@ -134,6 +174,18 @@ class EditProfileViewModel(
         }
         if (cleanCity.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Lokasi tidak boleh kosong.") }
+            return
+        }
+
+        val effectiveRadius = if (state.isCustomRadius) {
+            state.customRadiusText.toIntOrNull() ?: 0
+        } else {
+            state.preferredRadiusKm
+        }
+        if (effectiveRadius <= 0) {
+            _uiState.update {
+                it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+            }
             return
         }
 
@@ -157,7 +209,7 @@ class EditProfileViewModel(
                     longitude = state.longitude,
                     preferredSize = state.preferredSize,
                     preferredGender = state.preferredGender,
-                    preferredRadiusKm = state.preferredRadiusKm
+                    preferredRadiusKm = effectiveRadius
                 )
             )
             if (success) {

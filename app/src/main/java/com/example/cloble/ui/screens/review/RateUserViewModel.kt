@@ -126,7 +126,12 @@ class RateUserViewModel(
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = "Rating harus antara 1 sampai 5 bintang.") }
                 }
                 is ReviewSubmitResult.DatabaseError -> {
-                    _uiState.update { it.copy(isSubmitting = false, errorMessage = "Gagal menyimpan ulasan: ${result.failure.message}") }
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Gagal menyimpan ulasan. Periksa koneksi internet Anda dan coba lagi."
+                        )
+                    }
                 }
             }
         }

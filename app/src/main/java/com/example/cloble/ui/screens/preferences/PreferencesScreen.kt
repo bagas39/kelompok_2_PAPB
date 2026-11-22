@@ -23,7 +23,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,9 +41,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.CloBleChoiceChipRow
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleLocationPickerDialog
 import com.example.cloble.ui.components.CloBlePrimaryButton
+import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.theme.CloBleColors
 import java.util.Locale
@@ -56,20 +57,8 @@ fun PreferencesScreen(
     viewModel: PreferencesViewModel = viewModel(factory = PreferencesViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val presetRadii = setOf(5, 10, 25, 50, 100)
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
-    var customRadiusMode by remember { mutableStateOf(false) }
-    var customRadiusText by remember { mutableStateOf(uiState.selectedRadiusKm.toString()) }
     var showLocationPicker by remember { mutableStateOf(false) }
-
-    LaunchedEffect(uiState.selectedRadiusKm) {
-        if (uiState.selectedRadiusKm !in presetRadii) {
-            customRadiusMode = true
-            customRadiusText = uiState.selectedRadiusKm.toString()
-        } else if (!customRadiusMode) {
-            customRadiusText = uiState.selectedRadiusKm.toString()
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -88,6 +77,17 @@ fun PreferencesScreen(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (uiState.errorMessage != null) {
+                CloBleStatusInfoBox(
+                    tone = CloBleInfoBoxTone.WARNING,
+                    title = "Perhatian",
+                    message = uiState.errorMessage!!,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("preferences_error_box")
+                )
+            }
+
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = CloBleColors.Surface,
@@ -181,21 +181,16 @@ fun PreferencesScreen(
                     CloBleChoiceChipRow(
                         label = "Radius Jarak Maksimum",
                         options = radiusOptions,
-                        selectedOptions = if (customRadiusMode || uiState.selectedRadiusKm !in presetRadii) {
+                        selectedOptions = if (uiState.isCustomRadius) {
                             setOf("Kustom")
                         } else {
                             setOf("${uiState.selectedRadiusKm} km")
                         },
                         onOptionClick = { opt ->
                             if (opt == "Kustom") {
-                                customRadiusMode = true
-                                if (customRadiusText.isBlank()) {
-                                    customRadiusText = uiState.selectedRadiusKm.toString()
-                                }
+                                viewModel.onCustomRadiusModeSelected()
                             } else {
-                                customRadiusMode = false
                                 val km = opt.replace(" km", "").toIntOrNull() ?: 10
-                                customRadiusText = km.toString()
                                 viewModel.onRadiusSelected(km)
                             }
                         },
@@ -204,18 +199,11 @@ fun PreferencesScreen(
                             .testTag("chips_pref_radius")
                     )
 
-                    if (customRadiusMode || uiState.selectedRadiusKm !in presetRadii) {
+                    if (uiState.isCustomRadius) {
                         CloBleLabeledTextField(
                             label = "Radius Kustom (km)",
-                            value = customRadiusText,
-                            onValueChange = { raw ->
-                                val digits = raw.filter { it.isDigit() }.take(5)
-                                customRadiusText = digits
-                                val parsed = digits.toIntOrNull()
-                                if (parsed != null && parsed > 0) {
-                                    viewModel.onRadiusSelected(parsed)
-                                }
-                            },
+                            value = uiState.customRadiusText,
+                            onValueChange = viewModel::onCustomRadiusTextChanged,
                             placeholder = "Contoh: 600",
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth(),
