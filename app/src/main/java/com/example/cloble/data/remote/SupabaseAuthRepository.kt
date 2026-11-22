@@ -18,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import org.json.JSONObject
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SupabaseAuthRepository(
@@ -368,6 +370,21 @@ class SupabaseAuthRepository(
         }
     }
 
+    private suspend fun clearInvalidLocalSession() {
+        client.setSessionToken(null)
+        sessionPrefs.clearSession()
+        runCatching { offlineChatCacheDao?.clearAll() }
+        invalidator.invalidateAll()
+    }
+
+    override suspend fun validateSession(): Boolean = validateSessionWithDeps(
+        getLocalUserId = { sessionPrefs.getLoggedInUserIdOnce() },
+        getLocalToken = { sessionPrefs.sessionTokenFlow.first() },
+        setClientToken = { token -> client.setSessionToken(token) },
+        clearLocalSession = { clearInvalidLocalSession() },
+        callRpc = { functionName, params -> client.rpc(functionName, params) }
+    )
+
     override suspend fun logout() {
         try {
             val fcmToken = sessionPrefs.getFcmTokenOnce()
@@ -380,10 +397,7 @@ class SupabaseAuthRepository(
             client.rpc("rpc_logout_session", JSONObject())
         } catch (_: Exception) {
         }
-        client.setSessionToken(null)
-        sessionPrefs.clearSession()
-        runCatching { offlineChatCacheDao?.clearAll() }
-        invalidator.invalidateAll()
+        clearInvalidLocalSession()
     }
 
     override suspend fun ensureSeeded() {
@@ -391,5 +405,82 @@ class SupabaseAuthRepository(
 
     private companion object {
         const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
+    }
+}
+
+internal suspend fun validateSessionWithDeps(
+    getLocalUserId: suspend () -> Long?,
+    getLocalToken: suspend () -> String?,
+    setClientToken: (String?) -> Unit,
+    clearLocalSession: suspend () -> Unit,
+    callRpc: suspend (String, JSONObject) -> JSONObject
+): Boolean {
+    val localUserId = getLocalUserId() ?: return false
+    val localToken = getLocalToken()
+    if (localToken.isNullOrBlank()) {
+        clearLocalSession()
+        return false
+    }
+
+    setClientToken(localToken)
+    return try {
+        val resp = callRpc("rpc_validate_session", JSONObject())
+        when (resp.optString("code")) {
+            "VALID" -> {
+                val serverUserId = resp.optLong("userId", -1L)
+                if (serverUserId == localUserId) {
+                    true
+                } else {
+                    clearLocalSession()
+                    false
+                }
+            }
+            "INVALID_SESSION", "UNAUTHORIZED" -> {
+                clearLocalSession()
+                false
+            }
+            else -> true
+        }
+    } catch (e: IOException) {
+        val message = e.message.orEmpty()
+        if (message.contains("Supabase HTTP 404") || message.contains("PGRST202")) {
+            validateViaFallbackChallengeRpc(
+                localUserId = localUserId,
+                clearLocalSession = clearLocalSession,
+                callRpc = callRpc
+            )
+        } else {
+            true
+        }
+    } catch (_: Exception) {
+        true
+    }
+}
+
+private suspend fun validateViaFallbackChallengeRpc(
+    localUserId: Long,
+    clearLocalSession: suspend () -> Unit,
+    callRpc: suspend (String, JSONObject) -> JSONObject
+): Boolean {
+    return try {
+        val resp = callRpc("rpc_get_current_password_challenge", JSONObject())
+        when (resp.optString("code")) {
+            "SUCCESS" -> {
+                val serverUserId = resp.optLong("userId", -1L)
+                if (serverUserId == localUserId) {
+                    true
+                } else {
+                    clearLocalSession()
+                    false
+                }
+            }
+            "UNAUTHORIZED", "INVALID_SESSION" -> {
+                clearLocalSession()
+                false
+            }
+            else -> true
+        }
+    } catch (_: Exception) {
+        true
     }
 }

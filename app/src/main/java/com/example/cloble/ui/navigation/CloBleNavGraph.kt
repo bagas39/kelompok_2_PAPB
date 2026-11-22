@@ -8,11 +8,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -22,6 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -94,15 +100,70 @@ fun CloBleNavGraph(
     var effectiveStartDestination by rememberSaveable(startDestination) {
         mutableStateOf(startDestination)
     }
+    var hadAuthenticatedSession by rememberSaveable(startDestination) {
+        mutableStateOf(false)
+    }
+    var resumeValidationTick by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentSessionGateState by rememberUpdatedState(sessionGateState)
 
     LaunchedEffect(sessionGateState, startDestination) {
         if (startDestination != null) {
             effectiveStartDestination = startDestination
-        } else if (effectiveStartDestination == null && sessionGateState !is SessionGateState.Loading) {
-            effectiveStartDestination = if (sessionGateState is SessionGateState.Authenticated) {
-                CloBleDestinations.DISCOVER
-            } else {
-                CloBleDestinations.LOGIN
+        } else {
+            if (sessionGateState is SessionGateState.Authenticated) {
+                hadAuthenticatedSession = true
+            }
+            if (effectiveStartDestination == null && sessionGateState !is SessionGateState.Loading) {
+                effectiveStartDestination = if (sessionGateState is SessionGateState.Authenticated) {
+                    CloBleDestinations.DISCOVER
+                } else {
+                    CloBleDestinations.LOGIN
+                }
+            }
+        }
+    }
+
+    if (startDestination == null && authRepository != null) {
+        DisposableEffect(lifecycleOwner, authRepository) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME &&
+                    currentSessionGateState is SessionGateState.Authenticated
+                ) {
+                    resumeValidationTick += 1
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
+
+        val isAuthenticated = sessionGateState is SessionGateState.Authenticated
+        LaunchedEffect(isAuthenticated, resumeValidationTick, authRepository) {
+            if (isAuthenticated) {
+                authRepository.validateSession()
+            }
+        }
+    }
+
+    LaunchedEffect(sessionGateState, effectiveStartDestination, hadAuthenticatedSession, startDestination) {
+        if (startDestination == null &&
+            effectiveStartDestination != null &&
+            hadAuthenticatedSession &&
+            sessionGateState is SessionGateState.Unauthenticated
+        ) {
+            hadAuthenticatedSession = false
+            val backStackEntry = navController.currentBackStackEntry
+            val currentRoute = backStackEntry?.destination?.route
+            if (backStackEntry != null &&
+                currentRoute != CloBleDestinations.LOGIN &&
+                currentRoute != CloBleDestinations.REGISTER
+            ) {
+                navController.navigate(CloBleDestinations.LOGIN) {
+                    popUpTo(navController.graph.id) { inclusive = true }
+                    launchSingleTop = true
+                }
             }
         }
     }

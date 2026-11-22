@@ -27,6 +27,7 @@ interface AuthRepository {
         longitude: Double? = null
     ): AuthResult
 
+    suspend fun validateSession(): Boolean = true
     suspend fun logout()
     suspend fun ensureSeeded()
 }

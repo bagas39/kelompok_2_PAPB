@@ -7,6 +7,8 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 class CloBleFirebaseMessagingService : FirebaseMessagingService() {
@@ -36,22 +38,61 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
 
         val destination = remoteMessage.data["destination"] ?: "notifications"
         val matchId = remoteMessage.data["matchId"]?.toLongOrNull()
-        val notifId = remoteMessage.data["id"]?.toIntOrNull()
-            ?: (System.currentTimeMillis() % 100000).toInt()
+        val notifLongId = remoteMessage.data["id"]?.toLongOrNull()
+        val targetUserId = remoteMessage.data["userId"]?.toLongOrNull()
+        val notifId = when (destination) {
+            "chat" -> {
+                val baseId = matchId ?: notifLongId
+                if (baseId != null && baseId > 0L) {
+                    (1_000_000L + (baseId % 1_000_000L)).toInt()
+                } else {
+                    (destination + title + body).hashCode()
+                }
+            }
+            else -> notifLongId?.toInt() ?: (destination + title + body + (matchId ?: 0L)).hashCode()
+        }
 
-        SystemNotificationHelper.showNotification(
-            context = applicationContext,
-            id = notifId,
-            title = title,
-            body = body,
-            relatedMatchId = matchId,
-            destination = destination
-        )
+        val app = applicationContext as? CloBleApplication
+        serviceScope.launch {
+            val effectiveUserId = targetUserId
+                ?: app?.container?.authRepository?.observeLoggedInUserId()?.firstOrNull()
 
-        val app = applicationContext as? CloBleApplication ?: return
-        app.container.dataInvalidator.invalidateNotifications()
-        app.container.dataInvalidator.invalidateChat()
-        app.container.dataInvalidator.invalidateDiscovery()
-        app.container.dataInvalidator.invalidateWardrobe()
+            val shouldSkipNotification = destination == "notifications" &&
+                notifLongId != null &&
+                notifLongId > 0L &&
+                effectiveUserId != null &&
+                SystemNotificationHelper.hasBeenNotified(applicationContext, effectiveUserId, notifLongId)
+
+            if (!shouldSkipNotification) {
+                val posted = SystemNotificationHelper.showNotification(
+                    context = applicationContext,
+                    id = notifId,
+                    title = title,
+                    body = body,
+                    relatedMatchId = matchId,
+                    destination = destination
+                )
+                if (posted &&
+                    destination == "notifications" &&
+                    notifLongId != null &&
+                    notifLongId > 0L &&
+                    effectiveUserId != null
+                ) {
+                    SystemNotificationHelper.markAsNotified(applicationContext, effectiveUserId, notifLongId)
+                }
+            }
+
+            if (app != null) {
+                app.container.dataInvalidator.invalidateNotifications()
+                app.container.dataInvalidator.invalidateChat()
+                app.container.dataInvalidator.invalidateDiscovery()
+                app.container.dataInvalidator.invalidateWardrobe()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
     }
 }
