@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -30,8 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -54,6 +58,7 @@ fun LoginScreen(
     viewModel: LoginViewModel = viewModel(factory = LoginViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
 
     Scaffold(
         containerColor = CloBleColors.Background
@@ -131,7 +136,13 @@ fun LoginScreen(
                         value = uiState.email,
                         onValueChange = viewModel::onEmailChanged,
                         placeholder = "nama@email.com",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         inputTestTag = "input_login_email"
                     )
@@ -146,7 +157,18 @@ fun LoginScreen(
                         } else {
                             PasswordVisualTransformation()
                         },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                focusManager.clearFocus()
+                                if (!uiState.isLoading) {
+                                    viewModel.submitLogin(onLoginSuccess)
+                                }
+                            }
+                        ),
                         trailingIcon = {
                             IconButton(
                                 onClick = viewModel::togglePasswordVisibility,
@@ -197,7 +219,10 @@ fun LoginScreen(
                     } else {
                         CloBlePrimaryButton(
                             text = "Masuk",
-                            onClick = { viewModel.submitLogin(onLoginSuccess) },
+                            onClick = {
+                                focusManager.clearFocus()
+                                viewModel.submitLogin(onLoginSuccess)
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("btn_submit_login")
@@ -233,6 +258,7 @@ fun LoginScreen(
     }
 
     if (uiState.showResetDialog) {
+        val dialogFocusManager = LocalFocusManager.current
         AlertDialog(
             onDismissRequest = {
                 if (!uiState.isResetSubmitting) {
@@ -285,7 +311,18 @@ fun LoginScreen(
                             value = uiState.resetEmail,
                             onValueChange = viewModel::onResetEmailChanged,
                             placeholder = "nama@email.com",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    dialogFocusManager.clearFocus()
+                                    if (!uiState.isResetSubmitting) {
+                                        viewModel.requestResetOtp()
+                                    }
+                                }
+                            ),
                             enabled = !uiState.isResetSubmitting,
                             modifier = Modifier.fillMaxWidth(),
                             inputTestTag = "input_reset_email"
@@ -296,7 +333,13 @@ fun LoginScreen(
                             value = uiState.resetOtpCode,
                             onValueChange = viewModel::onResetOtpCodeChanged,
                             placeholder = "123456",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Next
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }
+                            ),
                             enabled = !uiState.isResetSubmitting,
                             modifier = Modifier.fillMaxWidth(),
                             inputTestTag = "input_reset_otp_code"
@@ -305,9 +348,35 @@ fun LoginScreen(
                             label = "Password Baru",
                             value = uiState.resetNewPassword,
                             onValueChange = viewModel::onResetNewPasswordChanged,
-                            placeholder = "Minimal 6 karakter",
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            placeholder = "Min. 8 karakter (huruf & angka)",
+                            visualTransformation = if (uiState.isResetNewPasswordVisible) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Next
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }
+                            ),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = viewModel::toggleResetNewPasswordVisibility,
+                                    enabled = !uiState.isResetSubmitting,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("btn_toggle_reset_new_password")
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.isResetNewPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                        contentDescription = if (uiState.isResetNewPasswordVisible) "Sembunyikan password baru" else "Tampilkan password baru",
+                                        tint = CloBleColors.TextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            },
                             enabled = !uiState.isResetSubmitting,
                             modifier = Modifier.fillMaxWidth(),
                             inputTestTag = "input_reset_new_password"
@@ -317,8 +386,39 @@ fun LoginScreen(
                             value = uiState.resetConfirmPassword,
                             onValueChange = viewModel::onResetConfirmPasswordChanged,
                             placeholder = "Ulangi password baru",
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            visualTransformation = if (uiState.isResetConfirmPasswordVisible) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    dialogFocusManager.clearFocus()
+                                    if (!uiState.isResetSubmitting) {
+                                        viewModel.submitResetPassword()
+                                    }
+                                }
+                            ),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = viewModel::toggleResetConfirmPasswordVisibility,
+                                    enabled = !uiState.isResetSubmitting,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("btn_toggle_reset_confirm_password")
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.isResetConfirmPasswordVisible) CloBleIcons.EyeOff else CloBleIcons.Eye,
+                                        contentDescription = if (uiState.isResetConfirmPasswordVisible) "Sembunyikan konfirmasi password" else "Tampilkan konfirmasi password",
+                                        tint = CloBleColors.TextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            },
                             enabled = !uiState.isResetSubmitting,
                             modifier = Modifier.fillMaxWidth(),
                             inputTestTag = "input_reset_confirm_password"

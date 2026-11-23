@@ -42,66 +42,6 @@ class SupabaseClient(
         return builder
     }
 
-    suspend fun get(path: String): String = withContext(Dispatchers.IO) {
-        val url = if (path.startsWith("http")) path else "${config.restUrl}/$path"
-        val builder = Request.Builder().url(url).get()
-        applyHeaders(builder)
-        executeRequest(builder.build())
-    }
-
-    suspend fun getJsonArray(path: String): JSONArray {
-        val body = get(path)
-        return if (body.isBlank()) JSONArray() else JSONArray(body)
-    }
-
-    suspend fun getJsonObjectOrNull(path: String): JSONObject? {
-        val arr = getJsonArray(path)
-        return if (arr.length() > 0) arr.getJSONObject(0) else null
-    }
-
-    suspend fun post(
-        path: String,
-        jsonBody: String,
-        returnRepresentation: Boolean = false
-    ): String = withContext(Dispatchers.IO) {
-        val url = if (path.startsWith("http")) path else "${config.restUrl}/$path"
-        val builder = Request.Builder()
-            .url(url)
-            .addHeader("Content-Type", "application/json")
-            .post(jsonBody.toRequestBody(jsonMediaType))
-
-        applyHeaders(builder)
-        if (returnRepresentation) {
-            builder.addHeader("Prefer", "return=representation")
-        }
-
-        executeRequest(builder.build())
-    }
-
-    suspend fun patch(
-        path: String,
-        jsonBody: String
-    ): String = withContext(Dispatchers.IO) {
-        val url = if (path.startsWith("http")) path else "${config.restUrl}/$path"
-        val builder = Request.Builder()
-            .url(url)
-            .addHeader("Content-Type", "application/json")
-            .patch(jsonBody.toRequestBody(jsonMediaType))
-
-        applyHeaders(builder)
-        executeRequest(builder.build())
-    }
-
-    suspend fun delete(path: String): String = withContext(Dispatchers.IO) {
-        val url = if (path.startsWith("http")) path else "${config.restUrl}/$path"
-        val builder = Request.Builder()
-            .url(url)
-            .delete()
-
-        applyHeaders(builder)
-        executeRequest(builder.build())
-    }
-
     suspend fun rpc(
         functionName: String,
         params: JSONObject

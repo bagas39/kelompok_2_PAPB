@@ -14,6 +14,7 @@ import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.ChangePasswordResult
+import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,9 @@ data class MyProfileUiState(
     val currentPassword: String = "",
     val newPassword: String = "",
     val confirmPassword: String = "",
+    val isCurrentPasswordVisible: Boolean = false,
+    val isNewPasswordVisible: Boolean = false,
+    val isConfirmPasswordVisible: Boolean = false,
     val isUpdatingPassword: Boolean = false,
     val passwordErrorMessage: String? = null,
     val passwordSuccessMessage: String? = null
@@ -100,6 +104,9 @@ class MyProfileViewModel(
                 currentPassword = "",
                 newPassword = "",
                 confirmPassword = "",
+                isCurrentPasswordVisible = false,
+                isNewPasswordVisible = false,
+                isConfirmPasswordVisible = false,
                 passwordErrorMessage = null,
                 passwordSuccessMessage = null
             )
@@ -112,6 +119,9 @@ class MyProfileViewModel(
                 showChangePasswordDialog = false,
                 isUpdatingPassword = false,
                 currentPassword = "",
+                isCurrentPasswordVisible = false,
+                isNewPasswordVisible = false,
+                isConfirmPasswordVisible = false,
                 passwordErrorMessage = null
             )
         }
@@ -129,14 +139,27 @@ class MyProfileViewModel(
         _uiState.update { it.copy(confirmPassword = value, passwordErrorMessage = null) }
     }
 
+    fun toggleCurrentPasswordVisibility() {
+        _uiState.update { it.copy(isCurrentPasswordVisible = !it.isCurrentPasswordVisible) }
+    }
+
+    fun toggleNewPasswordVisibility() {
+        _uiState.update { it.copy(isNewPasswordVisible = !it.isNewPasswordVisible) }
+    }
+
+    fun toggleConfirmPasswordVisibility() {
+        _uiState.update { it.copy(isConfirmPasswordVisible = !it.isConfirmPasswordVisible) }
+    }
+
     fun submitChangePassword() {
         val state = _uiState.value
+        if (state.isUpdatingPassword) return
         if (state.currentPassword.isEmpty()) {
             _uiState.update { it.copy(passwordErrorMessage = "Password saat ini wajib diisi") }
             return
         }
-        if (state.newPassword.length < 6) {
-            _uiState.update { it.copy(passwordErrorMessage = "Password baru minimal 6 karakter") }
+        PasswordPolicy.validateNewPassword(state.newPassword)?.let { msg ->
+            _uiState.update { it.copy(passwordErrorMessage = msg) }
             return
         }
         if (state.currentPassword == state.newPassword) {
@@ -159,6 +182,9 @@ class MyProfileViewModel(
                             currentPassword = "",
                             newPassword = "",
                             confirmPassword = "",
+                            isCurrentPasswordVisible = false,
+                            isNewPasswordVisible = false,
+                            isConfirmPasswordVisible = false,
                             passwordSuccessMessage = "Password akun berhasil diubah. Sesi perangkat ini tetap aktif dan sesi lain telah dicabut."
                         )
                     }

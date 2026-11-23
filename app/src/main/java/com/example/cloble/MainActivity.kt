@@ -18,12 +18,14 @@ import com.example.cloble.ui.navigation.CloBleDestinations
 import com.example.cloble.ui.navigation.CloBleNavGraph
 import com.example.cloble.ui.theme.CloBleTheme
 import com.example.cloble.util.SystemNotificationHelper
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private var pendingRoute by mutableStateOf<String?>(null)
+    private var notificationObserverJob: Job? = null
 
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
@@ -78,7 +80,8 @@ class MainActivity : ComponentActivity() {
         val authRepo = app.container.authRepository
         val matchRepo = app.container.discoveryMatchRepository
 
-        lifecycleScope.launch {
+        notificationObserverJob?.cancel()
+        notificationObserverJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 authRepo.observeLoggedInUserId().collectLatest { userId ->
                     if (userId != null) {
@@ -94,7 +97,8 @@ class MainActivity : ComponentActivity() {
                                         id = item.id.toInt(),
                                         title = item.title,
                                         body = item.body,
-                                        relatedMatchId = item.relatedMatchId
+                                        relatedMatchId = item.relatedMatchId,
+                                        destination = "notifications"
                                     )
                                     if (posted) {
                                         SystemNotificationHelper.markAsNotified(this@MainActivity, userId, item.id)

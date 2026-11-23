@@ -2,6 +2,7 @@ package com.example.cloble.data.remote
 
 import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.InterestStatus
+import com.example.cloble.domain.model.MatchStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -238,5 +239,19 @@ class SupabaseMappersUnitTest {
     fun parseOutgoingInterest_missingTargetDoesNotUnlockOldOffer() {
         val interest = JSONObject("""{"id": 10, "targetItemId": 20, "status": "INVALIDATED"}""")
         assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+    }
+
+    @Test
+    fun parseOutgoingInterest_rpcMatchRemainsLinkedWhenItsItemIsReserved() {
+        val interest = JSONObject("""
+            {"id": 10, "targetItemId": 20, "status": "RESOLVED_BY_MATCH",
+             "clothing_items": {"status": "AVAILABLE", "isBarterAllowed": true},
+             "matches": [{"id": 30, "status": "ACTIVE"}]}
+        """.trimIndent())
+
+        val summary = SupabaseMappers.parseOutgoingInterest(interest, activeItemIds = setOf(20L))
+        assertEquals(30L, summary.matchId)
+        assertEquals(MatchStatus.ACTIVE, summary.matchStatus)
+        assertFalse(summary.isLockedByOtherMatch)
     }
 }

@@ -82,6 +82,7 @@ fun DiscoverScreen(
     onNavigateToChatList: () -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToHistory: () -> Unit = {},
+    onNavigateToMatch: (Long) -> Unit = {},
     viewModel: DiscoverViewModel = viewModel(factory = DiscoverViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -100,6 +101,18 @@ fun DiscoverScreen(
         animatedOffset = 0f
         isAnimating = false
         isSubmitting = false
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is DiscoverNavigationEvent.OpenItemDetail -> onNavigateToItemDetail(event.itemId)
+                is DiscoverNavigationEvent.OpenFilter -> onNavigateToFilter()
+                is DiscoverNavigationEvent.OpenNotifications -> onNavigateToNotifications()
+                is DiscoverNavigationEvent.OpenWardrobeForAdd -> onNavigateToWardrobe()
+                is DiscoverNavigationEvent.OpenMatch -> onNavigateToMatch(event.matchId)
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -366,7 +379,7 @@ fun DiscoverScreen(
                             .pointerInput(candidate.item.id) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
-                                        if (isSubmitting || isAnimating) return@detectHorizontalDragGestures
+                                        if (isSubmitting || isAnimating || uiState.isActionInProgress) return@detectHorizontalDragGestures
                                         val threshold = if (cardWidthPx > 0f) cardWidthPx * 0.35f else 250f
                                         if (dragOffset > threshold) {
                                             isSubmitting = true
@@ -389,7 +402,7 @@ fun DiscoverScreen(
                                     },
                                     onHorizontalDrag = { change, dragAmount ->
                                         change.consume()
-                                        if (!isSubmitting && !isAnimating) {
+                                        if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
                                             dragOffset += dragAmount
                                         }
                                     }
@@ -398,7 +411,7 @@ fun DiscoverScreen(
                             .shadow(6.dp, RoundedCornerShape(20.dp))
                             .clip(RoundedCornerShape(20.dp))
                             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(20.dp))
-                            .clickable(enabled = !isSubmitting && !isAnimating) {
+                            .clickable(enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress) {
                                 onNavigateToItemDetail(candidate.item.id)
                             }
                             .testTag("discover_candidate_card"),
@@ -477,8 +490,9 @@ fun DiscoverScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
+                        enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress,
                         onClick = {
-                            if (!isSubmitting && !isAnimating) {
+                            if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
                                 isSubmitting = true
                                 animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
                                     viewModel.passCurrentCandidate()
@@ -503,8 +517,9 @@ fun DiscoverScreen(
                     }
 
                     IconButton(
+                        enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress,
                         onClick = {
-                            if (!isSubmitting && !isAnimating) {
+                            if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
                                 isSubmitting = true
                                 animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
                                     viewModel.likeCurrentCandidate()

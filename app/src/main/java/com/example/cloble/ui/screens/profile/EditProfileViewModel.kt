@@ -85,6 +85,8 @@ class EditProfileViewModel(
     }
 
     fun onAvatarPicked(sourceUriString: String) {
+        val current = _uiState.value
+        if (current.isUploadingAvatar || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingAvatar = true, errorMessage = null) }
             val persisted = profileReviewRepository.persistAvatarPhoto(sourceUriString)
@@ -94,7 +96,7 @@ class EditProfileViewModel(
                 _uiState.update {
                     it.copy(
                         isUploadingAvatar = false,
-                        errorMessage = "Gagal memproses foto profil. Coba pilih foto lain."
+                        errorMessage = "Gagal memproses foto profil. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB."
                     )
                 }
             }
@@ -164,6 +166,7 @@ class EditProfileViewModel(
 
     fun saveProfile(onSuccess: () -> Unit) {
         val state = _uiState.value
+        if (state.isSaving || state.isUploadingAvatar) return
         val userId = state.userId ?: return
         val cleanName = state.name.trim()
         val cleanCity = state.city.trim()

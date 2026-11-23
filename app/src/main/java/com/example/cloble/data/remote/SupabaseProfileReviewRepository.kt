@@ -33,21 +33,8 @@ class SupabaseProfileReviewRepository(
             .map { fetchUserProfile(userId) }
             .flowOn(Dispatchers.IO)
 
-    private suspend fun fetchUserProfile(userId: Long): UserProfile? {
-        return try {
-            val userJson = client.getJsonObjectOrNull("users?id=eq.$userId") ?: return null
-            val reviewsArr = client.getJsonArray("reviews?revieweeId=eq.$userId&select=rating")
-            var sum = 0.0
-            for (i in 0 until reviewsArr.length()) {
-                sum += reviewsArr.getJSONObject(i).optDouble("rating", 0.0)
-            }
-            val count = reviewsArr.length()
-            val avg = if (count > 0) sum / count else 0.0
-            SupabaseMappers.parseUserProfile(userJson, avg, count)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private suspend fun fetchUserProfile(userId: Long): UserProfile? =
+        fetchUserProfileViaRpc(client, userId)
 
     override fun observeUserReviews(userId: Long): Flow<List<UserReview>> =
         invalidator.userTrigger
@@ -57,9 +44,12 @@ class SupabaseProfileReviewRepository(
 
     private suspend fun fetchUserReviews(userId: Long): List<UserReview> {
         return try {
-            val arr = client.getJsonArray(
-                "reviews?revieweeId=eq.$userId&select=*,users:reviewerId(name,city)&order=createdAt.desc"
+            val resp = client.rpc(
+                "rpc_get_user_reviews",
+                JSONObject().put("p_user_id", userId)
             )
+            if (resp.optString("code") != "SUCCESS") return emptyList()
+            val arr = resp.optJSONArray("reviews") ?: return emptyList()
             val list = mutableListOf<UserReview>()
             for (i in 0 until arr.length()) {
                 list.add(SupabaseMappers.parseUserReview(arr.getJSONObject(i)))
@@ -75,8 +65,11 @@ class SupabaseProfileReviewRepository(
             .onStart { emit(Unit) }
             .map {
                 try {
-                    val arr = client.getJsonArray("reviews?matchId=eq.$matchId&reviewerId=eq.$reviewerId&select=id")
-                    arr.length() > 0
+                    val resp = client.rpc(
+                        "rpc_has_user_reviewed_match",
+                        JSONObject().put("p_match_id", matchId)
+                    )
+                    resp.optString("code") == "SUCCESS" && resp.optBoolean("hasReviewed", false)
                 } catch (_: Exception) {
                     false
                 }
@@ -86,17 +79,21 @@ class SupabaseProfileReviewRepository(
     override suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean {
         return try {
             val body = JSONObject().apply {
-                put("preferredSize", prefs.preferredSize)
-                put("preferredGender", prefs.preferredGender)
-                put("city", prefs.city)
-                put("latitude", prefs.latitude)
-                put("longitude", prefs.longitude)
-                put("preferredRadiusKm", prefs.preferredRadiusKm)
+                put("p_preferred_size", prefs.preferredSize)
+                put("p_preferred_gender", prefs.preferredGender)
+                put("p_city", prefs.city)
+                put("p_latitude", prefs.latitude)
+                put("p_longitude", prefs.longitude)
+                put("p_preferred_radius_km", prefs.preferredRadiusKm)
             }
-            client.patch("users?id=eq.$userId", body.toString())
-            invalidator.invalidateUser()
-            invalidator.invalidateDiscovery()
-            true
+            val resp = client.rpc("rpc_update_preferences", body)
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateUser()
+                invalidator.invalidateDiscovery()
+                true
+            } else {
+                false
+            }
         } catch (_: Exception) {
             false
         }
@@ -105,10 +102,12 @@ class SupabaseProfileReviewRepository(
     override suspend fun updateBio(userId: Long, bio: String) {
         try {
             val body = JSONObject().apply {
-                put("bio", bio.trim())
+                put("p_bio", bio.trim())
             }
-            client.patch("users?id=eq.$userId", body.toString())
-            invalidator.invalidateUser()
+            val resp = client.rpc("rpc_update_bio", body)
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateUser()
+            }
         } catch (_: Exception) {
         }
     }
@@ -118,20 +117,24 @@ class SupabaseProfileReviewRepository(
         if (cleanName.isEmpty()) return false
         return try {
             val body = JSONObject().apply {
-                put("name", cleanName)
-                put("bio", update.bio.trim())
-                put("avatarUri", update.avatarUri ?: JSONObject.NULL)
-                put("city", update.city.trim())
-                put("latitude", update.latitude)
-                put("longitude", update.longitude)
-                put("preferredSize", update.preferredSize)
-                put("preferredGender", update.preferredGender)
-                put("preferredRadiusKm", update.preferredRadiusKm)
+                put("p_name", cleanName)
+                put("p_bio", update.bio.trim())
+                put("p_avatar_uri", update.avatarUri ?: JSONObject.NULL)
+                put("p_city", update.city.trim())
+                put("p_latitude", update.latitude)
+                put("p_longitude", update.longitude)
+                put("p_preferred_size", update.preferredSize)
+                put("p_preferred_gender", update.preferredGender)
+                put("p_preferred_radius_km", update.preferredRadiusKm)
             }
-            client.patch("users?id=eq.$userId", body.toString())
-            invalidator.invalidateUser()
-            invalidator.invalidateDiscovery()
-            true
+            val resp = client.rpc("rpc_update_profile", body)
+            if (resp.optString("code") == "SUCCESS") {
+                invalidator.invalidateUser()
+                invalidator.invalidateDiscovery()
+                true
+            } else {
+                false
+            }
         } catch (_: Exception) {
             false
         }
@@ -145,6 +148,7 @@ class SupabaseProfileReviewRepository(
             val uri = Uri.parse(sourceUriString)
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext null
+            if (bytes.size > MAX_PHOTO_BYTES) return@withContext null
             val ext = when (context.contentResolver.getType(uri)) {
                 "image/png" -> "png"
                 "image/webp" -> "webp"
@@ -176,7 +180,6 @@ class SupabaseProfileReviewRepository(
                 put("p_reviewer_id", reviewerId)
                 put("p_rating", rating)
                 put("p_comment", comment.trim())
-                put("p_now_millis", System.currentTimeMillis())
             }
             val res = client.rpc("rpc_submit_review_protected", params)
             when (res.optString("code")) {
@@ -190,6 +193,9 @@ class SupabaseProfileReviewRepository(
                 "MATCH_NOT_COMPLETED" -> ReviewSubmitResult.MatchNotCompleted
                 "ALREADY_REVIEWED" -> ReviewSubmitResult.AlreadyReviewed
                 "INVALID_RATING" -> ReviewSubmitResult.InvalidRating
+                "VALIDATION_FAILED" -> ReviewSubmitResult.DatabaseError(
+                    DbFailure.UnexpectedDatabaseError(res.optString("message", "Komentar ulasan tidak valid"))
+                )
                 else -> ReviewSubmitResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal memberi review"))
             }
         } catch (_: Exception) {
@@ -197,5 +203,22 @@ class SupabaseProfileReviewRepository(
                 DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi ke server. Silakan coba lagi.")
             )
         }
+    }
+
+    private companion object {
+        const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
+    }
+}
+
+internal suspend fun fetchUserProfileViaRpc(client: SupabaseClient, userId: Long): UserProfile? {
+    return try {
+        val resp = client.rpc("rpc_get_user_profile", JSONObject().put("p_target_user_id", userId))
+        if (resp.optString("code") != "SUCCESS") return null
+        val userJson = resp.optJSONObject("user") ?: return null
+        val avg = resp.optDouble("averageRating", 0.0)
+        val count = resp.optInt("reviewCount", 0)
+        SupabaseMappers.parseUserProfile(userJson, avg, count)
+    } catch (_: Exception) {
+        null
     }
 }

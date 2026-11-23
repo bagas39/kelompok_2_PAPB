@@ -16,6 +16,7 @@ object DistanceCalculator {
     private val indonesianCityCenters: List<Pair<List<String>, Pair<Double, Double>>> = listOf(
         listOf("bandung") to (-6.9175 to 107.6191),
         listOf("cimahi") to (-6.8722 to 107.5425),
+        listOf("jatinangor", "sumedang") to (-6.9320 to 107.7725),
         listOf("jakarta", "dki jakarta", "kebayoran", "menteng", "senayan", "kemang", "grogol", "kelapa gading") to (-6.2088 to 106.8456),
         listOf("bogor") to (-6.5971 to 106.8060),
         listOf("depok") to (-6.4025 to 106.7942),

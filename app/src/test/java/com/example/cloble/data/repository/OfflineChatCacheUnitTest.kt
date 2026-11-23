@@ -235,9 +235,8 @@ class OfflineChatCacheUnitTest {
     }
 
     @Test
-    fun migration2To3_targetsVersion2To3() {
-        assertEquals(2, CloBleDatabase.MIGRATION_2_3.startVersion)
-        assertEquals(3, CloBleDatabase.MIGRATION_2_3.endVersion)
+    fun databaseName_usesProductionCacheFileName() {
+        assertEquals("cloble_cache.db", CloBleDatabase.DATABASE_NAME)
     }
 
     @Test

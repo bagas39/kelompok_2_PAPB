@@ -128,6 +128,7 @@ class PreferencesViewModel(
 
     fun savePreferences(onSuccess: () -> Unit) {
         val s = _uiState.value
+        if (s.isSaving) return
         val userId = s.currentUserId ?: return
         val cleanCity = s.selectedCity.trim()
 

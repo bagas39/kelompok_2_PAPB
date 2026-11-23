@@ -3,7 +3,6 @@ package com.example.cloble.data.local.session
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -17,12 +16,14 @@ import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cloble_session_prefs")
 
-class SessionPreferencesDataSource(private val context: Context) {
+class SessionPreferencesDataSource(
+    private val context: Context,
+    private val tokenCipher: SessionTokenCipher = SessionTokenCipher()
+) {
 
     private object PreferencesKeys {
         val KEY_LOGGED_IN_USER_ID = longPreferencesKey("logged_in_user_id")
         val KEY_SESSION_TOKEN = stringPreferencesKey("session_token")
-        val KEY_IS_DEMO_SEEDED = booleanPreferencesKey("is_demo_seeded")
         val KEY_FCM_TOKEN = stringPreferencesKey("fcm_token")
     }
 
@@ -47,7 +48,7 @@ class SessionPreferencesDataSource(private val context: Context) {
             }
         }
         .map { preferences ->
-            preferences[PreferencesKeys.KEY_SESSION_TOKEN]
+            tokenCipher.decrypt(preferences[PreferencesKeys.KEY_SESSION_TOKEN])
         }
 
     val fcmTokenFlow: Flow<String?> = context.dataStore.data
@@ -62,18 +63,6 @@ class SessionPreferencesDataSource(private val context: Context) {
             preferences[PreferencesKeys.KEY_FCM_TOKEN]
         }
 
-    val isDemoSeededFlow: Flow<Boolean> = context.dataStore.data
-        .catch { exception ->
-            if (exception is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw exception
-            }
-        }
-        .map { preferences ->
-            preferences[PreferencesKeys.KEY_IS_DEMO_SEEDED] ?: false
-        }
-
     suspend fun setLoggedInUserId(userId: Long?) {
         context.dataStore.edit { preferences ->
             if (userId != null) {
@@ -85,16 +74,18 @@ class SessionPreferencesDataSource(private val context: Context) {
     }
 
     suspend fun setSession(userId: Long, sessionToken: String) {
+        val storedToken = tokenCipher.encrypt(sessionToken)
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.KEY_LOGGED_IN_USER_ID] = userId
-            preferences[PreferencesKeys.KEY_SESSION_TOKEN] = sessionToken
+            preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken
         }
     }
 
     suspend fun setSessionToken(token: String?) {
+        val storedToken = token?.let { tokenCipher.encrypt(it) }
         context.dataStore.edit { preferences ->
-            if (token != null) {
-                preferences[PreferencesKeys.KEY_SESSION_TOKEN] = token
+            if (storedToken != null) {
+                preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken
             } else {
                 preferences.remove(PreferencesKeys.KEY_SESSION_TOKEN)
             }
@@ -105,12 +96,6 @@ class SessionPreferencesDataSource(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.KEY_LOGGED_IN_USER_ID)
             preferences.remove(PreferencesKeys.KEY_SESSION_TOKEN)
-        }
-    }
-
-    suspend fun setDemoSeeded(seeded: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.KEY_IS_DEMO_SEEDED] = seeded
         }
     }
 
@@ -130,9 +115,5 @@ class SessionPreferencesDataSource(private val context: Context) {
 
     suspend fun getFcmTokenOnce(): String? {
         return fcmTokenFlow.first()
-    }
-
-    suspend fun isDemoSeededOnce(): Boolean {
-        return isDemoSeededFlow.first()
     }
 }

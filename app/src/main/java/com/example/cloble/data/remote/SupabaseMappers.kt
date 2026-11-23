@@ -32,7 +32,8 @@ object SupabaseMappers {
             preferredRadiusKm = json.optInt("preferredRadiusKm", 10),
             averageRating = avgRating,
             reviewCount = reviewCount,
-            createdAt = json.optLong("createdAt", System.currentTimeMillis())
+            createdAt = json.optLong("createdAt", System.currentTimeMillis()),
+            distanceKm = if (json.has("distanceKm") && !json.isNull("distanceKm")) json.optInt("distanceKm") else null
         )
     }
 

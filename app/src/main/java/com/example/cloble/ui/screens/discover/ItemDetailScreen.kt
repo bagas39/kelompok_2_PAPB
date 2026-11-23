@@ -504,7 +504,8 @@ fun ItemDetailScreen(
                                 .testTag("btn_declined_interest_from_detail")
                         )
                     } else if (uiState.isItemUnavailable ||
-                        existingStatus == InterestStatus.RESOLVED_BY_MATCH
+                        existingStatus == InterestStatus.RESOLVED_BY_MATCH ||
+                        (existingStatus == InterestStatus.INVALIDATED && !uiState.canReofferAfterInvalidated)
                     ) {
                         CloBlePrimaryButton(
                             text = "Pakaian Tidak Tersedia",
