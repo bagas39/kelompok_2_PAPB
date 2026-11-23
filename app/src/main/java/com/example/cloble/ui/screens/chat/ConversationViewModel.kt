@@ -41,6 +41,7 @@ data class ConversationUiState(
     val draftMessage: String = "",
     val isReadOnly: Boolean = false,
     val hasReviewed: Boolean = false,
+    val isReviewStatusLoaded: Boolean = false,
     val canRatePartner: Boolean = false,
     val showCancelDialog: Boolean = false,
     val showCompleteDialog: Boolean = false,
@@ -86,19 +87,29 @@ class ConversationViewModel(
                 launch {
                     selectedMatchIdFlow
                         .flatMapLatest { activeId ->
-                            if (activeId > 0L) discoveryMatchRepository.observeMatchDetail(activeId, userId)
-                            else flowOf(null)
+                            if (activeId > 0L) {
+                                discoveryMatchRepository.observeMatchDetail(activeId, userId)
+                                    .map { detail -> activeId to detail }
+                            } else {
+                                flowOf(-1L to null)
+                            }
                         }
-                        .collect { detail ->
+                        .collect { (emittedMatchId, detail) ->
                             _uiState.update { state ->
-                                val isReadOnly = detail?.isReadOnly ?: false
-                                val canRate = detail?.status == MatchStatus.COMPLETED && !state.hasReviewed
-                                state.copy(
-                                    matchDetail = detail,
-                                    isReadOnly = isReadOnly,
-                                    canRatePartner = canRate,
-                                    isLoading = false
-                                )
+                                if (state.activeMatchId != emittedMatchId) {
+                                    state
+                                } else {
+                                    val isReadOnly = detail?.isReadOnly ?: false
+                                    val canRate = detail?.status == MatchStatus.COMPLETED &&
+                                        state.isReviewStatusLoaded &&
+                                        !state.hasReviewed
+                                    state.copy(
+                                        matchDetail = detail,
+                                        isReadOnly = isReadOnly,
+                                        canRatePartner = canRate,
+                                        isLoading = false
+                                    )
+                                }
                             }
                             if (detail != null && partnerHistoryJob == null) {
                                 partnerHistoryJob = launch {
@@ -125,8 +136,14 @@ class ConversationViewModel(
                             }
                         }
                         .collect { (activeId, msgs) ->
-                            _uiState.update { it.copy(messages = msgs) }
-                            if (activeId > 0L) {
+                            _uiState.update { state ->
+                                if (state.activeMatchId != activeId) {
+                                    state
+                                } else {
+                                    state.copy(messages = msgs)
+                                }
+                            }
+                            if (activeId > 0L && _uiState.value.activeMatchId == activeId) {
                                 val maxUnreadIncomingId = msgs
                                     .filter { !it.isFromMe && !it.isRead }
                                     .maxOfOrNull { it.id }
@@ -146,16 +163,25 @@ class ConversationViewModel(
                 launch {
                     selectedMatchIdFlow
                         .flatMapLatest { activeId ->
-                            if (activeId > 0L) profileReviewRepository.hasUserReviewedMatch(activeId, userId)
-                            else flowOf(false)
+                            if (activeId > 0L) {
+                                profileReviewRepository.hasUserReviewedMatch(activeId, userId)
+                                    .map { reviewed -> activeId to reviewed }
+                            } else {
+                                flowOf(-1L to false)
+                            }
                         }
-                        .collect { reviewed ->
+                        .collect { (emittedMatchId, reviewed) ->
                             _uiState.update { state ->
-                                val canRate = state.matchDetail?.status == MatchStatus.COMPLETED && !reviewed
-                                state.copy(
-                                    hasReviewed = reviewed,
-                                    canRatePartner = canRate
-                                )
+                                if (state.activeMatchId != emittedMatchId) {
+                                    state
+                                } else {
+                                    val canRate = state.matchDetail?.status == MatchStatus.COMPLETED && !reviewed
+                                    state.copy(
+                                        hasReviewed = reviewed,
+                                        isReviewStatusLoaded = true,
+                                        canRatePartner = canRate
+                                    )
+                                }
                             }
                         }
                 }
@@ -166,14 +192,23 @@ class ConversationViewModel(
     }
 
     fun selectMatch(targetMatchId: Long) {
-        if (targetMatchId <= 0L || targetMatchId == selectedMatchIdFlow.value) return
+        val snapshot = _uiState.value
+        if (targetMatchId <= 0L ||
+            targetMatchId == selectedMatchIdFlow.value ||
+            snapshot.isSendingMessage ||
+            snapshot.isActionInProgress
+        ) return
         _uiState.update {
             it.copy(
                 activeMatchId = targetMatchId,
+                matchDetail = null,
                 messages = emptyList(),
+                draftMessage = "",
+                isReadOnly = false,
                 isLoading = true,
                 meetingLocationInput = "",
                 hasReviewed = false,
+                isReviewStatusLoaded = false,
                 canRatePartner = false,
                 errorMessage = null,
                 showCancelDialog = false,
@@ -227,26 +262,38 @@ class ConversationViewModel(
                     _uiState.update { it.copy(isSendingMessage = false) }
                 }
                 is SendMessageResult.ChatReadOnly -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isSendingMessage = false,
-                            errorMessage = "Ruang obrolan read-only karena pertukaran telah selesai atau dibatalkan."
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Ruang obrolan read-only karena pertukaran telah selesai atau dibatalkan."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
                 is SendMessageResult.NotMatchParticipant -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isSendingMessage = false,
-                            errorMessage = "Anda bukan peserta pada Match ini."
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Anda bukan peserta pada Match ini."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
                 is SendMessageResult.MatchNotFound -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isSendingMessage = false,
-                            errorMessage = "Match tidak ditemukan."
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Match tidak ditemukan."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
@@ -257,8 +304,16 @@ class ConversationViewModel(
                     _uiState.update { state ->
                         state.copy(
                             isSendingMessage = false,
-                            draftMessage = if (state.draftMessage.isBlank()) text else state.draftMessage,
-                            errorMessage = "Gagal mengirim pesan. Periksa koneksi internet Anda dan coba lagi."
+                            draftMessage = if (state.activeMatchId == activeId && state.draftMessage.isBlank()) {
+                                text
+                            } else {
+                                state.draftMessage
+                            },
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Gagal mengirim pesan. Periksa koneksi internet Anda dan coba lagi."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
@@ -274,22 +329,58 @@ class ConversationViewModel(
             _uiState.update { it.copy(isActionInProgress = true, showCancelDialog = false, errorMessage = null) }
             when (discoveryMatchRepository.cancelMatch(activeId, userId)) {
                 is CancelMatchResult.Success -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = null) }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) null else state.errorMessage
+                        )
+                    }
                 }
                 is CancelMatchResult.NotMatchParticipant -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Hanya peserta yang dapat membatalkan pertukaran.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Hanya peserta yang dapat membatalkan pertukaran."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CancelMatchResult.MatchNotActive -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Pertukaran sudah tidak berstatus aktif.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Pertukaran sudah tidak berstatus aktif."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CancelMatchResult.MatchNotFound -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Match tidak ditemukan.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Match tidak ditemukan."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CancelMatchResult.DatabaseError -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isActionInProgress = false,
-                            errorMessage = "Gagal membatalkan Match. Periksa koneksi internet Anda dan coba lagi."
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Gagal membatalkan Match. Periksa koneksi internet Anda dan coba lagi."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
@@ -306,25 +397,71 @@ class ConversationViewModel(
             _uiState.update { it.copy(isActionInProgress = true, showCompleteDialog = false, errorMessage = null) }
             when (discoveryMatchRepository.completeMatchExchange(activeId, userId, location)) {
                 is CompleteMatchResult.Success -> {
-                    _uiState.update { it.copy(isActionInProgress = false, meetingLocationInput = "", errorMessage = null) }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            meetingLocationInput = if (state.activeMatchId == activeId) "" else state.meetingLocationInput,
+                            errorMessage = if (state.activeMatchId == activeId) null else state.errorMessage
+                        )
+                    }
                 }
                 is CompleteMatchResult.NotMatchParticipant -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Hanya peserta yang dapat menyelesaikan pertukaran.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Hanya peserta yang dapat menyelesaikan pertukaran."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CompleteMatchResult.MatchNotActive -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Pertukaran sudah tidak aktif.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Pertukaran sudah tidak aktif."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CompleteMatchResult.ItemsNoLongerAvailable -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Salah satu pakaian tidak lagi tersedia.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Salah satu pakaian tidak lagi tersedia."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CompleteMatchResult.MatchNotFound -> {
-                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Match tidak ditemukan.") }
+                    _uiState.update { state ->
+                        state.copy(
+                            isActionInProgress = false,
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Match tidak ditemukan."
+                            } else {
+                                state.errorMessage
+                            }
+                        )
+                    }
                 }
                 is CompleteMatchResult.DatabaseError -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isActionInProgress = false,
-                            errorMessage = "Gagal menyelesaikan pertukaran. Periksa koneksi internet Anda dan coba lagi."
+                            errorMessage = if (state.activeMatchId == activeId) {
+                                "Gagal menyelesaikan pertukaran. Periksa koneksi internet Anda dan coba lagi."
+                            } else {
+                                state.errorMessage
+                            }
                         )
                     }
                 }
