@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -59,6 +60,7 @@ fun FilterScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .navigationBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -131,6 +133,14 @@ fun FilterScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("filter_chips_category")
+                    )
+
+                    CloBleChoiceChipRow(
+                        label = "Warna",
+                        options = CloBleConstants.COLORS,
+                        selectedOptions = uiState.selectedColors,
+                        onOptionClick = viewModel::toggleColor,
+                        modifier = Modifier.fillMaxWidth().testTag("filter_chips_color")
                     )
 
                     CloBleChoiceChipRow(

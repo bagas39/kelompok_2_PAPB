@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.update
 private val PRESET_RADII_KM = setOf(5, 10, 25, 50, 100)
 
 data class FilterUiState(
+    val selectedColors: Set<String> = emptySet(),
     val selectedSizes: Set<String> = emptySet(),
     val selectedGenders: Set<String> = emptySet(),
     val selectedCategories: Set<String> = emptySet(),
@@ -32,6 +33,7 @@ class FilterViewModel(
             val radius = current.maxRadiusKm
             val isCustom = radius != null && !PRESET_RADII_KM.contains(radius)
             FilterUiState(
+                selectedColors = current.selectedColors,
                 selectedSizes = current.selectedSizes,
                 selectedGenders = current.selectedGenders,
                 selectedCategories = current.selectedCategories,
@@ -48,6 +50,14 @@ class FilterViewModel(
             val set = current.selectedCategories.toMutableSet()
             if (set.contains(category)) set.remove(category) else set.add(category)
             current.copy(selectedCategories = set)
+        }
+    }
+
+    fun toggleColor(color: String) {
+        _uiState.update { current ->
+            val colors = current.selectedColors.toMutableSet()
+            if (!colors.add(color)) colors.remove(color)
+            current.copy(selectedColors = colors)
         }
     }
 
@@ -144,6 +154,7 @@ class FilterViewModel(
             state.selectedRadiusKm?.takeIf { it > 0 }
         }
         return DiscoverFilter(
+            selectedColors = state.selectedColors,
             selectedSizes = state.selectedSizes,
             selectedGenders = state.selectedGenders,
             selectedCategories = state.selectedCategories,

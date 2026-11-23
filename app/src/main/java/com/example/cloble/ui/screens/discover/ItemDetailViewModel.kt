@@ -215,12 +215,24 @@ class ItemDetailViewModel(
                     }
                 }
                 is SendInterestResult.AlreadyInterested -> {
+                    val latest = discoveryMatchRepository.observeOutgoingInterests(currentUserId)
+                        .firstOrNull()?.firstOrNull {
+                            it.targetItemId == item.id && it.interestStatus == result.existingStatus
+                        }
                     _uiState.update {
                         it.copy(
                             isSendingInterest = false,
+                            existingInterestId = latest?.interestId,
                             existingInterestStatus = result.existingStatus,
+                            relatedMatchId = latest?.matchId,
+                            relatedMatchStatus = latest?.matchStatus,
+                            canReofferAfterCancelled = false,
                             interestSentSuccess = result.existingStatus == InterestStatus.PENDING,
-                            errorMessage = "Anda sudah pernah mengirim tawaran interest untuk pakaian ini.",
+                            errorMessage = when (result.existingStatus) {
+                                InterestStatus.PENDING -> "Tawaran untuk pakaian ini masih menunggu respons pemilik."
+                                InterestStatus.DECLINED -> "Tawaran sebelumnya untuk pakaian ini telah ditolak."
+                                else -> "Status tawaran sudah berubah. Silakan muat ulang detail pakaian."
+                            },
                             requiresBarterItemCta = false
                         )
                     }

@@ -133,7 +133,7 @@ class DiscoverAndInterestLogicUnitTest {
 
     private class FakeDiscoveryMatchRepository(
         candidates: List<DiscoverCandidate> = emptyList(),
-        private val outgoing: List<OutgoingInterestSummary> = emptyList(),
+        var outgoing: List<OutgoingInterestSummary> = emptyList(),
         var passResult: Boolean = true,
         var sendInterestResult: SendInterestResult = SendInterestResult.Success(10L, null),
         private val sendGate: CompletableDeferred<Unit>? = null,
@@ -599,5 +599,37 @@ class DiscoverAndInterestLogicUnitTest {
 
         assertTrue(viewModel.uiState.value.isLockedByOtherMatch)
         assertFalse(viewModel.uiState.value.canReofferAfterCancelled)
+    }
+
+    @Test
+    fun itemDetail_reofferWithStaleCancelledMatch_refreshesExistingOfferAndStopsRetrying() = runTest {
+        for (status in listOf(InterestStatus.PENDING, InterestStatus.DECLINED)) {
+            val target = sampleItem(id = 204L, ownerId = 2L)
+            val old = OutgoingInterestSummary(
+                interestId = 34L, targetItemId = 204L, targetItemName = target.name,
+                targetItemCategory = target.category, targetItemPhotoUri = null,
+                targetItemStatus = ItemStatus.AVAILABLE, ownerId = 2L,
+                ownerName = "Naya", ownerCity = "Bandung", interestStatus = InterestStatus.ACCEPTED_MATCHED,
+                createdAt = 1000L, matchId = 50L, matchStatus = MatchStatus.CANCELLED
+            )
+            val repo = FakeDiscoveryMatchRepository(
+                outgoing = listOf(old), sendInterestResult = SendInterestResult.AlreadyInterested(status)
+            )
+            val viewModel = ItemDetailViewModel(
+                SavedStateHandle(mapOf("itemId" to 204L)), FakeAuthRepository(sampleUser(1L, "Raka")),
+                FakeWardrobeRepository(target),
+                FakeProfileReviewRepository(mapOf(1L to sampleUser(1L, "Raka"), 2L to sampleUser(2L, "Naya"))), repo
+            )
+            assertTrue(viewModel.uiState.value.canReofferAfterCancelled)
+            repo.outgoing = listOf(old.copy(interestId = 35L, interestStatus = status, matchId = null, matchStatus = null))
+            viewModel.sendInterest()
+            val state = viewModel.uiState.value
+            assertFalse(state.canReofferAfterCancelled)
+            assertEquals(35L, state.existingInterestId)
+            assertEquals(status, state.existingInterestStatus)
+            assertNull(state.relatedMatchId)
+            viewModel.sendInterest()
+            assertEquals(1, repo.sendInterestCalls)
+        }
     }
 }

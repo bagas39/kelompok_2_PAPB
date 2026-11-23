@@ -96,7 +96,8 @@ fun DiscoverScreen(
     val candidate = uiState.currentCandidate
     val nextCandidate = uiState.nextCandidate
 
-    LaunchedEffect(candidate?.item?.id) {
+    LaunchedEffect(candidate?.item?.id, uiState.isActionInProgress) {
+        if (uiState.isActionInProgress) return@LaunchedEffect
         dragOffset = 0f
         animatedOffset = 0f
         isAnimating = false
@@ -140,9 +141,12 @@ fun DiscoverScreen(
                 animatedOffset = value
             }
             onEnd()
-            dragOffset = 0f
-            animatedOffset = 0f
-            isAnimating = false
+            if (!viewModel.uiState.value.isActionInProgress) {
+                isSubmitting = false
+                dragOffset = 0f
+                animatedOffset = 0f
+                isAnimating = false
+            }
         }
     }
 
@@ -385,13 +389,11 @@ fun DiscoverScreen(
                                             isSubmitting = true
                                             animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
                                                 viewModel.likeCurrentCandidate()
-                                                isSubmitting = false
                                             }
                                         } else if (dragOffset < -threshold) {
                                             isSubmitting = true
                                             animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
                                                 viewModel.passCurrentCandidate()
-                                                isSubmitting = false
                                             }
                                         } else {
                                             springBack()
@@ -496,7 +498,6 @@ fun DiscoverScreen(
                                 isSubmitting = true
                                 animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
                                     viewModel.passCurrentCandidate()
-                                    isSubmitting = false
                                 }
                             }
                         },
@@ -523,7 +524,6 @@ fun DiscoverScreen(
                                 isSubmitting = true
                                 animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
                                     viewModel.likeCurrentCandidate()
-                                    isSubmitting = false
                                 }
                             }
                         },
@@ -631,9 +631,11 @@ private fun DiscoverCardContent(
                     .background(CloBleColors.SecondarySurface),
                 contentAlignment = Alignment.Center
             ) {
-                if (!candidate.item.mainPhotoUri.isNullOrEmpty()) {
+                val photoUri = listOf(candidate.item.mainPhotoUri, candidate.item.detailPhotoUri, candidate.item.extraPhotoUri)
+                    .firstOrNull { !it.isNullOrBlank() }
+                if (photoUri != null) {
                     AsyncImage(
-                        model = candidate.item.mainPhotoUri,
+                        model = photoUri,
                         contentDescription = candidate.item.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
