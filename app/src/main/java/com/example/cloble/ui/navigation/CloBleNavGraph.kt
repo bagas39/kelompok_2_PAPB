@@ -65,6 +65,30 @@ sealed interface SessionGateState {
     data class Authenticated(val userId: Long) : SessionGateState
 }
 
+internal enum class PendingDeepLinkDecision {
+    WAIT,
+    NAVIGATE,
+    DISCARD
+}
+
+internal fun decidePendingDeepLinkAction(
+    pendingRoute: String?,
+    pendingTargetUserId: Long?,
+    sessionGateState: SessionGateState,
+    isOnboardingActive: Boolean
+): PendingDeepLinkDecision {
+    if (pendingRoute == null || sessionGateState !is SessionGateState.Authenticated) {
+        return PendingDeepLinkDecision.WAIT
+    }
+    if (pendingTargetUserId != null && pendingTargetUserId != sessionGateState.userId) {
+        return PendingDeepLinkDecision.DISCARD
+    }
+    if (isOnboardingActive) {
+        return PendingDeepLinkDecision.DISCARD
+    }
+    return PendingDeepLinkDecision.NAVIGATE
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun CloBleNavGraph(
@@ -72,6 +96,7 @@ fun CloBleNavGraph(
     navController: NavHostController = rememberNavController(),
     startDestination: String? = null,
     pendingRoute: String? = null,
+    pendingRouteTargetUserId: Long? = null,
     onRouteHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -585,12 +610,29 @@ fun CloBleNavGraph(
         }
     }
 
-    LaunchedEffect(pendingRoute, sessionGateState, navController) {
-        if (pendingRoute != null && sessionGateState is SessionGateState.Authenticated) {
-            navController.navigate(pendingRoute) {
-                launchSingleTop = true
+    LaunchedEffect(pendingRoute, pendingRouteTargetUserId, sessionGateState, navController) {
+        val currentEntry = navController.currentBackStackEntry
+        val isOnboardingActive =
+            currentEntry?.destination?.route == CloBleDestinations.PREFERENCES &&
+                currentEntry.arguments?.getBoolean("isOnboarding") == true
+        when (
+            decidePendingDeepLinkAction(
+                pendingRoute = pendingRoute,
+                pendingTargetUserId = pendingRouteTargetUserId,
+                sessionGateState = sessionGateState,
+                isOnboardingActive = isOnboardingActive
+            )
+        ) {
+            PendingDeepLinkDecision.NAVIGATE -> {
+                if (pendingRoute != null) {
+                    navController.navigate(pendingRoute) {
+                        launchSingleTop = true
+                    }
+                }
+                onRouteHandled()
             }
-            onRouteHandled()
+            PendingDeepLinkDecision.DISCARD -> onRouteHandled()
+            PendingDeepLinkDecision.WAIT -> Unit
         }
     }
 }

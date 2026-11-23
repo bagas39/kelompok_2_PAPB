@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private var pendingRoute by mutableStateOf<String?>(null)
+    private var pendingRouteTargetUserId by mutableStateOf<Long?>(null)
     private var notificationObserverJob: Job? = null
 
     private val requestNotificationPermissionLauncher =
@@ -38,7 +39,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        handleNotificationIntent(intent)
+        if (savedInstanceState == null) {
+            handleNotificationIntent(intent)
+        }
 
         SystemNotificationHelper.initNotificationChannel(this)
 
@@ -54,7 +57,11 @@ class MainActivity : ComponentActivity() {
             CloBleTheme {
                 CloBleNavGraph(
                     pendingRoute = pendingRoute,
-                    onRouteHandled = { pendingRoute = null }
+                    pendingRouteTargetUserId = pendingRouteTargetUserId,
+                    onRouteHandled = {
+                        pendingRoute = null
+                        pendingRouteTargetUserId = null
+                    }
                 )
             }
         }
@@ -85,9 +92,17 @@ class MainActivity : ComponentActivity() {
 
         if (destination == "chat" && matchId > 0) {
             pendingRoute = CloBleDestinations.conversationRoute(matchId)
+            pendingRouteTargetUserId = targetUserId.takeIf { it > 0L }
         } else if (destination == "notifications") {
             pendingRoute = CloBleDestinations.NOTIFICATIONS
+            pendingRouteTargetUserId = targetUserId.takeIf { it > 0L }
         }
+
+        intent.removeExtra("destination")
+        intent.removeExtra("matchId")
+        intent.removeExtra("notificationId")
+        intent.removeExtra("id")
+        intent.removeExtra("userId")
     }
 
     private fun observeIncomingSystemNotifications() {
