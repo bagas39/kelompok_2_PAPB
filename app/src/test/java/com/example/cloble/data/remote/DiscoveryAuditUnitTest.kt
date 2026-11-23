@@ -116,4 +116,24 @@ class DiscoveryAuditUnitTest {
             .put("interests", JSONObject().put("clothing_items", item))
         assertEquals("extra.jpg", SupabaseMappers.parseNotification(notification).counterpartPhotoUri)
     }
+
+    @Test
+    fun filter_toggleCustomRadiusPrefillsPresetAndRejectsZeroOrEmpty() {
+        val presetVm = FilterViewModel(MutableStateFlow(DiscoverFilter()))
+        presetVm.selectPresetRadius(25)
+        presetVm.toggleCustomRadiusMode()
+        assertTrue(presetVm.uiState.value.isCustomRadius)
+        assertEquals("25", presetVm.uiState.value.customRadiusText)
+        assertEquals(25, presetVm.uiState.value.selectedRadiusKm)
+
+        val emptyCustomVm = FilterViewModel(MutableStateFlow(DiscoverFilter()))
+        emptyCustomVm.toggleCustomRadiusMode()
+        assertEquals("", emptyCustomVm.uiState.value.customRadiusText)
+        assertNull(emptyCustomVm.applyFilter())
+        assertEquals("Radius pencarian harus diisi lebih dari 0 km.", emptyCustomVm.uiState.value.errorMessage)
+
+        emptyCustomVm.onCustomRadiusTextChanged("0")
+        assertNull(emptyCustomVm.applyFilter())
+        assertEquals("Radius pencarian harus diisi lebih dari 0 km.", emptyCustomVm.uiState.value.errorMessage)
+    }
 }

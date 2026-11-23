@@ -18,7 +18,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -35,6 +37,7 @@ import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.theme.CloBleColors
+import kotlinx.coroutines.launch
 
 @Composable
 fun FilterScreen(
@@ -45,6 +48,14 @@ fun FilterScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(uiState.errorMessage) {
+        if (uiState.errorMessage != null) {
+            scrollState.animateScrollTo(0)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -61,7 +72,7 @@ fun FilterScreen(
                 .padding(innerPadding)
                 .navigationBarsPadding()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -185,6 +196,10 @@ fun FilterScreen(
                         if (applied != null) {
                             onApplyFilter(applied)
                             onNavigateBack()
+                        } else {
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo(0)
+                            }
                         }
                     },
                     modifier = Modifier

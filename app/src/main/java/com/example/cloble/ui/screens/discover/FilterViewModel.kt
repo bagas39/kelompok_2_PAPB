@@ -92,8 +92,16 @@ class FilterViewModel(
             if (current.isCustomRadius) {
                 current.copy(isCustomRadius = false, selectedRadiusKm = null, errorMessage = null)
             } else {
-                val parsed = current.customRadiusText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
-                current.copy(isCustomRadius = true, selectedRadiusKm = parsed, errorMessage = null)
+                val prefillText = current.customRadiusText.ifBlank {
+                    current.selectedRadiusKm?.takeIf { it > 0 }?.toString().orEmpty()
+                }
+                val parsed = prefillText.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(20000)
+                current.copy(
+                    isCustomRadius = true,
+                    customRadiusText = prefillText,
+                    selectedRadiusKm = parsed,
+                    errorMessage = null
+                )
             }
         }
     }
