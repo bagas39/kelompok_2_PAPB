@@ -49,60 +49,130 @@ class SupabaseRealtimeClient internal constructor(
     private val topicRefCounts = ConcurrentHashMap<String, Int>()
     private val pendingBroadcasts = ConcurrentLinkedQueue<String>()
     private val pendingEphemeralBroadcasts = ConcurrentHashMap<String, ConcurrentLinkedQueue<String>>()
-    private val ephemeralJoiningTopics = ConcurrentHashMap.newKeySet<String>()
+    private val ephemeralJoinRefs = ConcurrentHashMap<String, String>()
+    private val ephemeralTimeoutJobs = ConcurrentHashMap<String, Job>()
 
     private val _incomingMessages = MutableSharedFlow<Pair<String, JSONObject>>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<Pair<String, JSONObject>> = _incomingMessages.asSharedFlow()
 
     private var heartbeatJob: Job? = null
     private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
 
     internal fun setConnectedForTest(connected: Boolean) {
-        isConnected = connected
+        synchronized(topicLock) {
+            isConnected = connected
+        }
     }
 
     internal fun activeTopicCount(topic: String): Int = synchronized(topicLock) {
         topicRefCounts[topic] ?: 0
     }
 
+    internal fun hasPendingReconnectForTest(): Boolean = synchronized(topicLock) {
+        reconnectJob?.isActive == true
+    }
+
+    internal fun pendingBroadcastCountForTest(): Int = pendingBroadcasts.size
+
+    internal fun pendingEphemeralCountForTest(topic: String): Int =
+        pendingEphemeralBroadcasts[topic]?.size ?: 0
+
     fun connect() {
-        if (!autoConnect) return
-        if (isConnected || webSocket != null) return
-        val wsUrl = "${config.realtimeWsUrl}/websocket?apikey=${config.apiKey}&vsn=1.0.0"
-        val request = Request.Builder().url(wsUrl).build()
+        synchronized(topicLock) {
+            if (!autoConnect) return
+            if (isConnected || webSocket != null) return
+            val wsUrl = "${config.realtimeWsUrl}/websocket?apikey=${config.apiKey}&vsn=1.0.0"
+            val request = Request.Builder().url(wsUrl).build()
 
-        webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                isConnected = true
-                startHeartbeat()
-                val topicsToJoin = synchronized(topicLock) {
-                    (topicRefCounts.keys + pendingEphemeralBroadcasts.keys).toSet()
-                }
-                topicsToJoin.forEach { topic ->
-                    val isReferenced = synchronized(topicLock) { (topicRefCounts[topic] ?: 0) > 0 }
-                    if (!isReferenced) {
-                        ephemeralJoiningTopics.add(topic)
+            webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    var referencedTopics: Set<String> = emptySet()
+                    val ephemeralJoins = mutableListOf<Pair<String, String>>()
+                    val drainedBroadcasts = mutableListOf<String>()
+
+                    synchronized(topicLock) {
+                        if (webSocket !== this@SupabaseRealtimeClient.webSocket) {
+                            webSocket.close(1000, "stale")
+                            return
+                        }
+                        isConnected = true
+                        reconnectAttempt = 0
+                        reconnectJob?.cancel()
+                        reconnectJob = null
+                        startHeartbeat()
+
+                        referencedTopics = topicRefCounts.keys.toSet()
+                        val staleTopics = pendingEphemeralBroadcasts.entries
+                            .filter { it.value.isEmpty() }
+                            .map { it.key }
+                        staleTopics.forEach { pendingEphemeralBroadcasts.remove(it) }
+
+                        pendingEphemeralBroadcasts.keys
+                            .filter { !referencedTopics.contains(it) && !pendingEphemeralBroadcasts[it].isNullOrEmpty() }
+                            .forEach { topic ->
+                                val joinRef = refCounter.incrementAndGet().toString()
+                                ephemeralJoinRefs[topic] = joinRef
+                                scheduleEphemeralTimeoutLocked(topic, joinRef)
+                                ephemeralJoins.add(topic to joinRef)
+                            }
+
+                        while (true) {
+                            val queued = pendingBroadcasts.poll() ?: break
+                            drainedBroadcasts.add(queued)
+                        }
                     }
-                    sendJoinTopic(topic)
+
+                    referencedTopics.forEach { topic ->
+                        sendJoinTopicWithRef(topic, refCounter.incrementAndGet().toString())
+                    }
+                    ephemeralJoins.forEach { (topic, joinRef) ->
+                        sendJoinTopicWithRef(topic, joinRef)
+                    }
+                    drainedBroadcasts.forEach { queued ->
+                        if (!sendFrame(queued)) {
+                            offerBounded(pendingBroadcasts, queued, MAX_PENDING_BROADCASTS)
+                        }
+                    }
                 }
-                while (true) {
-                    val queued = pendingBroadcasts.poll() ?: break
-                    sendFrame(queued)
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val isCurrentSocket = synchronized(topicLock) {
+                        webSocket === this@SupabaseRealtimeClient.webSocket
+                    }
+                    if (isCurrentSocket) {
+                        handleIncomingMessage(text)
+                    }
                 }
-            }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                handleIncomingMessage(text)
-            }
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    handleDisconnect(webSocket)
+                }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                handleDisconnect()
-            }
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    handleDisconnect(webSocket)
+                }
+            })
+        }
+    }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                handleDisconnect()
-            }
-        })
+    fun disconnect() {
+        val socketToClose: WebSocket?
+        synchronized(topicLock) {
+            reconnectJob?.cancel()
+            reconnectJob = null
+            reconnectAttempt = 0
+            stopHeartbeat()
+            ephemeralTimeoutJobs.values.forEach { it.cancel() }
+            ephemeralTimeoutJobs.clear()
+            ephemeralJoinRefs.clear()
+            pendingBroadcasts.clear()
+            pendingEphemeralBroadcasts.clear()
+            isConnected = false
+            socketToClose = webSocket
+            webSocket = null
+        }
+        socketToClose?.close(1000, "disconnect")
     }
 
     internal fun handleIncomingMessage(text: String) {
@@ -119,21 +189,40 @@ class SupabaseRealtimeClient internal constructor(
                     }
                 }
                 "phx_reply" -> {
-                    ephemeralJoiningTopics.remove(topic)
-                    val queue = pendingEphemeralBroadcasts.remove(topic)
-                    if (queue != null && queue.isNotEmpty()) {
-                        while (true) {
-                            val queuedMsg = queue.poll() ?: break
-                            if (isConnected) {
-                                sendFrame(queuedMsg)
-                            } else {
-                                pendingBroadcasts.offer(queuedMsg)
+                    val replyRef = if (json.isNull("ref")) {
+                        ""
+                    } else {
+                        json.optString("ref", "").trim()
+                    }
+                    val status = json.optJSONObject("payload")?.optString("status")
+
+                    val queue: ConcurrentLinkedQueue<String>?
+                    synchronized(topicLock) {
+                        val expectedRef = ephemeralJoinRefs[topic] ?: return
+                        if (replyRef.isNotBlank() && replyRef != expectedRef) {
+                            return
+                        }
+                        ephemeralJoinRefs.remove(topic)
+                        ephemeralTimeoutJobs.remove(topic)?.cancel()
+                        queue = pendingEphemeralBroadcasts.remove(topic)
+                    }
+
+                    if (status == "ok") {
+                        if (queue != null && queue.isNotEmpty()) {
+                            while (true) {
+                                val queuedMsg = queue.poll() ?: break
+                                if (isConnected && sendFrame(queuedMsg)) {
+                                    continue
+                                }
+                                offerBounded(pendingBroadcasts, queuedMsg, MAX_PENDING_BROADCASTS)
                             }
                         }
                         scope.launch {
-                            delay(500)
+                            delay(EPHEMERAL_LEAVE_DELAY_MS)
                             leaveIfUnreferenced(topic)
                         }
+                    } else {
+                        leaveIfUnreferenced(topic)
                     }
                 }
             }
@@ -141,27 +230,64 @@ class SupabaseRealtimeClient internal constructor(
         }
     }
 
-    private fun handleDisconnect() {
-        isConnected = false
-        webSocket = null
-        ephemeralJoiningTopics.clear()
-        stopHeartbeat()
-        scheduleReconnect()
+    private fun hasActiveDemandLocked(): Boolean =
+        topicRefCounts.isNotEmpty() ||
+            pendingBroadcasts.isNotEmpty() ||
+            pendingEphemeralBroadcasts.values.any { it.isNotEmpty() }
+
+    private fun handleDisconnect(socket: WebSocket) {
+        synchronized(topicLock) {
+            if (socket !== this@SupabaseRealtimeClient.webSocket) return
+            isConnected = false
+            webSocket = null
+            ephemeralJoinRefs.clear()
+            ephemeralTimeoutJobs.values.forEach { it.cancel() }
+            ephemeralTimeoutJobs.clear()
+            stopHeartbeat()
+            if (hasActiveDemandLocked()) {
+                scheduleReconnectLocked()
+            }
+        }
     }
 
-    private fun scheduleReconnect() {
-        if (!autoConnect || reconnectJob?.isActive == true) return
+    private fun scheduleReconnectLocked() {
+        if (!autoConnect || reconnectJob?.isActive == true || !hasActiveDemandLocked()) return
+        val delayMs = (BASE_RECONNECT_DELAY_MS * (1L shl reconnectAttempt.coerceAtMost(4)))
+            .coerceAtMost(MAX_RECONNECT_DELAY_MS)
+        reconnectAttempt += 1
         reconnectJob = scope.launch {
-            delay(3000)
-            connect()
+            delay(delayMs)
+            val shouldConnect = synchronized(topicLock) {
+                reconnectJob = null
+                hasActiveDemandLocked() && !isConnected && webSocket == null
+            }
+            if (shouldConnect) {
+                connect()
+            }
         }
+    }
+
+    private fun closeIfIdle() {
+        if (!autoConnect) return
+        val socketToClose: WebSocket?
+        synchronized(topicLock) {
+            if (hasActiveDemandLocked() || ephemeralJoinRefs.isNotEmpty()) return
+            reconnectJob?.cancel()
+            reconnectJob = null
+            reconnectAttempt = 0
+            stopHeartbeat()
+            isConnected = false
+            socketToClose = webSocket
+            webSocket = null
+        }
+        socketToClose?.close(1000, "idle")
     }
 
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (isActive && isConnected) {
-                delay(25000)
+                delay(HEARTBEAT_INTERVAL_MS)
                 sendHeartbeat()
             }
         }
@@ -177,6 +303,13 @@ class SupabaseRealtimeClient internal constructor(
         return webSocket?.send(payload) == true
     }
 
+    private fun offerBounded(queue: ConcurrentLinkedQueue<String>, item: String, maxSize: Int) {
+        while (queue.size >= maxSize) {
+            if (queue.poll() == null) break
+        }
+        queue.offer(item)
+    }
+
     private fun sendHeartbeat() {
         val ref = refCounter.incrementAndGet().toString()
         val payload = JSONObject().apply {
@@ -189,48 +322,56 @@ class SupabaseRealtimeClient internal constructor(
     }
 
     fun subscribeTopic(topic: String) {
-        var shouldJoin = false
+        val shouldJoinNow: Boolean
+        val shouldConnect: Boolean
         synchronized(topicLock) {
             val prev = topicRefCounts[topic] ?: 0
             topicRefCounts[topic] = prev + 1
             if (prev == 0) {
-                shouldJoin = true
+                ephemeralTimeoutJobs.remove(topic)?.cancel()
+                ephemeralJoinRefs.remove(topic)
             }
+            shouldJoinNow = prev == 0 && isConnected
+            shouldConnect = !isConnected
         }
-        if (isConnected) {
-            if (shouldJoin) {
-                sendJoinTopic(topic)
-            }
-        } else {
+        if (shouldJoinNow) {
+            sendJoinTopicWithRef(topic, refCounter.incrementAndGet().toString())
+        } else if (shouldConnect) {
             connect()
         }
     }
 
     fun unsubscribeTopic(topic: String) {
-        var shouldLeave = false
+        val shouldLeave: Boolean
         synchronized(topicLock) {
             val prev = topicRefCounts[topic] ?: 0
             if (prev > 1) {
                 topicRefCounts[topic] = prev - 1
+                shouldLeave = false
             } else if (prev == 1) {
                 topicRefCounts.remove(topic)
-                if (pendingEphemeralBroadcasts[topic].isNullOrEmpty()) {
-                    shouldLeave = true
-                }
+                shouldLeave = isConnected && pendingEphemeralBroadcasts[topic].isNullOrEmpty()
+            } else {
+                shouldLeave = false
             }
         }
         if (shouldLeave) {
             sendLeaveTopic(topic)
         }
+        closeIfIdle()
     }
 
     private fun leaveIfUnreferenced(topic: String) {
         val shouldLeave = synchronized(topicLock) {
-            (topicRefCounts[topic] ?: 0) == 0 && pendingEphemeralBroadcasts[topic].isNullOrEmpty()
+            isConnected &&
+                (topicRefCounts[topic] ?: 0) == 0 &&
+                pendingEphemeralBroadcasts[topic].isNullOrEmpty() &&
+                !ephemeralJoinRefs.containsKey(topic)
         }
-        if (shouldLeave && isConnected) {
+        if (shouldLeave) {
             sendLeaveTopic(topic)
         }
+        closeIfIdle()
     }
 
     private fun sendLeaveTopic(topic: String) {
@@ -244,8 +385,7 @@ class SupabaseRealtimeClient internal constructor(
         sendFrame(payload.toString())
     }
 
-    private fun sendJoinTopic(topic: String) {
-        val ref = refCounter.incrementAndGet().toString()
+    private fun sendJoinTopicWithRef(topic: String, ref: String) {
         val configObj = JSONObject().apply {
             put("broadcast", JSONObject().apply {
                 put("ack", true)
@@ -264,6 +404,26 @@ class SupabaseRealtimeClient internal constructor(
         sendFrame(msg.toString())
     }
 
+    private fun scheduleEphemeralTimeoutLocked(topic: String, joinRef: String) {
+        ephemeralTimeoutJobs.remove(topic)?.cancel()
+        ephemeralTimeoutJobs[topic] = scope.launch {
+            delay(EPHEMERAL_JOIN_TIMEOUT_MS)
+            val timedOut = synchronized(topicLock) {
+                if (ephemeralJoinRefs[topic] != joinRef) {
+                    false
+                } else {
+                    ephemeralJoinRefs.remove(topic)
+                    ephemeralTimeoutJobs.remove(topic)
+                    pendingEphemeralBroadcasts.remove(topic)
+                    true
+                }
+            }
+            if (timedOut) {
+                leaveIfUnreferenced(topic)
+            }
+        }
+    }
+
     fun broadcast(topic: String, eventName: String, data: JSONObject) {
         val ref = refCounter.incrementAndGet().toString()
         val innerPayload = JSONObject().apply {
@@ -278,30 +438,72 @@ class SupabaseRealtimeClient internal constructor(
             put("ref", ref)
         }.toString()
 
-        val isSubscribed = synchronized(topicLock) { (topicRefCounts[topic] ?: 0) > 0 }
-        if (isSubscribed) {
-            if (isConnected && sendFrame(msg)) {
-                return
+        var sendImmediatelySubscribed = false
+        var ephemeralJoinRefToSend: String? = null
+        var shouldConnect = false
+
+        synchronized(topicLock) {
+            if ((topicRefCounts[topic] ?: 0) > 0) {
+                if (isConnected) {
+                    sendImmediatelySubscribed = true
+                } else {
+                    offerBounded(pendingBroadcasts, msg, MAX_PENDING_BROADCASTS)
+                    shouldConnect = true
+                }
+            } else {
+                if (!pendingEphemeralBroadcasts.containsKey(topic) &&
+                    pendingEphemeralBroadcasts.size >= MAX_EPHEMERAL_TOPICS
+                ) {
+                    val evictTopic = pendingEphemeralBroadcasts.keys.firstOrNull {
+                        it != topic && (topicRefCounts[it] ?: 0) == 0
+                    }
+                    if (evictTopic != null) {
+                        pendingEphemeralBroadcasts.remove(evictTopic)
+                        ephemeralJoinRefs.remove(evictTopic)
+                        ephemeralTimeoutJobs.remove(evictTopic)?.cancel()
+                    }
+                }
+                val queue = pendingEphemeralBroadcasts.computeIfAbsent(topic) { ConcurrentLinkedQueue() }
+                offerBounded(queue, msg, MAX_EPHEMERAL_PER_TOPIC)
+                if (isConnected) {
+                    val existingRef = ephemeralJoinRefs[topic]
+                    if (existingRef == null) {
+                        val newJoinRef = refCounter.incrementAndGet().toString()
+                        ephemeralJoinRefs[topic] = newJoinRef
+                        scheduleEphemeralTimeoutLocked(topic, newJoinRef)
+                        ephemeralJoinRefToSend = newJoinRef
+                    } else {
+                        scheduleEphemeralTimeoutLocked(topic, existingRef)
+                    }
+                } else {
+                    shouldConnect = true
+                }
             }
-            pendingBroadcasts.offer(msg)
-            connect()
+        }
+
+        if (sendImmediatelySubscribed) {
+            if (!sendFrame(msg)) {
+                offerBounded(pendingBroadcasts, msg, MAX_PENDING_BROADCASTS)
+                connect()
+            }
             return
         }
 
-        val queue = pendingEphemeralBroadcasts.computeIfAbsent(topic) { ConcurrentLinkedQueue() }
-        queue.offer(msg)
-        if (isConnected) {
-            if (ephemeralJoiningTopics.add(topic)) {
-                sendJoinTopic(topic)
-                scope.launch {
-                    delay(3000)
-                    ephemeralJoiningTopics.remove(topic)
-                    pendingEphemeralBroadcasts.remove(topic)
-                    leaveIfUnreferenced(topic)
-                }
-            }
-        } else {
+        if (ephemeralJoinRefToSend != null) {
+            sendJoinTopicWithRef(topic, ephemeralJoinRefToSend)
+        } else if (shouldConnect) {
             connect()
         }
+    }
+
+    private companion object {
+        const val MAX_PENDING_BROADCASTS = 64
+        const val MAX_EPHEMERAL_PER_TOPIC = 32
+        const val MAX_EPHEMERAL_TOPICS = 32
+        const val BASE_RECONNECT_DELAY_MS = 3_000L
+        const val MAX_RECONNECT_DELAY_MS = 30_000L
+        const val EPHEMERAL_JOIN_TIMEOUT_MS = 3_000L
+        const val EPHEMERAL_LEAVE_DELAY_MS = 500L
+        const val HEARTBEAT_INTERVAL_MS = 25_000L
     }
 }

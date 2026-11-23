@@ -18,18 +18,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 import org.json.JSONObject
 
 class SupabaseChatRepository(
     private val client: SupabaseClient,
     private val realtimeClient: SupabaseRealtimeClient,
     private val invalidator: SupabaseDataInvalidator,
-    private val cacheDao: OfflineChatCacheDao? = null
+    private val cacheDao: OfflineChatCacheDao? = null,
+    private val activeSessionTokenProvider: () -> String? = { client.getSessionToken() }
 ) : ChatRepository {
 
+    private fun isSessionTokenStillValid(requestToken: String?): Boolean {
+        if (requestToken.isNullOrBlank()) return false
+        return activeSessionTokenProvider() == requestToken
+    }
+
     private suspend fun fetchUserThreadsOrNull(
-        userId: Long,
         partnerUserIdFilter: Long? = null
     ): List<ChatThreadSummary>? {
         return try {
@@ -140,9 +144,13 @@ class SupabaseChatRepository(
 
         val syncJob = launch {
             for (unit in refreshTrigger) {
-                val fetched = fetchUserThreadsOrNull(userId, partnerUserIdFilter)
+                val requestToken = activeSessionTokenProvider()
+                val fetched = fetchUserThreadsOrNull(partnerUserIdFilter)
                 if (fetched != null) {
                     if (cacheDao != null) {
+                        if (!isSessionTokenStillValid(requestToken)) {
+                            continue
+                        }
                         val entities = fetched.map { OfflineChatCacheMappers.toEntity(userId, it) }
                         if (partnerUserIdFilter == null) {
                             cacheDao.replaceThreadsForUser(userId, entities)
@@ -151,6 +159,7 @@ class SupabaseChatRepository(
                         }
                         fetched.forEach { thread ->
                             cacheDao.updateMatchDetailStatus(
+                                viewerUserId = userId,
                                 matchId = thread.matchId,
                                 status = thread.status,
                                 meetingLocation = null,
@@ -221,7 +230,7 @@ class SupabaseChatRepository(
 
         val cacheJob = if (cacheDao != null) {
             launch {
-                cacheDao.observeMessages(matchId).collect { entities ->
+                cacheDao.observeMessages(viewerUserId, matchId).collect { entities ->
                     hasEmitted = true
                     send(entities.map { OfflineChatCacheMappers.toDomain(it, viewerUserId) })
                 }
@@ -232,6 +241,7 @@ class SupabaseChatRepository(
 
         suspend fun reloadMessagesFromServer() {
             try {
+                val requestToken = activeSessionTokenProvider()
                 val resp = client.rpc(
                     "rpc_get_chat_messages",
                     JSONObject().put("p_match_id", matchId)
@@ -246,9 +256,12 @@ class SupabaseChatRepository(
                     fetched.add(SupabaseMappers.parseChatMessage(obj, viewerUserId, senderName))
                 }
                 if (cacheDao != null) {
-                    if (fetched.isNotEmpty()) {
-                        cacheDao.upsertMessages(fetched.map { OfflineChatCacheMappers.toEntity(it) })
-                    }
+                    if (!isSessionTokenStillValid(requestToken)) return
+                    cacheDao.replaceMessagesForMatch(
+                        viewerUserId = viewerUserId,
+                        matchId = matchId,
+                        messages = fetched.map { OfflineChatCacheMappers.toEntity(viewerUserId, it) }
+                    )
                 } else {
                     val snapshot = synchronized(currentMessages) {
                         currentMessages.clear()
@@ -308,6 +321,7 @@ class SupabaseChatRepository(
         if (trimmed.isEmpty()) return SendMessageResult.EmptyMessage
 
         return try {
+            val requestToken = activeSessionTokenProvider()
             val params = JSONObject().apply {
                 put("p_match_id", matchId)
                 put("p_message_text", trimmed)
@@ -330,9 +344,11 @@ class SupabaseChatRepository(
                         sentAt = sentAt,
                         isFromMe = true
                     )
-                    runCatching {
-                        cacheDao?.upsertMessage(OfflineChatCacheMappers.toEntity(cachedMessage))
-                        cacheDao?.updateThreadLastMessage(matchId, trimmed, sentAt)
+                    if (isSessionTokenStillValid(requestToken)) {
+                        runCatching {
+                            cacheDao?.upsertMessage(OfflineChatCacheMappers.toEntity(senderId, cachedMessage))
+                            cacheDao?.updateThreadLastMessage(senderId, matchId, trimmed, sentAt)
+                        }
                     }
 
                     val syncPing = JSONObject().put("type", "sync")
@@ -346,7 +362,10 @@ class SupabaseChatRepository(
                 }
                 "MATCH_NOT_FOUND" -> SendMessageResult.MatchNotFound
                 "NOT_MATCH_PARTICIPANT", "UNAUTHORIZED" -> SendMessageResult.NotMatchParticipant
-                "CHAT_READ_ONLY" -> SendMessageResult.ChatReadOnly
+                "CHAT_READ_ONLY" -> {
+                    invalidator.invalidateChat()
+                    SendMessageResult.ChatReadOnly
+                }
                 "EMPTY_MESSAGE" -> SendMessageResult.EmptyMessage
                 "VALIDATION_FAILED" -> SendMessageResult.DatabaseError(
                     DbFailure.UnexpectedDatabaseError(resp.optString("message", "Pesan tidak valid"))
@@ -363,18 +382,22 @@ class SupabaseChatRepository(
 
     override suspend fun markMessagesRead(matchId: Long, viewerUserId: Long) {
         try {
+            val requestToken = activeSessionTokenProvider()
             val resp = client.rpc(
                 "rpc_mark_chat_messages_read",
                 JSONObject().put("p_match_id", matchId)
             )
             if (resp.optString("code") == "SUCCESS") {
-                runCatching {
-                    cacheDao?.markMessagesReadLocal(matchId, viewerUserId)
-                    cacheDao?.clearThreadUnreadCount(viewerUserId, matchId)
+                if (isSessionTokenStillValid(requestToken)) {
+                    runCatching {
+                        cacheDao?.markMessagesReadLocal(viewerUserId, matchId)
+                        cacheDao?.clearThreadUnreadCount(viewerUserId, matchId)
+                    }
                 }
                 invalidator.invalidateChat()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
         }
     }
 

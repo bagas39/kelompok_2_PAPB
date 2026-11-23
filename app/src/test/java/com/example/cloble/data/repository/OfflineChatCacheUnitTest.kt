@@ -49,7 +49,7 @@ class OfflineChatCacheUnitTest {
     )
 
     @Test
-    fun threadMapper_roundTripPreservesAllFields() {
+    fun threadMapper_roundTripPreservesAllFieldsIncludingMatchCount() {
         val summary = ChatThreadSummary(
             matchId = 15L,
             partnerUserId = 2L,
@@ -83,6 +83,7 @@ class OfflineChatCacheUnitTest {
         assertEquals(summary.lastMessageSentAt, restored.lastMessageSentAt)
         assertEquals(summary.unreadCount, restored.unreadCount)
         assertEquals(summary.updatedAt, restored.updatedAt)
+        assertEquals(summary.totalMatchesWithPartner, restored.totalMatchesWithPartner)
     }
 
     @Test
@@ -98,10 +99,11 @@ class OfflineChatCacheUnitTest {
             isFromMe = true
         )
 
-        val entity = OfflineChatCacheMappers.toEntity(message)
+        val entity = OfflineChatCacheMappers.toEntity(viewerUserId = 1L, message = message)
         val forSender = OfflineChatCacheMappers.toDomain(entity, viewerUserId = 1L)
         val forPartner = OfflineChatCacheMappers.toDomain(entity, viewerUserId = 2L)
 
+        assertEquals(1L, entity.viewerUserId)
         assertTrue(forSender.isFromMe)
         assertFalse(forPartner.isFromMe)
         assertEquals(message.messageText, forPartner.messageText)
@@ -191,20 +193,21 @@ class OfflineChatCacheUnitTest {
         assertEquals(5, dao.observePartnerThreads(1L, 2L).first().single().unreadCount)
 
         dao.clearThreadUnreadCount(1L, 100L)
-        dao.updateThreadLastMessage(100L, "Sampai lokasi", 5500L)
+        dao.updateThreadLastMessage(1L, 100L, "Sampai lokasi", 5500L)
         val threadAfterRead = dao.observePartnerThreads(1L, 2L).first().single()
         assertEquals(0, threadAfterRead.unreadCount)
         assertEquals("Sampai lokasi", threadAfterRead.lastMessageText)
         assertEquals(5500L, threadAfterRead.updatedAt)
+        assertEquals("Pesan lama", dao.observeThreads(2L).first().single().lastMessageText)
 
         dao.upsertMessages(
             listOf(
-                CachedChatMessageEntity(1L, 100L, 2L, "Naya", "Halo", isRead = false, sentAt = 1000L),
-                CachedChatMessageEntity(2L, 100L, 1L, "Raka", "Hai", isRead = false, sentAt = 2000L)
+                CachedChatMessageEntity(1L, 1L, 100L, 2L, "Naya", "Halo", isRead = false, sentAt = 1000L),
+                CachedChatMessageEntity(1L, 2L, 100L, 1L, "Raka", "Hai", isRead = false, sentAt = 2000L)
             )
         )
-        dao.markMessagesReadLocal(matchId = 100L, viewerUserId = 1L)
-        val messages = dao.observeMessages(100L).first()
+        dao.markMessagesReadLocal(viewerUserId = 1L, matchId = 100L)
+        val messages = dao.observeMessages(viewerUserId = 1L, matchId = 100L).first()
         assertTrue(messages.first { it.id == 1L }.isRead)
         assertFalse(messages.first { it.id == 2L }.isRead)
 
@@ -230,8 +233,27 @@ class OfflineChatCacheUnitTest {
 
         dao.clearAll()
         assertTrue(dao.observeThreads(1L).first().isEmpty())
-        assertTrue(dao.observeMessages(100L).first().isEmpty())
+        assertTrue(dao.observeMessages(1L, 100L).first().isEmpty())
         assertNull(dao.observeMatchDetail(1L, 100L).first())
+    }
+
+    @Test
+    fun replaceMessagesForMatch_removesServerDeletedMessagesAndIsolatesByViewer() = runBlocking {
+        val dao = FakeOfflineChatCacheDao()
+        val msg1Viewer1 = CachedChatMessageEntity(1L, 10L, 100L, 2L, "Naya", "Pesan 1", isRead = false, sentAt = 1000L)
+        val msg2Viewer1 = CachedChatMessageEntity(1L, 11L, 100L, 1L, "Raka", "Pesan 2", isRead = false, sentAt = 2000L)
+        val msg1Viewer2 = CachedChatMessageEntity(2L, 10L, 100L, 2L, "Naya", "Pesan 1", isRead = false, sentAt = 1000L)
+
+        dao.replaceMessagesForMatch(1L, 100L, listOf(msg1Viewer1, msg2Viewer1))
+        dao.replaceMessagesForMatch(2L, 100L, listOf(msg1Viewer2))
+
+        dao.replaceMessagesForMatch(1L, 100L, listOf(msg2Viewer1))
+        assertEquals(listOf(11L), dao.observeMessages(1L, 100L).first().map { it.id })
+        assertEquals(listOf(10L), dao.observeMessages(2L, 100L).first().map { it.id })
+
+        dao.replaceMessagesForMatch(1L, 100L, emptyList())
+        assertTrue(dao.observeMessages(1L, 100L).first().isEmpty())
+        assertEquals(1, dao.observeMessages(2L, 100L).first().size)
     }
 
     @Test
@@ -240,7 +262,7 @@ class OfflineChatCacheUnitTest {
     }
 
     @Test
-    fun parallelMatchStatusUpdates_onlyAffectTargetMatch() = runBlocking {
+    fun parallelMatchStatusUpdates_onlyAffectTargetMatchAndSyncEmbeddedItems() = runBlocking {
         val dao = FakeOfflineChatCacheDao()
         val match1 = OfflineChatCacheMappers.toEntity(
             viewerUserId = 1L,
@@ -256,7 +278,8 @@ class OfflineChatCacheUnitTest {
                 lastMessageText = "Match 1",
                 lastMessageSentAt = 1000L,
                 unreadCount = 0,
-                updatedAt = 1000L
+                updatedAt = 1000L,
+                totalMatchesWithPartner = 2
             )
         )
         val match2 = match1.copy(
@@ -306,10 +329,10 @@ class OfflineChatCacheUnitTest {
             )
         )
 
-        dao.updateThreadStatus(201L, MatchStatus.COMPLETED, 5000L)
-        dao.updateMatchDetailStatus(201L, MatchStatus.COMPLETED, "Dago", 5000L)
-        dao.updateThreadStatus(202L, MatchStatus.CANCELLED, 6000L)
-        dao.updateMatchDetailStatus(202L, MatchStatus.CANCELLED, null, 6000L)
+        dao.updateThreadStatus(1L, 201L, MatchStatus.COMPLETED, 5000L)
+        dao.updateMatchDetailStatus(1L, 201L, MatchStatus.COMPLETED, "Dago", 5000L)
+        dao.updateThreadStatus(1L, 202L, MatchStatus.CANCELLED, 6000L)
+        dao.updateMatchDetailStatus(1L, 202L, MatchStatus.CANCELLED, null, 6000L)
 
         val detail201 = dao.observeMatchDetail(1L, 201L).first()
         val detail202 = dao.observeMatchDetail(1L, 202L).first()
@@ -317,10 +340,16 @@ class OfflineChatCacheUnitTest {
 
         assertEquals(MatchStatus.COMPLETED, detail201?.status)
         assertEquals("Dago", detail201?.meetingLocation)
+        assertEquals(ItemStatus.EXCHANGED, detail201?.myItem?.status)
+        assertEquals(ItemStatus.EXCHANGED, detail201?.partnerItem?.status)
+        assertFalse(detail201?.myItem?.isBarterAllowed ?: true)
+        assertFalse(detail201?.partnerItem?.isBarterAllowed ?: true)
         assertEquals(MatchStatus.CANCELLED, detail202?.status)
         assertNull(detail202?.meetingLocation)
+        assertEquals(ItemStatus.AVAILABLE, detail202?.myItem?.status)
         assertEquals(MatchStatus.COMPLETED, threads.first { it.matchId == 201L }.status)
         assertEquals(MatchStatus.CANCELLED, threads.first { it.matchId == 202L }.status)
+        assertEquals(2, threads.first { it.matchId == 201L }.totalMatchesWithPartner)
     }
 
     private class FakeOfflineChatCacheDao : OfflineChatCacheDao() {
@@ -365,9 +394,14 @@ class OfflineChatCacheUnitTest {
             }
         }
 
-        override suspend fun updateThreadLastMessage(matchId: Long, messageText: String, sentAt: Long) {
+        override suspend fun updateThreadLastMessage(
+            viewerUserId: Long,
+            matchId: Long,
+            messageText: String,
+            sentAt: Long
+        ) {
             threadsState.value = threadsState.value.map {
-                if (it.matchId == matchId) {
+                if (it.viewerUserId == viewerUserId && it.matchId == matchId) {
                     it.copy(lastMessageText = messageText, lastMessageSentAt = sentAt, updatedAt = sentAt)
                 } else {
                     it
@@ -375,9 +409,14 @@ class OfflineChatCacheUnitTest {
             }
         }
 
-        override suspend fun updateThreadStatus(matchId: Long, status: MatchStatus, updatedAt: Long) {
+        override suspend fun updateThreadStatus(
+            viewerUserId: Long,
+            matchId: Long,
+            status: MatchStatus,
+            updatedAt: Long
+        ) {
             threadsState.value = threadsState.value.map {
-                if (it.matchId == matchId && it.status != status) {
+                if (it.viewerUserId == viewerUserId && it.matchId == matchId && it.status != status) {
                     it.copy(status = status, updatedAt = updatedAt)
                 } else {
                     it
@@ -385,9 +424,9 @@ class OfflineChatCacheUnitTest {
             }
         }
 
-        override fun observeMessages(matchId: Long): Flow<List<CachedChatMessageEntity>> =
+        override fun observeMessages(viewerUserId: Long, matchId: Long): Flow<List<CachedChatMessageEntity>> =
             messagesState.map { list ->
-                list.filter { it.matchId == matchId }
+                list.filter { it.viewerUserId == viewerUserId && it.matchId == matchId }
                     .sortedWith(compareBy<CachedChatMessageEntity> { it.sentAt }.thenBy { it.id })
             }
 
@@ -396,14 +435,24 @@ class OfflineChatCacheUnitTest {
         }
 
         override suspend fun upsertMessages(messages: List<CachedChatMessageEntity>) {
-            val map = messagesState.value.associateBy { it.id }.toMutableMap()
-            messages.forEach { map[it.id] = it }
+            val map = messagesState.value.associateBy { it.viewerUserId to it.id }.toMutableMap()
+            messages.forEach { map[it.viewerUserId to it.id] = it }
             messagesState.value = map.values.toList()
         }
 
-        override suspend fun markMessagesReadLocal(matchId: Long, viewerUserId: Long) {
+        override suspend fun deleteMessagesForMatch(viewerUserId: Long, matchId: Long) {
+            messagesState.value = messagesState.value.filterNot {
+                it.viewerUserId == viewerUserId && it.matchId == matchId
+            }
+        }
+
+        override suspend fun markMessagesReadLocal(viewerUserId: Long, matchId: Long) {
             messagesState.value = messagesState.value.map {
-                if (it.matchId == matchId && it.senderId != viewerUserId && !it.isRead) {
+                if (it.viewerUserId == viewerUserId &&
+                    it.matchId == matchId &&
+                    it.senderId != viewerUserId &&
+                    !it.isRead
+                ) {
                     it.copy(isRead = true)
                 } else {
                     it
@@ -423,17 +472,37 @@ class OfflineChatCacheUnitTest {
         }
 
         override suspend fun updateMatchDetailStatus(
+            viewerUserId: Long,
             matchId: Long,
             status: MatchStatus,
             meetingLocation: String?,
             updatedAt: Long
         ) {
             matchDetailsState.value = matchDetailsState.value.map {
-                if (it.matchId == matchId && (it.status != status || (meetingLocation != null && it.meetingLocation == null))) {
+                val embeddedNeedsCompletedSync = status == MatchStatus.COMPLETED && (
+                    it.myItem.status != ItemStatus.EXCHANGED ||
+                        it.partnerItem.status != ItemStatus.EXCHANGED ||
+                        it.myItem.isBarterAllowed ||
+                        it.partnerItem.isBarterAllowed
+                    )
+                if (it.viewerUserId == viewerUserId &&
+                    it.matchId == matchId &&
+                    (it.status != status || (meetingLocation != null && it.meetingLocation == null) || embeddedNeedsCompletedSync)
+                ) {
                     it.copy(
                         status = status,
                         meetingLocation = it.meetingLocation ?: meetingLocation,
-                        updatedAt = updatedAt
+                        updatedAt = updatedAt,
+                        myItem = if (status == MatchStatus.COMPLETED) {
+                            it.myItem.copy(status = ItemStatus.EXCHANGED, isBarterAllowed = false)
+                        } else {
+                            it.myItem
+                        },
+                        partnerItem = if (status == MatchStatus.COMPLETED) {
+                            it.partnerItem.copy(status = ItemStatus.EXCHANGED, isBarterAllowed = false)
+                        } else {
+                            it.partnerItem
+                        }
                     )
                 } else {
                     it

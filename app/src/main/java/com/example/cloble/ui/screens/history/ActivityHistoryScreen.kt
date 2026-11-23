@@ -34,6 +34,7 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +81,14 @@ fun ActivityHistoryScreen(
     var interestPendingCancel by remember { mutableStateOf<OutgoingInterestSummary?>(null) }
     var viewerPhoto by remember { mutableStateOf<LabeledPhoto?>(null) }
     var lockedWarningMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ActivityHistoryEvent.MutualMatchCreated -> onNavigateToMatchDetail(event.matchId)
+            }
+        }
+    }
 
     val selectedTabIndex = if (uiState.selectedTab == ActivityHistoryTab.TERTARIK) 0 else 1
 

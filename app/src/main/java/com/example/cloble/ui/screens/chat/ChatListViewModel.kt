@@ -16,8 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -42,11 +42,21 @@ class ChatListViewModel(
     init {
         viewModelScope.launch {
             authRepository.observeLoggedInUserId()
-                .filterNotNull()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    _uiState.update { it.copy(currentUserId = userId) }
-                    chatRepository.observeChatThreads(userId)
+                    if (userId == null) {
+                        _uiState.update {
+                            it.copy(
+                                currentUserId = null,
+                                threads = emptyList(),
+                                isLoading = false
+                            )
+                        }
+                        flowOf(emptyList())
+                    } else {
+                        _uiState.update { it.copy(currentUserId = userId) }
+                        chatRepository.observeChatThreads(userId)
+                    }
                 }
                 .collect { list ->
                     _uiState.update { it.copy(threads = list, isLoading = false) }
@@ -55,10 +65,13 @@ class ChatListViewModel(
 
         viewModelScope.launch {
             authRepository.observeLoggedInUserId()
-                .filterNotNull()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                    if (userId == null) {
+                        flowOf(0)
+                    } else {
+                        discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                    }
                 }
                 .collect { count ->
                     _uiState.update { it.copy(unreadNotificationCount = count) }

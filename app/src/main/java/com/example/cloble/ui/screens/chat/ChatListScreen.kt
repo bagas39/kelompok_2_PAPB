@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,8 +58,10 @@ import com.example.cloble.ui.components.CloBleTopBarAction
 import com.example.cloble.ui.theme.CloBleColors
 import com.example.cloble.ui.theme.CloBleTextStyles
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 @Composable
 fun ChatListScreen(
@@ -213,8 +216,9 @@ private fun ChatThreadCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val formattedTime = thread.lastMessageSentAt?.let { timeFormat.format(Date(it)) } ?: ""
+    val formattedTime = remember(thread.lastMessageSentAt) {
+        formatChatThreadTimestamp(thread.lastMessageSentAt)
+    }
 
     val (statusLabel, statusBg, statusTextColor) = when (thread.status) {
         MatchStatus.ACTIVE -> Triple("Aktif", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
@@ -438,4 +442,29 @@ private fun computeChatInitials(name: String): String {
         parts.size == 1 -> parts[0].take(2).uppercase()
         else -> "${parts[0].first()}${parts[1].first()}".uppercase()
     }
+}
+
+internal fun formatChatThreadTimestamp(
+    timestampMillis: Long?,
+    nowMillis: Long = System.currentTimeMillis(),
+    locale: Locale = Locale.getDefault(),
+    timeZone: TimeZone = TimeZone.getDefault()
+): String {
+    if (timestampMillis == null || timestampMillis <= 0L) return ""
+    val messageCal = Calendar.getInstance(timeZone, locale).apply {
+        timeInMillis = timestampMillis
+    }
+    val nowCal = Calendar.getInstance(timeZone, locale).apply {
+        timeInMillis = nowMillis
+    }
+    val sameYear = messageCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
+    val sameDay = sameYear && messageCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+    val pattern = when {
+        sameDay -> "HH:mm"
+        sameYear -> "dd MMM"
+        else -> "dd/MM/yy"
+    }
+    return SimpleDateFormat(pattern, locale).apply {
+        this.timeZone = timeZone
+    }.format(Date(timestampMillis))
 }
