@@ -439,7 +439,14 @@ private fun OutgoingInterestCard(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!item.targetItemPhotoUri.isNullOrEmpty()) {
+                    if (item.isLockedByOtherMatch) {
+                        Icon(
+                            imageVector = CloBleIcons.EyeOff,
+                            contentDescription = "Foto disembunyikan",
+                            tint = CloBleColors.TextSecondary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    } else if (shouldShowHistoryItemPhoto(isLocked = false, photoUri = item.targetItemPhotoUri)) {
                         AsyncImage(
                             model = item.targetItemPhotoUri,
                             contentDescription = item.targetItemName,
@@ -711,7 +718,14 @@ private fun PassedClothingCard(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!item.clothingPhotoUri.isNullOrEmpty()) {
+                    if (isLockedByMatchOrExchanged) {
+                        Icon(
+                            imageVector = CloBleIcons.EyeOff,
+                            contentDescription = "Foto disembunyikan",
+                            tint = CloBleColors.TextSecondary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    } else if (shouldShowHistoryItemPhoto(isLocked = false, photoUri = item.clothingPhotoUri)) {
                         AsyncImage(
                             model = item.clothingPhotoUri,
                             contentDescription = item.clothingName,
@@ -795,3 +809,6 @@ private fun PassedClothingCard(
         }
     }
 }
+
+internal fun shouldShowHistoryItemPhoto(isLocked: Boolean, photoUri: String?): Boolean =
+    !isLocked && !photoUri.isNullOrBlank()
