@@ -300,6 +300,7 @@ fun PreferencesScreen(
             } else {
                 CloBlePrimaryButton(
                     text = if (uiState.isOnboarding) "Lanjut ke Jelajah" else "Simpan Preferensi",
+                    enabled = !uiState.isProfileLoadFailed,
                     onClick = { viewModel.savePreferences(onSaveSuccess) },
                     modifier = Modifier
                         .fillMaxWidth()

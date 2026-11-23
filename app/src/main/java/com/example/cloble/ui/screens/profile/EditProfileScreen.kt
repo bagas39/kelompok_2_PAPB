@@ -483,7 +483,7 @@ fun EditProfileScreen(
                         } else {
                             CloBlePrimaryButton(
                                 text = "Simpan Perubahan",
-                                enabled = !uiState.isUploadingAvatar,
+                                enabled = !uiState.isUploadingAvatar && !uiState.isProfileLoadFailed,
                                 onClick = { viewModel.saveProfile(onSaveSuccess) },
                                 modifier = Modifier
                                     .fillMaxWidth()

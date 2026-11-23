@@ -190,6 +190,12 @@ class EditProfileViewModel(
     fun saveProfile(onSuccess: () -> Unit) {
         val state = _uiState.value
         if (state.isSaving || state.isUploadingAvatar) return
+        if (state.isProfileLoadFailed) {
+            _uiState.update {
+                it.copy(errorMessage = "Data profil lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar data tidak tertimpa.")
+            }
+            return
+        }
         val cleanName = state.name.trim()
         val cleanBio = state.bio.trim()
         val cleanCity = state.city.trim()

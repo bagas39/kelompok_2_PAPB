@@ -162,6 +162,12 @@ class PreferencesViewModel(
     fun savePreferences(onSuccess: () -> Unit) {
         val s = _uiState.value
         if (s.isSaving) return
+        if (s.isProfileLoadFailed) {
+            _uiState.update {
+                it.copy(errorMessage = "Preferensi lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar tidak tertimpa nilai bawaan.")
+            }
+            return
+        }
         val cleanCity = s.selectedCity.trim()
 
         if (cleanCity.isEmpty()) {

@@ -431,7 +431,7 @@ class HaqiTasksUnitTest {
         )
         val profileRepo = FakeProfileReviewRepo()
         val vm = PreferencesViewModel(
-            savedStateHandle = SavedStateHandle(),
+            savedStateHandle = SavedStateHandle(mapOf("isOnboarding" to true)),
             authRepository = authRepo,
             profileReviewRepository = profileRepo
         )
@@ -467,13 +467,25 @@ class HaqiTasksUnitTest {
 
     @Test
     fun editProfileViewModel_usesLoggedInUserIdFallbackAndErrorsWhenNull() = runTest {
+        val profileFlow = MutableStateFlow<UserProfile?>(null)
         val profileRepo = FakeProfileReviewRepo()
         val vm = EditProfileViewModel(
-            authRepository = FakeAuthRepo(flowOf(77L), flowOf(null)),
+            authRepository = FakeAuthRepo(flowOf(77L), profileFlow),
             profileReviewRepository = profileRepo
         )
-        vm.onNameChanged("Haqi Baru")
+        assertTrue(vm.uiState.value.isProfileLoadFailed)
 
+        var blockedSave = false
+        vm.saveProfile { blockedSave = true }
+        assertFalse(blockedSave)
+        assertTrue(profileRepo.updatedProfiles.isEmpty())
+        assertNotNull(vm.uiState.value.errorMessage)
+
+        profileFlow.value = sampleProfile(77L)
+        vm.retryLoadProfile()
+        assertFalse(vm.uiState.value.isProfileLoadFailed)
+
+        vm.onNameChanged("Haqi Baru")
         var saved = false
         vm.saveProfile { saved = true }
         assertTrue(saved)
@@ -603,12 +615,19 @@ class HaqiTasksUnitTest {
     @Test
     fun preferencesViewModel_flagsLoadFailureForNonOnboardingAndValidatesCityLength() = runTest {
         val profileFlow = MutableStateFlow<UserProfile?>(null)
+        val profileRepo = FakeProfileReviewRepo()
         val vm = PreferencesViewModel(
             savedStateHandle = SavedStateHandle(mapOf("isOnboarding" to false)),
             authRepository = FakeAuthRepo(flowOf(10L), profileFlow),
-            profileReviewRepository = FakeProfileReviewRepo()
+            profileReviewRepository = profileRepo
         )
         assertTrue(vm.uiState.value.isProfileLoadFailed)
+
+        var blockedSave = false
+        vm.savePreferences { blockedSave = true }
+        assertFalse(blockedSave)
+        assertTrue(profileRepo.updatedPreferences.isEmpty())
+        assertNotNull(vm.uiState.value.errorMessage)
 
         profileFlow.value = sampleProfile(10L)
         vm.retryLoadPreferences()
