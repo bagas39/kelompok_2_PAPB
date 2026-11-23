@@ -464,7 +464,7 @@ fun ItemDetailScreen(
                             enabled = false,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    } else if (uiState.canReofferAfterCancelled) {
+                    } else if (uiState.canReofferAfterCancelled || uiState.canReofferAfterInvalidated) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
