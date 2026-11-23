@@ -28,6 +28,8 @@ data class WardrobeUiState(
     val unreadNotificationCount: Int = 0,
     val currentUserId: Long? = null,
     val isLoading: Boolean = true,
+    val isDeleting: Boolean = false,
+    val togglingItemIds: Set<Long> = emptySet(),
     val itemPendingDelete: ClothingItem? = null,
     val errorMessage: String? = null
 )
@@ -77,25 +79,31 @@ class WardrobeViewModel(
     }
 
     fun toggleBarterAllowed(itemId: Long, currentAllowed: Boolean) {
+        if (itemId in _uiState.value.togglingItemIds) return
         val userId = _uiState.value.currentUserId ?: return
         viewModelScope.launch {
-            when (val result = wardrobeRepository.setBarterAllowed(userId, itemId, !currentAllowed)) {
-                is WardrobeMutationResult.Success -> {
-                    _uiState.update { it.copy(errorMessage = null) }
-                }
-                is WardrobeMutationResult.LockedInActiveMatch -> {
-                    _uiState.update {
-                        it.copy(errorMessage = "Pakaian sedang terikat Match aktif dan tidak dapat diubah izin barternya.")
+            _uiState.update { it.copy(togglingItemIds = it.togglingItemIds + itemId, errorMessage = null) }
+            try {
+                when (val result = wardrobeRepository.setBarterAllowed(userId, itemId, !currentAllowed)) {
+                    is WardrobeMutationResult.Success -> {
+                        _uiState.update { it.copy(errorMessage = null) }
+                    }
+                    is WardrobeMutationResult.LockedInActiveMatch -> {
+                        _uiState.update {
+                            it.copy(errorMessage = "Pakaian sedang terikat Match aktif dan tidak dapat diubah izin barternya.")
+                        }
+                    }
+                    is WardrobeMutationResult.ValidationFailed -> {
+                        _uiState.update { it.copy(errorMessage = result.message) }
+                    }
+                    else -> {
+                        _uiState.update {
+                            it.copy(errorMessage = "Gagal mengubah izin barter pakaian. Periksa koneksi internet Anda.")
+                        }
                     }
                 }
-                is WardrobeMutationResult.ValidationFailed -> {
-                    _uiState.update { it.copy(errorMessage = result.message) }
-                }
-                else -> {
-                    _uiState.update {
-                        it.copy(errorMessage = "Gagal mengubah izin barter pakaian. Periksa koneksi internet Anda.")
-                    }
-                }
+            } finally {
+                _uiState.update { it.copy(togglingItemIds = it.togglingItemIds - itemId) }
             }
         }
     }
@@ -109,29 +117,36 @@ class WardrobeViewModel(
     }
 
     fun confirmDelete() {
-        val item = _uiState.value.itemPendingDelete ?: return
-        val userId = _uiState.value.currentUserId ?: return
+        val state = _uiState.value
+        if (state.isDeleting) return
+        val item = state.itemPendingDelete ?: return
+        val userId = state.currentUserId ?: return
         viewModelScope.launch {
-            when (val res = wardrobeRepository.softDeleteClothingItem(userId, item.id)) {
-                is WardrobeMutationResult.Success -> {
-                    _uiState.update { it.copy(itemPendingDelete = null) }
-                }
-                is WardrobeMutationResult.LockedInActiveMatch -> {
-                    _uiState.update {
-                        it.copy(
-                            itemPendingDelete = null,
-                            errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif."
-                        )
+            _uiState.update { it.copy(isDeleting = true, errorMessage = null) }
+            try {
+                when (wardrobeRepository.softDeleteClothingItem(userId, item.id)) {
+                    is WardrobeMutationResult.Success -> {
+                        _uiState.update { it.copy(itemPendingDelete = null) }
+                    }
+                    is WardrobeMutationResult.LockedInActiveMatch -> {
+                        _uiState.update {
+                            it.copy(
+                                itemPendingDelete = null,
+                                errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif."
+                            )
+                        }
+                    }
+                    else -> {
+                        _uiState.update {
+                            it.copy(
+                                itemPendingDelete = null,
+                                errorMessage = "Gagal menghapus pakaian."
+                            )
+                        }
                     }
                 }
-                else -> {
-                    _uiState.update {
-                        it.copy(
-                            itemPendingDelete = null,
-                            errorMessage = "Gagal menghapus pakaian."
-                        )
-                    }
-                }
+            } finally {
+                _uiState.update { it.copy(isDeleting = false) }
             }
         }
     }

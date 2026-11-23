@@ -14,7 +14,8 @@ data class UserProfile(
     val preferredRadiusKm: Int,
     val createdAt: Long,
     val averageRating: Double = 0.0,
-    val reviewCount: Int = 0
+    val reviewCount: Int = 0,
+    val distanceKm: Int? = null
 ) {
     val isLowCredibility: Boolean
         get() = reviewCount >= 1 && averageRating < 3.0

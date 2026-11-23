@@ -7,6 +7,7 @@ import com.example.cloble.domain.model.ClothingDraft
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
+import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.NotificationFeedItem
@@ -37,10 +38,13 @@ import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.result.SendMessageResult
 import com.example.cloble.domain.result.WardrobeMutationResult
 import com.example.cloble.ui.screens.chat.ConversationViewModel
+import com.example.cloble.ui.screens.discover.ItemDetailViewModel
 import com.example.cloble.ui.screens.preferences.PreferencesViewModel
 import com.example.cloble.ui.screens.profile.EditProfileViewModel
+import com.example.cloble.ui.screens.profile.MyProfileViewModel
 import com.example.cloble.ui.screens.review.RateUserViewModel
 import com.example.cloble.ui.screens.wardrobe.AddEditClothingViewModel
+import com.example.cloble.ui.screens.wardrobe.WardrobeViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -123,6 +127,9 @@ class ViewModelHardeningUnitTest {
     )
 
     private class FakeAuthRepo(private val profile: UserProfile) : AuthRepository {
+        var changePasswordCalls = 0
+        var changePasswordGate: CompletableDeferred<Unit>? = null
+
         override fun observeLoggedInUserId(): Flow<Long?> = flowOf(profile.id)
         override fun observeCurrentUser(): Flow<UserProfile?> = flowOf(profile)
         override suspend fun login(email: String, rawPassword: String): AuthResult = AuthResult.Success(profile.id)
@@ -130,8 +137,11 @@ class ViewModelHardeningUnitTest {
             RequestPasswordResetOtpResult.Success
         override suspend fun verifyOtpAndResetPassword(email: String, otpCode: String, newRawPassword: String): ResetPasswordResult =
             ResetPasswordResult.Success
-        override suspend fun changePassword(currentRawPassword: String, newRawPassword: String): ChangePasswordResult =
-            ChangePasswordResult.Success
+        override suspend fun changePassword(currentRawPassword: String, newRawPassword: String): ChangePasswordResult {
+            changePasswordCalls++
+            changePasswordGate?.await()
+            return ChangePasswordResult.Success
+        }
         override suspend fun register(
             name: String,
             email: String,
@@ -145,11 +155,14 @@ class ViewModelHardeningUnitTest {
 
     private class FakeWardrobeRepo(private val existing: ClothingItem?) : WardrobeRepository {
         var addCalls = 0
+        var barterCalls = 0
         var deleteCalls = 0
         var addGate: CompletableDeferred<Unit>? = null
+        var barterGate: CompletableDeferred<Unit>? = null
         var deleteGate: CompletableDeferred<Unit>? = null
+        var myWardrobeItems: List<WardrobeItemSummary> = emptyList()
 
-        override fun observeMyWardrobe(ownerId: Long): Flow<List<WardrobeItemSummary>> = flowOf(emptyList())
+        override fun observeMyWardrobe(ownerId: Long): Flow<List<WardrobeItemSummary>> = flowOf(myWardrobeItems)
         override fun observeUserPublicWardrobe(ownerId: Long): Flow<List<WardrobeItemSummary>> = flowOf(emptyList())
         override fun observeClothingItem(itemId: Long): Flow<ClothingItem?> = flowOf(existing)
         override suspend fun getClothingItem(itemId: Long): ClothingItem? = existing
@@ -164,8 +177,11 @@ class ViewModelHardeningUnitTest {
         override suspend fun updateClothingItem(actorUserId: Long, itemId: Long, draft: ClothingDraft): WardrobeMutationResult =
             WardrobeMutationResult.Success(itemId)
 
-        override suspend fun setBarterAllowed(actorUserId: Long, itemId: Long, allowed: Boolean): WardrobeMutationResult =
-            WardrobeMutationResult.Success(itemId)
+        override suspend fun setBarterAllowed(actorUserId: Long, itemId: Long, allowed: Boolean): WardrobeMutationResult {
+            barterCalls++
+            barterGate?.await()
+            return WardrobeMutationResult.Success(itemId)
+        }
 
         override suspend fun softDeleteClothingItem(actorUserId: Long, itemId: Long): WardrobeMutationResult {
             deleteCalls++
@@ -186,8 +202,9 @@ class ViewModelHardeningUnitTest {
         var updateProfileGate: CompletableDeferred<Unit>? = null
         var updatePrefsGate: CompletableDeferred<Unit>? = null
         var submitReviewGate: CompletableDeferred<Unit>? = null
+        var profileMap: Map<Long, UserProfile> = emptyMap()
 
-        override fun observeUserProfile(userId: Long, viewerUserId: Long?): Flow<UserProfile?> = flowOf(null)
+        override fun observeUserProfile(userId: Long, viewerUserId: Long?): Flow<UserProfile?> = flowOf(profileMap[userId])
         override fun observeUserReviews(userId: Long): Flow<List<UserReview>> = flowOf(emptyList())
         override fun hasUserReviewedMatch(matchId: Long, reviewerId: Long): Flow<Boolean> = flowOf(false)
 
@@ -219,18 +236,25 @@ class ViewModelHardeningUnitTest {
     }
 
     private class FakeDiscoveryMatchRepo(private val detail: VerifiedMatchDetail) : DiscoveryMatchRepository {
+        var outgoingList: List<OutgoingInterestSummary> = emptyList()
+        var cancelInterestCalls = 0
+        var cancelInterestGate: CompletableDeferred<Unit>? = null
+
         override fun observeDiscoverCandidates(viewerUserId: Long, filter: DiscoverFilter): Flow<List<DiscoverCandidate>> =
             flowOf(emptyList())
         override fun observeMatchDetail(matchId: Long, viewerUserId: Long): Flow<VerifiedMatchDetail?> = flowOf(detail)
         override fun observeNotifications(userId: Long): Flow<List<NotificationFeedItem>> = flowOf(emptyList())
         override fun observeUnreadNotificationCount(userId: Long): Flow<Int> = flowOf(0)
-        override fun observeOutgoingInterests(userId: Long): Flow<List<OutgoingInterestSummary>> = flowOf(emptyList())
+        override fun observeOutgoingInterests(userId: Long): Flow<List<OutgoingInterestSummary>> = flowOf(outgoingList)
         override fun observePassedClothing(userId: Long): Flow<List<PassedClothingSummary>> = flowOf(emptyList())
         override suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean = true
         override suspend fun sendInterest(senderId: Long, targetItemId: Long): SendInterestResult =
             SendInterestResult.Success(1L)
-        override suspend fun cancelOutgoingInterest(userId: Long, interestId: Long): CancelInterestResult =
-            CancelInterestResult.Success
+        override suspend fun cancelOutgoingInterest(userId: Long, interestId: Long): CancelInterestResult {
+            cancelInterestCalls++
+            cancelInterestGate?.await()
+            return CancelInterestResult.Success
+        }
         override suspend fun convertPassToInterest(userId: Long, targetItemId: Long): SendInterestResult =
             SendInterestResult.Success(1L)
         override suspend fun restorePassToDiscover(userId: Long, targetItemId: Long): Boolean = true
@@ -409,5 +433,121 @@ class ViewModelHardeningUnitTest {
 
         chatRepo.messagesFlow.value = listOf(ownMsg, incomingUnread)
         assertEquals(2, chatRepo.markReadCalls.size)
+    }
+
+    @Test
+    fun myProfileViewModel_guardsDoubleSubmitChangePassword() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val authRepo = FakeAuthRepo(sampleProfile()).apply { changePasswordGate = gate }
+        val profileRepo = FakeProfileReviewRepo()
+        val vm = MyProfileViewModel(
+            authRepository = authRepo,
+            profileReviewRepository = profileRepo,
+            wardrobeRepository = FakeWardrobeRepo(null),
+            discoveryMatchRepository = FakeDiscoveryMatchRepo(sampleMatchDetail())
+        )
+        vm.openChangePasswordDialog()
+        vm.onCurrentPasswordChanged("OldPass123!")
+        vm.onNewPasswordChanged("NewPass123!")
+        vm.onConfirmPasswordChanged("NewPass123!")
+
+        vm.submitChangePassword()
+        assertTrue(vm.uiState.value.isUpdatingPassword)
+        vm.submitChangePassword()
+        assertEquals(1, authRepo.changePasswordCalls)
+
+        gate.complete(Unit)
+        assertFalse(vm.uiState.value.isUpdatingPassword)
+        assertFalse(vm.uiState.value.showChangePasswordDialog)
+    }
+
+    @Test
+    fun wardrobeViewModel_guardsDoubleToggleAndDoubleDelete() = runTest {
+        val barterGate = CompletableDeferred<Unit>()
+        val deleteGate = CompletableDeferred<Unit>()
+        val item = sampleClothingItem(77L)
+        val wardrobeRepo = FakeWardrobeRepo(item).apply {
+            this.barterGate = barterGate
+            this.deleteGate = deleteGate
+            myWardrobeItems = listOf(WardrobeItemSummary(item = item, isInActiveMatch = false))
+        }
+        val vm = WardrobeViewModel(
+            authRepository = FakeAuthRepo(sampleProfile()),
+            wardrobeRepository = wardrobeRepo,
+            discoveryMatchRepository = FakeDiscoveryMatchRepo(sampleMatchDetail())
+        )
+
+        vm.toggleBarterAllowed(77L, true)
+        assertTrue(77L in vm.uiState.value.togglingItemIds)
+        vm.toggleBarterAllowed(77L, true)
+        assertEquals(1, wardrobeRepo.barterCalls)
+        barterGate.complete(Unit)
+        assertFalse(77L in vm.uiState.value.togglingItemIds)
+
+        vm.requestDelete(item)
+        vm.confirmDelete()
+        assertTrue(vm.uiState.value.isDeleting)
+        vm.confirmDelete()
+        assertEquals(1, wardrobeRepo.deleteCalls)
+        deleteGate.complete(Unit)
+        assertFalse(vm.uiState.value.isDeleting)
+    }
+
+    @Test
+    fun itemDetailViewModel_usesServerDistanceKmAndGuardsDoubleCancel() = runTest {
+        val viewer = sampleProfile()
+        val owner = sampleProfile().copy(
+            id = 20L,
+            name = "Pemilik",
+            email = "",
+            city = "Kelurahan Tanpa Preset",
+            latitude = 0.0,
+            longitude = 0.0,
+            distanceKm = 14
+        )
+        val ownerItem = sampleClothingItem(88L).copy(ownerId = 20L)
+        val cancelGate = CompletableDeferred<Unit>()
+        val profileRepo = FakeProfileReviewRepo().apply {
+            profileMap = mapOf(viewer.id to viewer, owner.id to owner)
+        }
+        val discoveryRepo = FakeDiscoveryMatchRepo(sampleMatchDetail()).apply {
+            cancelInterestGate = cancelGate
+            outgoingList = listOf(
+                OutgoingInterestSummary(
+                    interestId = 301L,
+                    targetItemId = 88L,
+                    targetItemName = ownerItem.name,
+                    targetItemCategory = ownerItem.category,
+                    targetItemPhotoUri = null,
+                    targetItemStatus = ItemStatus.AVAILABLE,
+                    ownerId = 20L,
+                    ownerName = "Pemilik",
+                    ownerCity = owner.city,
+                    interestStatus = InterestStatus.PENDING,
+                    createdAt = 1700000000000L,
+                    matchId = null,
+                    matchStatus = null
+                )
+            )
+        }
+
+        val vm = ItemDetailViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to 88L)),
+            authRepository = FakeAuthRepo(viewer),
+            wardrobeRepository = FakeWardrobeRepo(ownerItem),
+            profileReviewRepository = profileRepo,
+            discoveryMatchRepository = discoveryRepo
+        )
+
+        assertEquals(14, vm.uiState.value.distanceKm)
+        assertEquals(301L, vm.uiState.value.existingInterestId)
+
+        vm.cancelPendingInterest()
+        assertTrue(vm.uiState.value.isCancellingInterest)
+        vm.cancelPendingInterest()
+        assertEquals(1, discoveryRepo.cancelInterestCalls)
+
+        cancelGate.complete(Unit)
+        assertFalse(vm.uiState.value.isCancellingInterest)
     }
 }
