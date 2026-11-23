@@ -9,6 +9,7 @@ import com.example.cloble.domain.model.UserReview
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.ReviewSubmitResult
+import com.example.cloble.domain.util.DistanceCalculator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -78,12 +79,17 @@ class SupabaseProfileReviewRepository(
 
     override suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean {
         return try {
+            val (effectiveLat, effectiveLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                city = prefs.city,
+                latitude = prefs.latitude,
+                longitude = prefs.longitude
+            )
             val body = JSONObject().apply {
                 put("p_preferred_size", prefs.preferredSize)
                 put("p_preferred_gender", prefs.preferredGender)
                 put("p_city", prefs.city)
-                put("p_latitude", prefs.latitude)
-                put("p_longitude", prefs.longitude)
+                put("p_latitude", effectiveLat)
+                put("p_longitude", effectiveLon)
                 put("p_preferred_radius_km", prefs.preferredRadiusKm)
             }
             val resp = client.rpc("rpc_update_preferences", body)
@@ -116,13 +122,19 @@ class SupabaseProfileReviewRepository(
         val cleanName = update.name.trim()
         if (cleanName.isEmpty()) return false
         return try {
+            val cleanCity = update.city.trim()
+            val (effectiveLat, effectiveLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                city = cleanCity,
+                latitude = update.latitude,
+                longitude = update.longitude
+            )
             val body = JSONObject().apply {
                 put("p_name", cleanName)
                 put("p_bio", update.bio.trim())
                 put("p_avatar_uri", update.avatarUri ?: JSONObject.NULL)
-                put("p_city", update.city.trim())
-                put("p_latitude", update.latitude)
-                put("p_longitude", update.longitude)
+                put("p_city", cleanCity)
+                put("p_latitude", effectiveLat)
+                put("p_longitude", effectiveLon)
                 put("p_preferred_size", update.preferredSize)
                 put("p_preferred_gender", update.preferredGender)
                 put("p_preferred_radius_km", update.preferredRadiusKm)

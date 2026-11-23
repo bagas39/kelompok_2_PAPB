@@ -54,14 +54,15 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
 
         val app = applicationContext as? CloBleApplication
         serviceScope.launch {
-            val effectiveUserId = targetUserId
-                ?: app?.container?.authRepository?.observeLoggedInUserId()?.firstOrNull()
+            val loggedInUserId = app?.container?.authRepository?.observeLoggedInUserId()?.firstOrNull()
+            if (loggedInUserId == null || (targetUserId != null && targetUserId != loggedInUserId)) {
+                return@launch
+            }
 
             val shouldSkipNotification = destination == "notifications" &&
                 notifLongId != null &&
                 notifLongId > 0L &&
-                effectiveUserId != null &&
-                SystemNotificationHelper.hasBeenNotified(applicationContext, effectiveUserId, notifLongId)
+                SystemNotificationHelper.hasBeenNotified(applicationContext, loggedInUserId, notifLongId)
 
             if (!shouldSkipNotification) {
                 val posted = SystemNotificationHelper.showNotification(
@@ -75,19 +76,16 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
                 if (posted &&
                     destination == "notifications" &&
                     notifLongId != null &&
-                    notifLongId > 0L &&
-                    effectiveUserId != null
+                    notifLongId > 0L
                 ) {
-                    SystemNotificationHelper.markAsNotified(applicationContext, effectiveUserId, notifLongId)
+                    SystemNotificationHelper.markAsNotified(applicationContext, loggedInUserId, notifLongId)
                 }
             }
 
-            if (app != null) {
-                app.container.dataInvalidator.invalidateNotifications()
-                app.container.dataInvalidator.invalidateChat()
-                app.container.dataInvalidator.invalidateDiscovery()
-                app.container.dataInvalidator.invalidateWardrobe()
-            }
+            app.container.dataInvalidator.invalidateNotifications()
+            app.container.dataInvalidator.invalidateChat()
+            app.container.dataInvalidator.invalidateDiscovery()
+            app.container.dataInvalidator.invalidateWardrobe()
         }
     }
 

@@ -122,12 +122,12 @@ fun NotificationsScreen(
                             item.counterpartUserId != null &&
                             item.relatedInterestId != null -> {
                             Modifier.clickable {
+                                viewModel.markNotificationRead(item.id)
                                 onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
                             }
                         }
                         item.type == NotificationType.MATCH_VERIFIED &&
-                            item.relatedMatchId != null &&
-                            (item.matchStatus == null || item.matchStatus == MatchStatus.ACTIVE) -> {
+                            item.relatedMatchId != null -> {
                             Modifier.clickable {
                                 onNavigateToConversation(item.relatedMatchId)
                             }
@@ -192,6 +192,7 @@ fun NotificationsScreen(
                                         CloBlePrimaryButton(
                                             text = "Pilih Pakaian Barter",
                                             onClick = {
+                                                viewModel.markNotificationRead(item.id)
                                                 onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
                                             },
                                             modifier = Modifier
@@ -221,6 +222,18 @@ fun NotificationsScreen(
                                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                                                 color = CloBleColors.SuccessText
                                             )
+                                            if (!item.hasReviewedMatch && item.relatedMatchId != null && item.counterpartUserId != null) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                CloBleOutlinedButton(
+                                                    text = "Beri Ulasan",
+                                                    onClick = {
+                                                        onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .testTag("btn_rate_match_${item.id}")
+                                                )
+                                            }
                                         }
                                         else -> {
                                             if (item.relatedMatchId != null) {

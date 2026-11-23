@@ -4,6 +4,7 @@ import android.os.Build
 import com.example.cloble.data.local.session.SessionPreferencesDataSource
 import com.example.cloble.domain.repository.FcmRepository
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -20,6 +21,7 @@ class SupabaseFcmRepository(
         sessionPrefs.setFcmToken(token)
 
         try {
+            ensureSessionTokenLoaded()
             val body = JSONObject().apply {
                 put("p_token", token)
                 put("p_device_info", "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})")
@@ -32,6 +34,7 @@ class SupabaseFcmRepository(
     override suspend fun unregisterCurrentToken() {
         val token = sessionPrefs.getFcmTokenOnce() ?: return
         try {
+            ensureSessionTokenLoaded()
             val body = JSONObject().apply {
                 put("p_token", token)
             }
@@ -45,6 +48,7 @@ class SupabaseFcmRepository(
         val currentUserId = sessionPrefs.getLoggedInUserIdOnce()
         if (currentUserId != null) {
             try {
+                ensureSessionTokenLoaded()
                 val body = JSONObject().apply {
                     put("p_token", token)
                     put("p_device_info", "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})")
@@ -52,6 +56,13 @@ class SupabaseFcmRepository(
                 client.rpc("rpc_register_fcm_token", body)
             } catch (_: Exception) {
             }
+        }
+    }
+
+    private suspend fun ensureSessionTokenLoaded() {
+        val token = sessionPrefs.sessionTokenFlow.firstOrNull()
+        if (!token.isNullOrBlank()) {
+            client.setSessionToken(token)
         }
     }
 

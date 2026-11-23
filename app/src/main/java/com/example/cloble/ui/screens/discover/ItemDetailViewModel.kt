@@ -62,13 +62,19 @@ class ItemDetailViewModel(
 
     private val _uiState = MutableStateFlow(ItemDetailUiState(itemId = rawItemId))
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     init {
         loadDetail()
     }
 
+    fun refreshDetail() {
+        loadDetail()
+    }
+
     private fun loadDetail() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull()
             val viewerProfile = if (currentUserId != null) {
                 profileReviewRepository.observeUserProfile(currentUserId).firstOrNull()
@@ -108,19 +114,22 @@ class ItemDetailViewModel(
                 val isItemLocked = wardrobeRepository.isItemLocked(item.id)
                 val lockedByOther = !isOwn && (
                     outgoing?.isLockedByOtherMatch == true ||
-                        (outgoing?.matchId == null && isItemLocked)
-                )
+                        ((outgoing?.matchId == null || outgoing.matchStatus == MatchStatus.CANCELLED) && isItemLocked)
+                    )
                 val itemUnavailable = !isOwn && (
                     item.status != ItemStatus.AVAILABLE ||
                         !item.isBarterAllowed ||
                         isItemLocked
-                )
+                    )
                 val canReofferAfterCancelled = outgoing?.matchStatus == MatchStatus.CANCELLED &&
                     !lockedByOther &&
                     !itemUnavailable
                 val canReofferAfterInvalidated = outgoing?.interestStatus == InterestStatus.INVALIDATED &&
                     !lockedByOther &&
                     !itemUnavailable
+                val shouldClearBarterPrompt = _uiState.value.requiresBarterItemCta &&
+                    currentUserId != null &&
+                    wardrobeRepository.countEligibleBarterItems(currentUserId) > 0
 
                 _uiState.update {
                     it.copy(
@@ -137,6 +146,8 @@ class ItemDetailViewModel(
                         isLockedByOtherMatch = lockedByOther,
                         isItemUnavailable = itemUnavailable,
                         interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
+                        requiresBarterItemCta = if (shouldClearBarterPrompt) false else it.requiresBarterItemCta,
+                        errorMessage = if (shouldClearBarterPrompt) null else it.errorMessage,
                         isLoading = false
                     )
                 }

@@ -239,13 +239,14 @@ fun WardrobeScreen(
                     items(uiState.items, key = { it.item.id }) { summary ->
                         val item = summary.item
                         val badge = when {
+                            item.status == ItemStatus.EXCHANGED -> WardrobeBarterBadge.EXCHANGED
                             summary.isInActiveMatch -> WardrobeBarterBadge.IN_ACTIVE_MATCH
                             item.isBarterAllowed -> WardrobeBarterBadge.ALLOWED
                             else -> WardrobeBarterBadge.NOT_FOR_BARTER
                         }
 
                         val statusNote = when {
-                            item.status == ItemStatus.EXCHANGED -> "Sudah Ditukar"
+                            item.status == ItemStatus.EXCHANGED -> null
                             summary.interestedSenderNames.isNotEmpty() ->
                                 "Diminati: ${summary.interestedSenderNames.joinToString(", ")}"
                             else -> null

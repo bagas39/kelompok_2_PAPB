@@ -83,7 +83,7 @@ fun EditProfileScreen(
         }
     }
 
-    val sizeOptions = listOf("XS", "S", "M", "L", "XL", "XXL", "Semua")
+    val sizeOptions = CloBleConstants.SIZES + "Semua"
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
 
     Scaffold(

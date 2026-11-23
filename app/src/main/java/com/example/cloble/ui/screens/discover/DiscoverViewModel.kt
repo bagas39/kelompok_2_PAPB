@@ -11,6 +11,7 @@ import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
+import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.SendInterestResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -71,7 +72,8 @@ class DiscoverViewModel(
     private val authRepository: AuthRepository,
     private val discoveryMatchRepository: DiscoveryMatchRepository,
     private val discoverFilterFlow: MutableStateFlow<DiscoverFilter> = MutableStateFlow(DiscoverFilter()),
-    private val dataInvalidator: SupabaseDataInvalidator? = null
+    private val dataInvalidator: SupabaseDataInvalidator? = null,
+    private val wardrobeRepository: WardrobeRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DiscoverUiState(filter = discoverFilterFlow.value))
@@ -145,6 +147,20 @@ class DiscoverViewModel(
 
     fun refreshDiscover() {
         dataInvalidator?.invalidateDiscovery()
+        val current = _uiState.value
+        val userId = current.currentUserId
+        if (current.requiresBarterItemCta && userId != null && wardrobeRepository != null) {
+            viewModelScope.launch {
+                if (wardrobeRepository.countEligibleBarterItems(userId) > 0) {
+                    _uiState.update {
+                        it.copy(
+                            bannerMessage = null,
+                            requiresBarterItemCta = false
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun passCurrentCandidate() {
@@ -298,7 +314,8 @@ class DiscoverViewModel(
                     authRepository = app.container.authRepository,
                     discoveryMatchRepository = app.container.discoveryMatchRepository,
                     discoverFilterFlow = app.container.discoverFilterFlow,
-                    dataInvalidator = app.container.dataInvalidator
+                    dataInvalidator = app.container.dataInvalidator,
+                    wardrobeRepository = app.container.wardrobeRepository
                 )
             }
         }

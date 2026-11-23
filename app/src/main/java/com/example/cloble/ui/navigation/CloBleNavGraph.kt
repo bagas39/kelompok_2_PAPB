@@ -258,7 +258,7 @@ fun CloBleNavGraph(
                     },
                     onNavigateToWardrobe = {
                         navController.navigate(CloBleDestinations.WARDROBE) {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -268,14 +268,14 @@ fun CloBleNavGraph(
                     },
                     onNavigateToDiscover = {
                         navController.navigate(CloBleDestinations.DISCOVER) {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
                     },
                     onNavigateToChatList = {
                         navController.navigate(CloBleDestinations.CHAT_LIST) {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -311,21 +311,21 @@ fun CloBleNavGraph(
                 },
                 onNavigateToDiscover = {
                     navController.navigate(CloBleDestinations.DISCOVER) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToChatList = {
                     navController.navigate(CloBleDestinations.CHAT_LIST) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToProfile = {
                     navController.navigate(CloBleDestinations.MY_PROFILE) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
@@ -375,21 +375,21 @@ fun CloBleNavGraph(
                 },
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToChatList = {
                     navController.navigate(CloBleDestinations.CHAT_LIST) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToProfile = {
                     navController.navigate(CloBleDestinations.MY_PROFILE) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
@@ -435,7 +435,13 @@ fun CloBleNavGraph(
                     navController.navigate(CloBleDestinations.otherUserProfileRoute(ownerId))
                 },
                 onNavigateToWardrobe = {
-                    navController.navigate(CloBleDestinations.WARDROBE)
+                    navController.navigate(CloBleDestinations.WARDROBE) {
+                        popUpTo(CloBleDestinations.DISCOVER) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 },
                 onNavigateToMatch = { matchId ->
                     navController.navigate(CloBleDestinations.matchedRoute(matchId))
@@ -506,21 +512,21 @@ fun CloBleNavGraph(
                 },
                 onNavigateToDiscover = {
                     navController.navigate(CloBleDestinations.DISCOVER) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
                 onNavigateToProfile = {
                     navController.navigate(CloBleDestinations.MY_PROFILE) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(CloBleDestinations.DISCOVER) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }

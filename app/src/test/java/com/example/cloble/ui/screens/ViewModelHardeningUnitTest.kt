@@ -11,6 +11,7 @@ import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.NotificationFeedItem
+import com.example.cloble.domain.model.NotificationType
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
 import com.example.cloble.domain.model.UserPreferences
@@ -39,6 +40,7 @@ import com.example.cloble.domain.result.SendMessageResult
 import com.example.cloble.domain.result.WardrobeMutationResult
 import com.example.cloble.ui.screens.chat.ConversationViewModel
 import com.example.cloble.ui.screens.discover.ItemDetailViewModel
+import com.example.cloble.ui.screens.notifications.NotificationsViewModel
 import com.example.cloble.ui.screens.preferences.PreferencesViewModel
 import com.example.cloble.ui.screens.profile.EditProfileViewModel
 import com.example.cloble.ui.screens.profile.MyProfileViewModel
@@ -50,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -239,11 +242,16 @@ class ViewModelHardeningUnitTest {
         var outgoingList: List<OutgoingInterestSummary> = emptyList()
         var cancelInterestCalls = 0
         var cancelInterestGate: CompletableDeferred<Unit>? = null
+        var customMatchDetailProvider: ((Long) -> Flow<VerifiedMatchDetail?>)? = null
+        val notificationsFlow = MutableStateFlow<List<NotificationFeedItem>>(emptyList())
+        var markNotificationsReadCalls = 0
+        val markNotificationReadByIdCalls = mutableListOf<Long>()
 
         override fun observeDiscoverCandidates(viewerUserId: Long, filter: DiscoverFilter): Flow<List<DiscoverCandidate>> =
             flowOf(emptyList())
-        override fun observeMatchDetail(matchId: Long, viewerUserId: Long): Flow<VerifiedMatchDetail?> = flowOf(detail)
-        override fun observeNotifications(userId: Long): Flow<List<NotificationFeedItem>> = flowOf(emptyList())
+        override fun observeMatchDetail(matchId: Long, viewerUserId: Long): Flow<VerifiedMatchDetail?> =
+            customMatchDetailProvider?.invoke(matchId) ?: flowOf(detail)
+        override fun observeNotifications(userId: Long): Flow<List<NotificationFeedItem>> = notificationsFlow
         override fun observeUnreadNotificationCount(userId: Long): Flow<Int> = flowOf(0)
         override fun observeOutgoingInterests(userId: Long): Flow<List<OutgoingInterestSummary>> = flowOf(outgoingList)
         override fun observePassedClothing(userId: Long): Flow<List<PassedClothingSummary>> = flowOf(emptyList())
@@ -265,18 +273,24 @@ class ViewModelHardeningUnitTest {
         override suspend fun cancelMatch(matchId: Long, actorUserId: Long): CancelMatchResult = CancelMatchResult.Success
         override suspend fun completeMatchExchange(matchId: Long, actorUserId: Long, meetingLocation: String?): CompleteMatchResult =
             CompleteMatchResult.Success
-        override suspend fun markNotificationsRead(userId: Long) {}
-        override suspend fun markNotificationReadById(notificationId: Long) {}
+        override suspend fun markNotificationsRead(userId: Long) {
+            markNotificationsReadCalls++
+        }
+        override suspend fun markNotificationReadById(notificationId: Long) {
+            markNotificationReadByIdCalls.add(notificationId)
+        }
     }
 
     private class FakeChatRepo : ChatRepository {
         val messagesFlow = MutableStateFlow<List<ChatMessage>>(emptyList())
+        var customMessageFlowProvider: ((Long) -> Flow<List<ChatMessage>>)? = null
         val markReadCalls = mutableListOf<Pair<Long, Long>>()
 
         override fun observeChatThreads(userId: Long): Flow<List<ChatThreadSummary>> = flowOf(emptyList())
         override fun observePartnerMatches(userId: Long, partnerUserId: Long): Flow<List<ChatThreadSummary>> =
             flowOf(emptyList())
-        override fun observeMessages(matchId: Long, viewerUserId: Long): Flow<List<ChatMessage>> = messagesFlow
+        override fun observeMessages(matchId: Long, viewerUserId: Long): Flow<List<ChatMessage>> =
+            customMessageFlowProvider?.invoke(matchId) ?: messagesFlow
         override suspend fun sendMessage(matchId: Long, senderId: Long, text: String): SendMessageResult =
             SendMessageResult.Success(1L)
         override suspend fun markMessagesRead(matchId: Long, viewerUserId: Long) {
@@ -549,5 +563,89 @@ class ViewModelHardeningUnitTest {
 
         cancelGate.complete(Unit)
         assertFalse(vm.uiState.value.isCancellingInterest)
+    }
+
+    @Test
+    fun conversationViewModel_selectMatch_clearsPreviousMessagesImmediately() = runTest {
+        val msg = ChatMessage(
+            id = 1L,
+            matchId = 99L,
+            senderId = 10L,
+            senderName = "Bagas",
+            messageText = "Pesan lama",
+            isRead = true,
+            sentAt = 100L,
+            isFromMe = true
+        )
+        val chatRepo = FakeChatRepo().apply {
+            customMessageFlowProvider = { matchId ->
+                if (matchId == 99L) flowOf(listOf(msg)) else flow { }
+            }
+        }
+        val discoveryRepo = FakeDiscoveryMatchRepo(sampleMatchDetail(99L)).apply {
+            customMatchDetailProvider = { matchId ->
+                if (matchId == 99L) flowOf(sampleMatchDetail(99L)) else flow { }
+            }
+        }
+        val vm = ConversationViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("matchId" to 99L)),
+            authRepository = FakeAuthRepo(sampleProfile()),
+            discoveryMatchRepository = discoveryRepo,
+            chatRepository = chatRepo,
+            profileReviewRepository = FakeProfileReviewRepo()
+        )
+        assertEquals(1, vm.uiState.value.messages.size)
+        assertFalse(vm.uiState.value.isLoading)
+
+        vm.selectMatch(100L)
+
+        assertEquals(100L, vm.uiState.value.activeMatchId)
+        assertTrue(vm.uiState.value.messages.isEmpty())
+        assertTrue(vm.uiState.value.isLoading)
+    }
+
+    @Test
+    fun notificationsViewModel_skipsAutoMarkReadForActionableIncomingInterestAndSupportsMarkById() = runTest {
+        val discoveryRepo = FakeDiscoveryMatchRepo(sampleMatchDetail())
+        val actionableIncoming = NotificationFeedItem(
+            id = 1L,
+            userId = 10L,
+            type = NotificationType.INCOMING_INTEREST,
+            title = "Rina tertarik",
+            body = "Pilih baju",
+            relatedInterestId = 50L,
+            relatedMatchId = null,
+            isRead = false,
+            createdAt = 100L,
+            canReplyToInterest = true
+        )
+        val matchNotif = NotificationFeedItem(
+            id = 2L,
+            userId = 10L,
+            type = NotificationType.MATCH_VERIFIED,
+            title = "Match baru",
+            body = "Siap chat",
+            relatedInterestId = 50L,
+            relatedMatchId = 99L,
+            isRead = false,
+            createdAt = 200L
+        )
+
+        val vm = NotificationsViewModel(
+            authRepository = FakeAuthRepo(sampleProfile()),
+            discoveryMatchRepository = discoveryRepo
+        )
+
+        discoveryRepo.notificationsFlow.value = listOf(actionableIncoming)
+        assertEquals(0, discoveryRepo.markNotificationsReadCalls)
+
+        discoveryRepo.notificationsFlow.value = listOf(actionableIncoming, matchNotif)
+        assertEquals(1, discoveryRepo.markNotificationsReadCalls)
+
+        discoveryRepo.notificationsFlow.value = listOf(actionableIncoming, matchNotif)
+        assertEquals(1, discoveryRepo.markNotificationsReadCalls)
+
+        vm.markNotificationRead(1L)
+        assertEquals(listOf(1L), discoveryRepo.markNotificationReadByIdCalls)
     }
 }

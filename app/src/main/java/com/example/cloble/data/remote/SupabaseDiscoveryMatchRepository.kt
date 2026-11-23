@@ -391,9 +391,9 @@ class SupabaseDiscoveryMatchRepository(
                     }
                 }
 
-                val isLockedByOther = resolvedMatchId == null && (
+                val isLockedByOther = (resolvedMatchId == null || resolvedMatchStatus == MatchStatus.CANCELLED) && (
                     otherActiveItemIds.contains(targetItemId) ||
-                        (interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
+                        (resolvedMatchId == null && interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
                     )
 
                 list.add(

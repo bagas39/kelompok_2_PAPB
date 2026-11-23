@@ -76,6 +76,7 @@ class RegisterViewModel(
 
     fun submitRegister(onSuccess: () -> Unit) {
         val s = _uiState.value
+        if (s.isSubmitting) return
         val name = s.name.trim()
         val email = s.email.trim()
         val city = s.city.trim()

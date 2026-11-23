@@ -7,6 +7,7 @@ import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.model.ItemStatus
+import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.NotificationFeedItem
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
@@ -179,7 +180,8 @@ class DiscoverAndInterestLogicUnitTest {
 
     private class FakeWardrobeRepository(
         private val item: ClothingItem?,
-        private val locked: Boolean = false
+        private val locked: Boolean = false,
+        var eligibleBarterCount: Int = 1
     ) : WardrobeRepository {
         override fun observeMyWardrobe(ownerId: Long): Flow<List<WardrobeItemSummary>> = flowOf(emptyList())
         override fun observeUserPublicWardrobe(ownerId: Long): Flow<List<WardrobeItemSummary>> = flowOf(emptyList())
@@ -194,7 +196,7 @@ class DiscoverAndInterestLogicUnitTest {
         override suspend fun softDeleteClothingItem(actorUserId: Long, itemId: Long) =
             WardrobeMutationResult.ItemNotFound
         override suspend fun persistLocalPhoto(sourceUriString: String): String? = null
-        override suspend fun countEligibleBarterItems(ownerId: Long): Int = 1
+        override suspend fun countEligibleBarterItems(ownerId: Long): Int = eligibleBarterCount
     }
 
     private class FakeProfileReviewRepository(
@@ -412,5 +414,112 @@ class DiscoverAndInterestLogicUnitTest {
         viewModel.sendInterest()
 
         assertEquals(0, repo.sendInterestCalls)
+    }
+
+    @Test
+    fun discoverViewModel_refreshDiscover_clearsRequiresBarterCtaAfterAddingEligibleItem() = runTest {
+        val candidate = DiscoverCandidate(
+            item = sampleItem(id = 105L),
+            ownerName = "Naya",
+            ownerCity = "Bandung",
+            ownerAverageRating = 4.5,
+            ownerReviewCount = 2,
+            distanceKm = 4
+        )
+        val repo = FakeDiscoveryMatchRepository(
+            candidates = listOf(candidate),
+            sendInterestResult = SendInterestResult.RequiresBarterableItemInWardrobe
+        )
+        val wardrobeRepo = FakeWardrobeRepository(item = null, eligibleBarterCount = 0)
+        val viewModel = DiscoverViewModel(
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            discoveryMatchRepository = repo,
+            wardrobeRepository = wardrobeRepo
+        )
+
+        viewModel.likeCurrentCandidate()
+        assertTrue(viewModel.uiState.value.requiresBarterItemCta)
+        assertTrue(viewModel.uiState.value.bannerMessage != null)
+
+        wardrobeRepo.eligibleBarterCount = 1
+        viewModel.refreshDiscover()
+
+        assertFalse(viewModel.uiState.value.requiresBarterItemCta)
+        assertNull(viewModel.uiState.value.bannerMessage)
+    }
+
+    @Test
+    fun itemDetail_withResolvedReceiverMatch_allowsOpeningChatAndNotLockedByOther() = runTest {
+        val targetItem = sampleItem(id = 203L, ownerId = 2L, isBarterAllowed = false, status = ItemStatus.EXCHANGED)
+        val repo = FakeDiscoveryMatchRepository(
+            outgoing = listOf(
+                OutgoingInterestSummary(
+                    interestId = 33L,
+                    targetItemId = 203L,
+                    targetItemName = targetItem.name,
+                    targetItemCategory = targetItem.category,
+                    targetItemPhotoUri = null,
+                    targetItemStatus = ItemStatus.EXCHANGED,
+                    ownerId = 2L,
+                    ownerName = "Naya",
+                    ownerCity = "Bandung",
+                    interestStatus = InterestStatus.RESOLVED_BY_MATCH,
+                    createdAt = 1000L,
+                    matchId = 88L,
+                    matchStatus = MatchStatus.COMPLETED,
+                    isLockedByOtherMatch = false
+                )
+            )
+        )
+        val viewModel = ItemDetailViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to 203L)),
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            wardrobeRepository = FakeWardrobeRepository(targetItem, locked = false),
+            profileReviewRepository = FakeProfileReviewRepository(
+                mapOf(1L to sampleUser(1L, "Raka"), 2L to sampleUser(2L, "Naya"))
+            ),
+            discoveryMatchRepository = repo
+        )
+
+        assertFalse(viewModel.uiState.value.isLockedByOtherMatch)
+        assertEquals(88L, viewModel.uiState.value.relatedMatchId)
+        assertEquals(MatchStatus.COMPLETED, viewModel.uiState.value.relatedMatchStatus)
+    }
+
+    @Test
+    fun itemDetail_withCancelledMatchAndOtherActiveMatch_marksLockedByOtherMatch() = runTest {
+        val targetItem = sampleItem(id = 204L, ownerId = 2L, isBarterAllowed = true, status = ItemStatus.AVAILABLE)
+        val repo = FakeDiscoveryMatchRepository(
+            outgoing = listOf(
+                OutgoingInterestSummary(
+                    interestId = 34L,
+                    targetItemId = 204L,
+                    targetItemName = targetItem.name,
+                    targetItemCategory = targetItem.category,
+                    targetItemPhotoUri = null,
+                    targetItemStatus = ItemStatus.AVAILABLE,
+                    ownerId = 2L,
+                    ownerName = "Naya",
+                    ownerCity = "Bandung",
+                    interestStatus = InterestStatus.ACCEPTED_MATCHED,
+                    createdAt = 1000L,
+                    matchId = 50L,
+                    matchStatus = MatchStatus.CANCELLED,
+                    isLockedByOtherMatch = true
+                )
+            )
+        )
+        val viewModel = ItemDetailViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to 204L)),
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            wardrobeRepository = FakeWardrobeRepository(targetItem, locked = true),
+            profileReviewRepository = FakeProfileReviewRepository(
+                mapOf(1L to sampleUser(1L, "Raka"), 2L to sampleUser(2L, "Naya"))
+            ),
+            discoveryMatchRepository = repo
+        )
+
+        assertTrue(viewModel.uiState.value.isLockedByOtherMatch)
+        assertFalse(viewModel.uiState.value.canReofferAfterCancelled)
     }
 }

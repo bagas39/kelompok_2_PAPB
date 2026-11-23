@@ -53,6 +53,7 @@ class MyProfileViewModel(
 
     private val _uiState = MutableStateFlow(MyProfileUiState())
     val uiState: StateFlow<MyProfileUiState> = _uiState.asStateFlow()
+    private var isLoggingOut = false
 
     init {
         viewModelScope.launch {
@@ -221,9 +222,15 @@ class MyProfileViewModel(
     }
 
     fun logout(onSuccess: () -> Unit) {
+        if (isLoggingOut) return
+        isLoggingOut = true
         viewModelScope.launch {
-            authRepository.logout()
-            onSuccess()
+            try {
+                authRepository.logout()
+                onSuccess()
+            } finally {
+                isLoggingOut = false
+            }
         }
     }
 

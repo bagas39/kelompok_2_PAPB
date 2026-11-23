@@ -31,6 +31,7 @@ import com.example.cloble.domain.result.ReviewSubmitResult
 import com.example.cloble.domain.result.SendInterestResult
 import com.example.cloble.domain.result.WardrobeMutationResult
 import com.example.cloble.ui.screens.profile.MyProfileViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -67,14 +68,29 @@ class AuthProductionViewModelUnitTest {
         var registerCalled = false
         var changePasswordCalled = false
         var resetVerifyCalled = false
+        var loginCalls = 0
+        var resetOtpCalls = 0
+        var registerCalls = 0
+        var logoutCalls = 0
+        var loginGate: CompletableDeferred<Unit>? = null
+        var resetOtpGate: CompletableDeferred<Unit>? = null
+        var registerGate: CompletableDeferred<Unit>? = null
+        var logoutGate: CompletableDeferred<Unit>? = null
 
         override fun observeLoggedInUserId(): Flow<Long?> = MutableStateFlow(10L)
         override fun observeCurrentUser(): Flow<UserProfile?> = MutableStateFlow(null)
 
-        override suspend fun login(email: String, rawPassword: String): AuthResult = loginResult
+        override suspend fun login(email: String, rawPassword: String): AuthResult {
+            loginCalls++
+            loginGate?.await()
+            return loginResult
+        }
 
-        override suspend fun requestPasswordResetOtp(email: String): RequestPasswordResetOtpResult =
-            RequestPasswordResetOtpResult.Success
+        override suspend fun requestPasswordResetOtp(email: String): RequestPasswordResetOtpResult {
+            resetOtpCalls++
+            resetOtpGate?.await()
+            return RequestPasswordResetOtpResult.Success
+        }
 
         override suspend fun verifyOtpAndResetPassword(
             email: String,
@@ -102,10 +118,15 @@ class AuthProductionViewModelUnitTest {
             longitude: Double?
         ): AuthResult {
             registerCalled = true
+            registerCalls++
+            registerGate?.await()
             return registerResult
         }
 
-        override suspend fun logout() {}
+        override suspend fun logout() {
+            logoutCalls++
+            logoutGate?.await()
+        }
     }
 
     private class StubProfileReviewRepository : ProfileReviewRepository {
@@ -276,5 +297,78 @@ class AuthProductionViewModelUnitTest {
 
         assertFalse(repo.changePasswordCalled)
         assertEquals("Password harus mengandung huruf dan angka", viewModel.uiState.value.passwordErrorMessage)
+    }
+
+    @Test
+    fun loginViewModel_guardsDoubleSubmitLoginAndDoubleRequestOtp() = runTest {
+        val loginGate = CompletableDeferred<Unit>()
+        val otpGate = CompletableDeferred<Unit>()
+        val repo = FakeAuthRepository(loginResult = AuthResult.Success(10L)).apply {
+            this.loginGate = loginGate
+            this.resetOtpGate = otpGate
+        }
+        val viewModel = LoginViewModel(repo)
+
+        viewModel.onEmailChanged("user@cloble.id")
+        viewModel.onPasswordChanged("Password123")
+        var loginCallbacks = 0
+        viewModel.submitLogin { loginCallbacks++ }
+        assertTrue(viewModel.uiState.value.isLoading)
+        viewModel.submitLogin { loginCallbacks++ }
+        assertEquals(1, repo.loginCalls)
+        loginGate.complete(Unit)
+        assertEquals(1, loginCallbacks)
+        assertFalse(viewModel.uiState.value.isLoading)
+
+        viewModel.onResetEmailChanged("user@cloble.id")
+        viewModel.requestResetOtp()
+        assertTrue(viewModel.uiState.value.isResetSubmitting)
+        viewModel.requestResetOtp()
+        assertEquals(1, repo.resetOtpCalls)
+        otpGate.complete(Unit)
+        assertFalse(viewModel.uiState.value.isResetSubmitting)
+    }
+
+    @Test
+    fun registerViewModel_guardsDoubleSubmitRegister() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeAuthRepository().apply { registerGate = gate }
+        val viewModel = RegisterViewModel(repo)
+
+        viewModel.onNameChanged("Budi")
+        viewModel.onEmailChanged("budi@cloble.id")
+        viewModel.onPasswordChanged("Budi1234")
+        viewModel.onConfirmPasswordChanged("Budi1234")
+        viewModel.onLocationSelected("Bandung", -6.9175, 107.6191)
+
+        var callbacks = 0
+        viewModel.submitRegister { callbacks++ }
+        assertTrue(viewModel.uiState.value.isSubmitting)
+        viewModel.submitRegister { callbacks++ }
+        assertEquals(1, repo.registerCalls)
+
+        gate.complete(Unit)
+        assertFalse(viewModel.uiState.value.isSubmitting)
+        assertEquals(1, callbacks)
+    }
+
+    @Test
+    fun myProfileViewModel_guardsDoubleLogout() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeAuthRepository().apply { logoutGate = gate }
+        val viewModel = MyProfileViewModel(
+            authRepository = repo,
+            profileReviewRepository = StubProfileReviewRepository(),
+            wardrobeRepository = StubWardrobeRepository(),
+            discoveryMatchRepository = StubDiscoveryMatchRepository()
+        )
+
+        var callbacks = 0
+        viewModel.logout { callbacks++ }
+        viewModel.logout { callbacks++ }
+        assertEquals(1, repo.logoutCalls)
+
+        gate.complete(Unit)
+        assertEquals(1, callbacks)
     }
 }
