@@ -20,6 +20,12 @@ import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.FcmRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 
 interface AppContainer {
@@ -67,13 +73,19 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         SessionPreferencesDataSource(context)
     }
 
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     override val authRepository: AuthRepository by lazy {
         SupabaseAuthRepository(
             client = supabaseClient,
             sessionPrefs = sessionPrefs,
             invalidator = dataInvalidator,
             offlineChatCacheDao = database.offlineChatCacheDao()
-        )
+        ).also { repository ->
+            applicationScope.launch {
+                resetDiscoverFilterOnAccountChange(repository.observeLoggedInUserId(), discoverFilterFlow)
+            }
+        }
     }
 
     override val wardrobeRepository: WardrobeRepository by lazy {
@@ -105,4 +117,11 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     override val fcmRepository: FcmRepository by lazy {
         SupabaseFcmRepository(supabaseClient, sessionPrefs)
     }
+}
+
+internal suspend fun resetDiscoverFilterOnAccountChange(
+    userIds: Flow<Long?>,
+    filters: MutableStateFlow<DiscoverFilter>
+) {
+    userIds.distinctUntilChanged().collect { filters.value = DiscoverFilter() }
 }

@@ -415,7 +415,7 @@ fun ItemDetailScreen(
                         }
                     }
 
-                    if (uiState.actionMessage != null) {
+                    if (uiState.actionMessage != null && uiState.errorMessage == null) {
                         CloBleStatusInfoBox(
                             tone = CloBleInfoBoxTone.SUCCESS,
                             title = "Informasi",
@@ -424,7 +424,7 @@ fun ItemDetailScreen(
                                 .fillMaxWidth()
                                 .testTag("detail_action_box")
                         )
-                    } else if (uiState.interestSentSuccess) {
+                    } else if (uiState.interestSentSuccess && uiState.errorMessage == null) {
                         CloBleStatusInfoBox(
                             tone = CloBleInfoBoxTone.SUCCESS,
                             title = "Tawaran Terkirim",
@@ -550,6 +550,18 @@ fun ItemDetailScreen(
                                 .testTag("btn_send_interest_from_detail")
                         )
                     }
+                } else {
+                    CloBleStatusInfoBox(
+                        tone = CloBleInfoBoxTone.WARNING,
+                        title = "Pakaian Tidak Tersedia",
+                        message = uiState.errorMessage ?: "Pakaian tidak dapat dimuat. Silakan coba lagi.",
+                        modifier = Modifier.fillMaxWidth().testTag("detail_empty_error_box")
+                    )
+                    CloBleOutlinedButton(
+                        text = "Kembali",
+                        onClick = onNavigateBack,
+                        modifier = Modifier.fillMaxWidth().testTag("btn_back_from_detail_error")
+                    )
                 }
             }
         }

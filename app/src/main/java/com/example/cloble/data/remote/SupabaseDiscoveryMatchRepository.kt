@@ -97,6 +97,8 @@ class SupabaseDiscoveryMatchRepository(
                 candidates.add(SupabaseMappers.parseDiscoverCandidate(raw, distanceKm, avg, count))
             }
             candidates
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             emptyList()
         }
@@ -228,7 +230,9 @@ class SupabaseDiscoveryMatchRepository(
                     val partnerItem = SupabaseMappers.parseClothingItem(partnerItemObj)
                     val matchStatus = try {
                         MatchStatus.valueOf(m.optString("status", "ACTIVE"))
-                    } catch (_: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                         MatchStatus.ACTIVE
                     }
                     val partnerAvatarUri = partnerObj.optString("avatarUri")
@@ -257,8 +261,9 @@ class SupabaseDiscoveryMatchRepository(
                 }
                 else -> RemoteMatchDetailResult.NotFoundOrForbidden
             }
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             RemoteMatchDetailResult.NetworkError
         }
     }
@@ -284,8 +289,8 @@ class SupabaseDiscoveryMatchRepository(
             trigger.collect { refreshTrigger.trySend(Unit) }
         }
         val realtimeJob = launch {
-            realtimeClient?.incomingMessages?.collect { (incomingTopic, _) ->
-                if (incomingTopic == userTopic || incomingTopic.startsWith("realtime:match_")) {
+            realtimeClient?.incomingMessages?.collect { (incomingTopic, payload) ->
+                if (shouldRefreshDiscoveryForRealtime(userTopic, incomingTopic, payload)) {
                     refreshTrigger.trySend(Unit)
                 }
             }
@@ -325,6 +330,8 @@ class SupabaseDiscoveryMatchRepository(
                 )
             }
             list
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             emptyList()
         }
@@ -341,6 +348,8 @@ class SupabaseDiscoveryMatchRepository(
         return try {
             val resp = client.rpc("rpc_get_unread_notification_count", JSONObject())
             if (resp.optString("code") == "SUCCESS") resp.optInt("count", 0) else 0
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             0
         }
@@ -366,6 +375,8 @@ class SupabaseDiscoveryMatchRepository(
                     activeItemIds = activeItemIds
                 )
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             emptyList()
         }
@@ -396,6 +407,8 @@ class SupabaseDiscoveryMatchRepository(
                 )
             }
             list
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             emptyList()
         }
@@ -413,6 +426,8 @@ class SupabaseDiscoveryMatchRepository(
             } else {
                 false
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
@@ -450,7 +465,9 @@ class SupabaseDiscoveryMatchRepository(
                 "ALREADY_INTERESTED" -> {
                     val status = try {
                         InterestStatus.valueOf(res.optString("existingStatus", "PENDING"))
-                    } catch (_: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                         InterestStatus.PENDING
                     }
                     SendInterestResult.AlreadyInterested(status)
@@ -462,6 +479,8 @@ class SupabaseDiscoveryMatchRepository(
                 "PAIR_ALREADY_MATCHED" -> SendInterestResult.PairAlreadyMatched
                 else -> SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Aksi gagal"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -492,13 +511,17 @@ class SupabaseDiscoveryMatchRepository(
                 "INTEREST_ALREADY_PROCESSED" -> {
                     val status = try {
                         InterestStatus.valueOf(res.optString("currentStatus", "ACCEPTED_MATCHED"))
-                    } catch (_: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                         InterestStatus.ACCEPTED_MATCHED
                     }
                     CancelInterestResult.InterestAlreadyProcessed(status)
                 }
                 else -> CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal membatalkan minat"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -520,6 +543,8 @@ class SupabaseDiscoveryMatchRepository(
             } else {
                 false
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
@@ -562,6 +587,8 @@ class SupabaseDiscoveryMatchRepository(
                 "PAIR_ALREADY_MATCHED" -> RespondInterestResult.PairAlreadyMatched
                 else -> RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Respon gagal"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -590,6 +617,8 @@ class SupabaseDiscoveryMatchRepository(
                 "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> DeclineInterestResult.InterestAlreadyProcessedOrInvalid
                 else -> DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Tolak tawaran gagal"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -620,13 +649,17 @@ class SupabaseDiscoveryMatchRepository(
                 "MATCH_NOT_ACTIVE" -> {
                     val status = try {
                         MatchStatus.valueOf(res.optString("currentStatus", "ACTIVE"))
-                    } catch (_: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                         MatchStatus.ACTIVE
                     }
                     CancelMatchResult.MatchNotActive(status)
                 }
                 else -> CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Batal gagal"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -662,7 +695,9 @@ class SupabaseDiscoveryMatchRepository(
                 "MATCH_NOT_ACTIVE" -> {
                     val status = try {
                         MatchStatus.valueOf(res.optString("currentStatus", "ACTIVE"))
-                    } catch (_: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                         MatchStatus.ACTIVE
                     }
                     CompleteMatchResult.MatchNotActive(status)
@@ -670,6 +705,8 @@ class SupabaseDiscoveryMatchRepository(
                 "ITEMS_NO_LONGER_AVAILABLE" -> CompleteMatchResult.ItemsNoLongerAvailable
                 else -> CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Selesai barter gagal"))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -684,6 +721,8 @@ class SupabaseDiscoveryMatchRepository(
                 event,
                 JSONObject().put("type", "sync")
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
         }
     }
@@ -695,6 +734,8 @@ class SupabaseDiscoveryMatchRepository(
             rt.broadcast("realtime:match_$matchId", "match_updated", payload)
             if (user1Id > 0L) rt.broadcast("realtime:user_threads_$user1Id", "thread_updated", payload)
             if (user2Id > 0L) rt.broadcast("realtime:user_threads_$user2Id", "thread_updated", payload)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
         }
     }
@@ -705,6 +746,8 @@ class SupabaseDiscoveryMatchRepository(
             if (resp.optString("code") == "SUCCESS") {
                 invalidator.invalidateNotifications()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
         }
     }
@@ -718,6 +761,8 @@ class SupabaseDiscoveryMatchRepository(
             if (resp.optString("code") == "SUCCESS") {
                 invalidator.invalidateNotifications()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
         }
     }
@@ -725,4 +770,10 @@ class SupabaseDiscoveryMatchRepository(
     private companion object {
         const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
     }
+}
+
+internal fun shouldRefreshDiscoveryForRealtime(userTopic: String, incomingTopic: String, payload: JSONObject): Boolean {
+    val event = payload.optString("broadcastEvent")
+    return event != "chat_sync" && event != "thread_sync" &&
+        (incomingTopic == userTopic || incomingTopic.startsWith("realtime:match_"))
 }

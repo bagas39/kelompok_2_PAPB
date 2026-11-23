@@ -115,7 +115,9 @@ class SupabaseRealtimeClient internal constructor(
                     val payloadWrapper = json.optJSONObject("payload")
                     val broadcastPayload = payloadWrapper?.optJSONObject("payload")
                     if (broadcastPayload != null) {
-                        _incomingMessages.tryEmit(topic to broadcastPayload)
+                        _incomingMessages.tryEmit(topic to JSONObject(broadcastPayload.toString()).apply {
+                            put("broadcastEvent", payloadWrapper.optString("event"))
+                        })
                     }
                 }
                 "phx_reply" -> {

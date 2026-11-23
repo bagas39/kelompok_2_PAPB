@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -98,11 +98,18 @@ class DiscoverViewModel(
 
         viewModelScope.launch {
             authRepository.observeLoggedInUserId()
-                .filterNotNull()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    _uiState.update { it.copy(currentUserId = userId) }
-                    discoveryMatchRepository.observeUnreadNotificationCount(userId)
+                    _uiState.update { current ->
+                        if (current.currentUserId != userId) {
+                            current.copy(
+                                currentUserId = userId, candidates = emptyList(), currentIndex = 0,
+                                unreadNotificationCount = 0, isLoading = userId != null,
+                                bannerMessage = null, requiresBarterItemCta = false
+                            )
+                        } else current
+                    }
+                    if (userId == null) flowOf(0) else discoveryMatchRepository.observeUnreadNotificationCount(userId)
                 }
                 .collect { count ->
                     _uiState.update { it.copy(unreadNotificationCount = count) }
@@ -117,10 +124,9 @@ class DiscoverViewModel(
 
         viewModelScope.launch {
             authRepository.observeLoggedInUserId()
-                .filterNotNull()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    discoverFilterFlow.flatMapLatest { filter ->
+                    if (userId == null) flowOf(emptyList()) else discoverFilterFlow.flatMapLatest { filter ->
                         discoveryMatchRepository.observeDiscoverCandidates(userId, filter)
                     }
                 }

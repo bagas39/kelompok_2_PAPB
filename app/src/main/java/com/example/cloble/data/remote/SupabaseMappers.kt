@@ -118,9 +118,13 @@ object SupabaseMappers {
         }
         val hasReviewedMatch = relatedMatchId != null && reviewedMatchIds.contains(relatedMatchId)
 
-        var counterpartUserId: Long? = senderJson?.optLongOrNull("id") ?: interestJson?.optLongOrNull("senderUserId")
-        var counterpartName: String? = senderJson?.optStringOrNull("name")
+        val notifUserId = json.optLong("userId")
+        var counterpartUserId: Long? = listOf(senderJson?.optLongOrNull("id"), interestJson?.optLongOrNull("senderUserId"), interestJson?.optLongOrNull("receiverUserId"))
+            .firstOrNull { it != null && it > 0L && it != notifUserId }
+        var counterpartName: String? = senderJson?.optStringOrNull("name")?.takeIf { senderJson.optLongOrNull("id") == counterpartUserId }
         var counterpartPhotoUri: String? = targetItemJson?.optStringOrNull("mainPhotoUri")
+            ?: targetItemJson?.optStringOrNull("detailPhotoUri")
+            ?: targetItemJson?.optStringOrNull("extraPhotoUri")
         var targetItemId: Long? = targetItemJson?.optLongOrNull("id") ?: interestJson?.optLongOrNull("targetItemId")
         var targetItemName: String? = targetItemJson?.optStringOrNull("name")
 
@@ -129,8 +133,7 @@ object SupabaseMappers {
             val user2Json = matchJson.optJSONObject("user2")
             val u1Id = matchJson.optLongOrNull("user1Id") ?: user1Json?.optLongOrNull("id")
             val u2Id = matchJson.optLongOrNull("user2Id") ?: user2Json?.optLongOrNull("id")
-            val notifUserId = json.optLong("userId")
-            if (counterpartUserId == null) {
+            if (counterpartUserId == null || counterpartName == null) {
                 if (u1Id != null && u1Id != notifUserId) {
                     counterpartUserId = u1Id
                     counterpartName = user1Json?.optStringOrNull("name")
@@ -228,7 +231,9 @@ object SupabaseMappers {
             targetItemId = targetItemId,
             targetItemName = targetItemJson.optString("name"),
             targetItemCategory = targetItemJson.optString("category"),
-            targetItemPhotoUri = targetItemJson.optStringOrNull("mainPhotoUri"),
+            targetItemPhotoUri = targetItemJson.optStringOrNull("mainPhotoUri")
+                ?: targetItemJson.optStringOrNull("detailPhotoUri")
+                ?: targetItemJson.optStringOrNull("extraPhotoUri"),
             targetItemStatus = targetItemStatus,
             ownerId = targetItemJson.optLong("ownerId"),
             ownerName = ownerJson.optString("name", "Pengguna"),
@@ -258,7 +263,9 @@ object SupabaseMappers {
             clothingId = json.optLong("targetItemId"),
             clothingName = itemJson.optString("name"),
             clothingCategory = itemJson.optString("category"),
-            clothingPhotoUri = itemJson.optStringOrNull("mainPhotoUri"),
+            clothingPhotoUri = itemJson.optStringOrNull("mainPhotoUri")
+                ?: itemJson.optStringOrNull("detailPhotoUri")
+                ?: itemJson.optStringOrNull("extraPhotoUri"),
             clothingStatus = itemStatus,
             isBarterAllowed = itemJson.optBoolean("isBarterAllowed", false),
             ownerId = itemJson.optLong("ownerId"),
@@ -308,7 +315,7 @@ object SupabaseMappers {
 
     private fun JSONObject.optStringOrNull(key: String): String? {
         val v = optString(key)
-        return if (v.isEmpty() || v.equals("null", ignoreCase = true)) null else v
+        return if (v.isBlank() || v.equals("null", ignoreCase = true)) null else v
     }
 
     private fun JSONObject.optLongOrNull(key: String): Long? {
