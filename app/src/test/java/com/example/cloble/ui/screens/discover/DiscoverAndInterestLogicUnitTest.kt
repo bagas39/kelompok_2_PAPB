@@ -137,14 +137,15 @@ class DiscoverAndInterestLogicUnitTest {
         var passResult: Boolean = true,
         var sendInterestResult: SendInterestResult = SendInterestResult.Success(10L, null),
         private val sendGate: CompletableDeferred<Unit>? = null,
-        private val passGate: CompletableDeferred<Unit>? = null
+        private val passGate: CompletableDeferred<Unit>? = null,
+        private val candidatesByFilter: ((DiscoverFilter) -> Flow<List<DiscoverCandidate>>)? = null
     ) : DiscoveryMatchRepository {
-        private val candidatesFlow = MutableStateFlow(candidates)
+        val candidatesFlow = MutableStateFlow(candidates)
         var sendInterestCalls = 0
         var passCandidateCalls = 0
 
         override fun observeDiscoverCandidates(viewerUserId: Long, filter: DiscoverFilter): Flow<List<DiscoverCandidate>> =
-            candidatesFlow
+            candidatesByFilter?.invoke(filter) ?: candidatesFlow
         override fun observeMatchDetail(matchId: Long, viewerUserId: Long): Flow<VerifiedMatchDetail?> = flowOf(null)
         override fun observeNotifications(userId: Long): Flow<List<NotificationFeedItem>> = flowOf(emptyList())
         override fun observeUnreadNotificationCount(userId: Long): Flow<Int> = flowOf(0)
@@ -631,5 +632,108 @@ class DiscoverAndInterestLogicUnitTest {
             viewModel.sendInterest()
             assertEquals(1, repo.sendInterestCalls)
         }
+    }
+
+    @Test
+    fun discoverViewModel_resettingNarrowFilter_startsAtClosestCandidateIndexZero() = runTest {
+        val close1 = DiscoverCandidate(
+            item = sampleItem(id = 301L),
+            ownerName = "Ayu",
+            ownerCity = "Malang",
+            ownerAverageRating = 5.0,
+            ownerReviewCount = 1,
+            distanceKm = 1
+        )
+        val close2 = DiscoverCandidate(
+            item = sampleItem(id = 302L),
+            ownerName = "Bima",
+            ownerCity = "Malang",
+            ownerAverageRating = 4.9,
+            ownerReviewCount = 2,
+            distanceKm = 2
+        )
+        val farItem = DiscoverCandidate(
+            item = sampleItem(id = 303L),
+            ownerName = "Citra",
+            ownerCity = "Surabaya",
+            ownerAverageRating = 4.8,
+            ownerReviewCount = 3,
+            distanceKm = 20
+        )
+        val narrowFilter = DiscoverFilter(selectedCategories = setOf("Luaran"))
+        val filterFlow = MutableStateFlow(narrowFilter)
+        val repo = FakeDiscoveryMatchRepository(
+            candidatesByFilter = { filter ->
+                if (filter == narrowFilter) {
+                    flowOf(listOf(farItem))
+                } else {
+                    flowOf(listOf(close1, close2, farItem))
+                }
+            }
+        )
+        val viewModel = DiscoverViewModel(
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            discoveryMatchRepository = repo,
+            discoverFilterFlow = filterFlow
+        )
+
+        assertEquals(0, viewModel.uiState.value.currentIndex)
+        assertEquals(303L, viewModel.uiState.value.currentCandidate?.item?.id)
+
+        viewModel.resetFilter()
+
+        val state = viewModel.uiState.value
+        assertEquals(0, state.currentIndex)
+        assertEquals(301L, state.currentCandidate?.item?.id)
+        assertEquals(listOf(301L, 302L, 303L), state.candidates.map { it.item.id })
+    }
+
+    @Test
+    fun discoverViewModel_sameFilterRefresh_preservesCurrentCandidateAnchor() = runTest {
+        val c1 = DiscoverCandidate(
+            item = sampleItem(id = 401L),
+            ownerName = "Ayu",
+            ownerCity = "Malang",
+            ownerAverageRating = 5.0,
+            ownerReviewCount = 1,
+            distanceKm = 1
+        )
+        val c2 = DiscoverCandidate(
+            item = sampleItem(id = 402L),
+            ownerName = "Bima",
+            ownerCity = "Malang",
+            ownerAverageRating = 4.9,
+            ownerReviewCount = 2,
+            distanceKm = 2
+        )
+        val c3 = DiscoverCandidate(
+            item = sampleItem(id = 403L),
+            ownerName = "Citra",
+            ownerCity = "Malang",
+            ownerAverageRating = 4.8,
+            ownerReviewCount = 3,
+            distanceKm = 3
+        )
+        val newCloser = DiscoverCandidate(
+            item = sampleItem(id = 400L),
+            ownerName = "Dina",
+            ownerCity = "Malang",
+            ownerAverageRating = 5.0,
+            ownerReviewCount = 4,
+            distanceKm = 0
+        )
+        val repo = FakeDiscoveryMatchRepository(candidates = listOf(c1, c2, c3))
+        val viewModel = DiscoverViewModel(
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            discoveryMatchRepository = repo
+        )
+
+        viewModel.passCurrentCandidate()
+        assertEquals(402L, viewModel.uiState.value.currentCandidate?.item?.id)
+
+        repo.candidatesFlow.value = listOf(newCloser, c2, c3)
+
+        assertEquals(1, viewModel.uiState.value.currentIndex)
+        assertEquals(402L, viewModel.uiState.value.currentCandidate?.item?.id)
     }
 }

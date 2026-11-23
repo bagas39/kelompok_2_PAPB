@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -118,21 +119,49 @@ class DiscoverViewModel(
 
         viewModelScope.launch {
             discoverFilterFlow.collect { latestFilter ->
-                _uiState.update { it.copy(filter = latestFilter, currentIndex = 0, isLoading = true) }
+                _uiState.update { current ->
+                    if (current.filter == latestFilter) {
+                        current
+                    } else {
+                        current.copy(
+                            filter = latestFilter,
+                            candidates = emptyList(),
+                            currentIndex = 0,
+                            isLoading = true
+                        )
+                    }
+                }
             }
         }
 
         viewModelScope.launch {
+            var lastCandidatesUserId: Long? = null
+            var lastCandidatesFilter: DiscoverFilter? = null
             authRepository.observeLoggedInUserId()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
-                    if (userId == null) flowOf(emptyList()) else discoverFilterFlow.flatMapLatest { filter ->
-                        discoveryMatchRepository.observeDiscoverCandidates(userId, filter)
+                    if (userId == null) {
+                        flowOf(
+                            Triple<Long?, DiscoverFilter, List<DiscoverCandidate>>(
+                                null,
+                                discoverFilterFlow.value,
+                                emptyList()
+                            )
+                        )
+                    } else {
+                        discoverFilterFlow.flatMapLatest { filter ->
+                            discoveryMatchRepository.observeDiscoverCandidates(userId, filter)
+                                .map { candidates -> Triple(userId, filter, candidates) }
+                        }
                     }
                 }
-                .collect { candidates ->
+                .collect { (emittedUserId, emittedFilter, candidates) ->
+                    val resetToHead = lastCandidatesUserId != emittedUserId ||
+                        (lastCandidatesFilter != null && lastCandidatesFilter != emittedFilter)
+                    lastCandidatesUserId = emittedUserId
+                    lastCandidatesFilter = emittedFilter
                     _uiState.update { current ->
-                        val currentItem = current.currentCandidate
+                        val currentItem = if (resetToHead) null else current.currentCandidate
                         val newIndex = when {
                             candidates.isEmpty() -> 0
                             currentItem != null -> {
