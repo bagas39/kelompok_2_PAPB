@@ -467,7 +467,7 @@ class SupabaseDiscoveryMatchRepository(
     private suspend fun fetchOutgoingInterests(userId: Long): List<OutgoingInterestSummary> {
         return try {
             val arr = client.getJsonArray(
-                "interests?senderUserId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(*)),matches(*)&order=createdAt.desc"
+                "interests?senderUserId=eq.$userId&select=*,clothing_items:targetItemId(*,users:ownerId(*)),matches(*)&order=createdAt.desc,id.desc"
             )
             val myMatchesArr = try {
                 client.getJsonArray(
@@ -476,7 +476,7 @@ class SupabaseDiscoveryMatchRepository(
             } catch (_: Exception) {
                 org.json.JSONArray()
             }
-            val otherActiveItemIds = fetchActiveMatchContext().otherActiveItemIds
+            val activeItemIds = fetchActiveMatchContext().activeItemIds
 
             val list = mutableListOf<OutgoingInterestSummary>()
             for (i in 0 until arr.length()) {
@@ -485,11 +485,6 @@ class SupabaseDiscoveryMatchRepository(
                 val targetItemId = raw.optLong("targetItemId")
                 val targetItemJson = raw.optJSONObject("clothing_items")
                 val ownerId = targetItemJson?.optLong("ownerId") ?: -1L
-                val itemStatus = try {
-                    ItemStatus.valueOf(targetItemJson?.optString("status", "AVAILABLE") ?: "AVAILABLE")
-                } catch (_: Exception) {
-                    ItemStatus.AVAILABLE
-                }
                 val interestStatus = try {
                     InterestStatus.valueOf(raw.optString("status"))
                 } catch (_: Exception) {
@@ -551,19 +546,12 @@ class SupabaseDiscoveryMatchRepository(
                     }
                 }
 
-                val isLockedByOther = resolvedMatchId == null && (
-                        interestStatus == InterestStatus.RESOLVED_BY_MATCH ||
-                                interestStatus == InterestStatus.INVALIDATED ||
-                                itemStatus != ItemStatus.AVAILABLE ||
-                                otherActiveItemIds.contains(targetItemId)
-                        )
-
                 list.add(
                     SupabaseMappers.parseOutgoingInterest(
                         json = raw,
                         resolvedMatchId = resolvedMatchId,
                         resolvedMatchStatus = resolvedMatchStatus,
-                        isLockedByOtherMatch = isLockedByOther
+                        activeItemIds = activeItemIds
                     )
                 )
             }

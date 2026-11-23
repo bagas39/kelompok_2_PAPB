@@ -47,7 +47,13 @@ data class ItemDetailUiState(
     val actionMessage: String? = null,
     val errorMessage: String? = null,
     val requiresBarterItemCta: Boolean = false
-)
+) {
+    val canReofferAfterInvalidated: Boolean
+        get() = existingInterestStatus == InterestStatus.INVALIDATED &&
+            relatedMatchId == null &&
+            !isLockedByOtherMatch &&
+            !isItemUnavailable
+}
 
 class ItemDetailViewModel(
     savedStateHandle: SavedStateHandle,
@@ -149,7 +155,8 @@ class ItemDetailViewModel(
         val item = state.item ?: return
         if (state.isLockedByOtherMatch ||
             state.isItemUnavailable ||
-            (state.existingInterestStatus != null && !state.canReofferAfterCancelled)
+            (state.existingInterestStatus != null &&
+                !state.canReofferAfterCancelled && !state.canReofferAfterInvalidated)
         ) return
 
         viewModelScope.launch {

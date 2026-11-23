@@ -439,7 +439,7 @@ fun ItemDetailScreen(
                             enabled = false,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    } else if (uiState.canReofferAfterCancelled) {
+                    } else if (uiState.canReofferAfterCancelled || uiState.canReofferAfterInvalidated) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -504,8 +504,7 @@ fun ItemDetailScreen(
                                 .testTag("btn_declined_interest_from_detail")
                         )
                     } else if (uiState.isItemUnavailable ||
-                        existingStatus == InterestStatus.RESOLVED_BY_MATCH ||
-                        existingStatus == InterestStatus.INVALIDATED
+                        existingStatus == InterestStatus.RESOLVED_BY_MATCH
                     ) {
                         CloBlePrimaryButton(
                             text = "Pakaian Tidak Tersedia",

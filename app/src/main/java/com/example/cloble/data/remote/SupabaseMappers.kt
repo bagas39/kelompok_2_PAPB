@@ -190,7 +190,7 @@ object SupabaseMappers {
         json: JSONObject,
         resolvedMatchId: Long? = null,
         resolvedMatchStatus: MatchStatus? = null,
-        isLockedByOtherMatch: Boolean = false
+        activeItemIds: Set<Long> = emptySet()
     ): OutgoingInterestSummary {
         val targetItemJson = json.optJSONObject("clothing_items") ?: JSONObject()
         val ownerJson = targetItemJson.optJSONObject("users") ?: JSONObject()
@@ -214,9 +214,17 @@ object SupabaseMappers {
             try { MatchStatus.valueOf(it) } catch (_: Exception) { null }
         }
 
+        val targetItemId = json.optLong("targetItemId")
+        val isLockedByOtherMatch = finalMatchId == null && (
+            interestStatus == InterestStatus.RESOLVED_BY_MATCH ||
+                targetItemStatus != ItemStatus.AVAILABLE ||
+                !targetItemJson.optBoolean("isBarterAllowed", false) ||
+                activeItemIds.contains(targetItemId)
+        )
+
         return OutgoingInterestSummary(
             interestId = json.optLong("id"),
-            targetItemId = json.optLong("targetItemId"),
+            targetItemId = targetItemId,
             targetItemName = targetItemJson.optString("name"),
             targetItemCategory = targetItemJson.optString("category"),
             targetItemPhotoUri = targetItemJson.optStringOrNull("mainPhotoUri"),
