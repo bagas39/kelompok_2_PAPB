@@ -102,6 +102,71 @@ private enum class LocationSettingsPromptType {
     PERMISSION_DENIED
 }
 
+internal data class LocationConfirmPlan(
+    val needsGeocode: Boolean,
+    val useSearchQuery: Boolean,
+    val queryText: String,
+    val baseLat: Double,
+    val baseLon: Double
+)
+
+internal fun buildLocationConfirmPlan(
+    cleanCity: String,
+    cleanSearchQuery: String,
+    selectedLat: Double,
+    selectedLon: Double,
+    mapCenterLat: Double?,
+    mapCenterLon: Double?,
+    normalizedInitLat: Double,
+    normalizedInitLon: Double,
+    hasUserEditedCity: Boolean,
+    hasUserMovedPin: Boolean,
+    withinProgrammaticMoveWindow: Boolean
+): LocationConfirmPlan {
+    val useSelectedCoords = withinProgrammaticMoveWindow ||
+        mapCenterLat == null ||
+        mapCenterLon == null ||
+        !DistanceCalculator.isValidCoordinate(mapCenterLat, mapCenterLon)
+    val baseLat = if (useSelectedCoords) selectedLat else mapCenterLat!!
+    val baseLon = if (useSelectedCoords) selectedLon else mapCenterLon!!
+    val movedDistanceKm = DistanceCalculator.calculateKmExact(
+        normalizedInitLat,
+        normalizedInitLon,
+        baseLat,
+        baseLon
+    )
+    val pinUnmoved = !hasUserMovedPin && (!movedDistanceKm.isFinite() || movedDistanceKm <= 0.1)
+
+    if (pinUnmoved) {
+        if (hasUserEditedCity && cleanCity.isNotBlank()) {
+            return LocationConfirmPlan(
+                needsGeocode = true,
+                useSearchQuery = false,
+                queryText = cleanCity,
+                baseLat = baseLat,
+                baseLon = baseLon
+            )
+        }
+        if (cleanSearchQuery.isNotBlank()) {
+            return LocationConfirmPlan(
+                needsGeocode = true,
+                useSearchQuery = true,
+                queryText = cleanSearchQuery,
+                baseLat = baseLat,
+                baseLon = baseLon
+            )
+        }
+    }
+
+    return LocationConfirmPlan(
+        needsGeocode = false,
+        useSearchQuery = false,
+        queryText = cleanCity,
+        baseLat = baseLat,
+        baseLon = baseLon
+    )
+}
+
 @Composable
 fun CloBleLocationPickerDialog(
     initialCity: String,
@@ -176,6 +241,7 @@ fun CloBleLocationPickerDialog(
     }
 
     fun applyDeviceLocation() {
+        if (isLocatingDevice) return
         if (!hasLocationPermission(context)) {
             gpsStatusHint = "Izin akses lokasi ditolak. Izinkan akses lokasi di Pengaturan Aplikasi atau pilih lokasi secara manual di peta."
             settingsActionType = LocationSettingsPromptType.PERMISSION_DENIED
@@ -188,26 +254,29 @@ fun CloBleLocationPickerDialog(
         }
         settingsActionType = null
         gpsStatusHint = null
+        isLocatingDevice = true
         coroutineScope.launch {
-            isLocatingDevice = true
-            val location = fetchCurrentLocationOrLastKnown(context)
-            isLocatingDevice = false
-            if (location != null) {
-                val isInsideIndonesia = location.latitude in -12.0..7.5 && location.longitude in 94.0..142.0
-                if (!isInsideIndonesia) {
-                    gpsStatusHint = "Lokasi GPS terdeteksi di luar wilayah layanan Indonesia. Silakan cari nama kota atau geser pin pada peta."
+            try {
+                val location = fetchCurrentLocationOrLastKnown(context)
+                if (location != null) {
+                    val isInsideIndonesia = location.latitude in -12.0..7.5 && location.longitude in 94.0..142.0
+                    if (!isInsideIndonesia) {
+                        gpsStatusHint = "Lokasi GPS terdeteksi di luar wilayah layanan Indonesia. Silakan cari nama kota atau geser pin pada peta."
+                        settingsActionType = null
+                        return@launch
+                    }
+                    gpsStatusHint = null
                     settingsActionType = null
-                    return@launch
+                    hasUserEditedCity = false
+                    hasUserMovedPin = true
+                    moveMapTo(location.latitude, location.longitude, 15.0, suppressReverseLookup = true)
+                    startReverseGeocode(location.latitude, location.longitude)
+                } else {
+                    gpsStatusHint = "Lokasi GPS belum tersedia, geser pin peta atau cari nama kota."
+                    settingsActionType = null
                 }
-                gpsStatusHint = null
-                settingsActionType = null
-                hasUserEditedCity = false
-                hasUserMovedPin = true
-                moveMapTo(location.latitude, location.longitude, 15.0, suppressReverseLookup = true)
-                startReverseGeocode(location.latitude, location.longitude)
-            } else {
-                gpsStatusHint = "Lokasi GPS belum tersedia, geser pin peta atau cari nama kota."
-                settingsActionType = null
+            } finally {
+                isLocatingDevice = false
             }
         }
     }
@@ -554,6 +623,9 @@ fun CloBleLocationPickerDialog(
                                     }
 
                                     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                                        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                                            suppressReverseUntilMs = 0L
+                                        }
                                         if (ev.actionMasked == MotionEvent.ACTION_DOWN || ev.actionMasked == MotionEvent.ACTION_MOVE) {
                                             parent?.requestDisallowInterceptTouchEvent(true)
                                         }
@@ -571,8 +643,6 @@ fun CloBleLocationPickerDialog(
                                                     val center = mapCenter
                                                     val lat = center.latitude
                                                     val lon = center.longitude
-                                                    selectedLat = lat
-                                                    selectedLon = lon
                                                     val withinWindow = System.currentTimeMillis() < suppressReverseUntilMs
                                                     val nearTarget = DistanceCalculator.calculateKmExact(
                                                         lat,
@@ -580,6 +650,11 @@ fun CloBleLocationPickerDialog(
                                                         lastProgrammaticLat,
                                                         lastProgrammaticLon
                                                     ).let { dist -> !dist.isNaN() && dist < 0.05 }
+                                                    if (withinWindow && !nearTarget) {
+                                                        return true
+                                                    }
+                                                    selectedLat = lat
+                                                    selectedLon = lon
                                                     if (withinWindow && nearTarget) {
                                                         return true
                                                     }
@@ -590,8 +665,20 @@ fun CloBleLocationPickerDialog(
 
                                                 override fun onZoom(event: ZoomEvent?): Boolean {
                                                     val center = mapCenter
-                                                    selectedLat = center.latitude
-                                                    selectedLon = center.longitude
+                                                    val lat = center.latitude
+                                                    val lon = center.longitude
+                                                    val withinWindow = System.currentTimeMillis() < suppressReverseUntilMs
+                                                    val nearTarget = DistanceCalculator.calculateKmExact(
+                                                        lat,
+                                                        lon,
+                                                        lastProgrammaticLat,
+                                                        lastProgrammaticLon
+                                                    ).let { dist -> !dist.isNaN() && dist < 0.05 }
+                                                    if (withinWindow && !nearTarget) {
+                                                        return true
+                                                    }
+                                                    selectedLat = lat
+                                                    selectedLon = lon
                                                     return true
                                                 }
                                             },
@@ -764,45 +851,82 @@ fun CloBleLocationPickerDialog(
 
                     CloBlePrimaryButton(
                         text = if (isConfirmingLocation) "Menyimpan Lokasi..." else "Pilih Lokasi Ini",
-                        enabled = cityInput.isNotBlank() && !isConfirmingLocation,
+                        enabled = (cityInput.isNotBlank() || searchQuery.isNotBlank()) && !isConfirmingLocation,
                         onClick = {
-                            val currentMapCenter = mapViewRef?.mapCenter
-                            var finalLat = currentMapCenter?.latitude ?: selectedLat
-                            var finalLon = currentMapCenter?.longitude ?: selectedLon
+                            if (isConfirmingLocation) return@CloBlePrimaryButton
                             val cleanCity = cityInput.trim()
-                            val pinUnmovedFromInitial = DistanceCalculator.calculateKmExact(
-                                finalLat,
-                                finalLon,
-                                normalizedInitLat,
-                                normalizedInitLon
-                            ).let { dist -> !dist.isNaN() && dist < 0.05 }
-                            if ((hasUserEditedCity && !hasUserMovedPin) || (searchQuery.isNotBlank() && pinUnmovedFromInitial && !hasUserMovedPin)) {
+                            val cleanSearchQuery = searchQuery.trim()
+                            val currentMapCenter = mapViewRef?.mapCenter
+                            val plan = buildLocationConfirmPlan(
+                                cleanCity = cleanCity,
+                                cleanSearchQuery = cleanSearchQuery,
+                                selectedLat = selectedLat,
+                                selectedLon = selectedLon,
+                                mapCenterLat = currentMapCenter?.latitude,
+                                mapCenterLon = currentMapCenter?.longitude,
+                                normalizedInitLat = normalizedInitLat,
+                                normalizedInitLon = normalizedInitLon,
+                                hasUserEditedCity = hasUserEditedCity,
+                                hasUserMovedPin = hasUserMovedPin,
+                                withinProgrammaticMoveWindow = System.currentTimeMillis() < suppressReverseUntilMs
+                            )
+                            isConfirmingLocation = true
+                            if (plan.needsGeocode) {
                                 coroutineScope.launch {
-                                    isConfirmingLocation = true
-                                    val queryText = cleanCity.ifBlank { searchQuery.trim() }
-                                    val geocoded = NominatimGeocoder.searchPlaces(queryText, limit = 1)
-                                        .firstOrNull { it.latitude in -12.0..7.5 && it.longitude in 94.0..142.0 }
-                                    if (geocoded != null) {
-                                        finalLat = geocoded.latitude
-                                        finalLon = geocoded.longitude
-                                    } else {
-                                        val resolved = DistanceCalculator.resolveEffectiveCoordinates(
-                                            cleanCity,
-                                            finalLat,
-                                            finalLon
-                                        )
-                                        finalLat = resolved.first
-                                        finalLon = resolved.second
+                                    var finalLat = plan.baseLat
+                                    var finalLon = plan.baseLon
+                                    var confirmedCity = cleanCity
+                                    try {
+                                        val geocoded = NominatimGeocoder.searchPlaces(plan.queryText, limit = 1)
+                                            .firstOrNull { it.latitude in -12.0..7.5 && it.longitude in 94.0..142.0 }
+                                        if (geocoded != null) {
+                                            finalLat = geocoded.latitude
+                                            finalLon = geocoded.longitude
+                                            if (plan.useSearchQuery) {
+                                                confirmedCity = geocoded.shortLabel.ifBlank { plan.queryText }
+                                            }
+                                        } else if (plan.useSearchQuery) {
+                                            val matchedCenter = DistanceCalculator.findCityCenter(plan.queryText)
+                                            if (matchedCenter != null) {
+                                                finalLat = matchedCenter.first
+                                                finalLon = matchedCenter.second
+                                                confirmedCity = plan.queryText
+                                            } else {
+                                                val resolved = DistanceCalculator.resolveEffectiveCoordinates(
+                                                    cleanCity.ifBlank { plan.queryText },
+                                                    finalLat,
+                                                    finalLon
+                                                )
+                                                finalLat = resolved.first
+                                                finalLon = resolved.second
+                                                if (confirmedCity.isBlank()) {
+                                                    confirmedCity = plan.queryText
+                                                }
+                                            }
+                                        } else {
+                                            val resolved = DistanceCalculator.resolveEffectiveCoordinates(
+                                                cleanCity,
+                                                finalLat,
+                                                finalLon
+                                            )
+                                            finalLat = resolved.first
+                                            finalLon = resolved.second
+                                        }
+                                    } finally {
+                                        isConfirmingLocation = false
                                     }
-                                    isConfirmingLocation = false
-                                    onLocationConfirmed(cleanCity, finalLat, finalLon)
+                                    onLocationConfirmed(confirmedCity.ifBlank { plan.queryText }, finalLat, finalLon)
                                 }
                             } else {
-                                val resolved = DistanceCalculator.resolveEffectiveCoordinates(
-                                    cleanCity,
-                                    finalLat,
-                                    finalLon
-                                )
+                                val resolved = try {
+                                    DistanceCalculator.resolveEffectiveCoordinates(
+                                        cleanCity,
+                                        plan.baseLat,
+                                        plan.baseLon
+                                    )
+                                } finally {
+                                    isConfirmingLocation = false
+                                }
                                 onLocationConfirmed(cleanCity, resolved.first, resolved.second)
                             }
                         },
