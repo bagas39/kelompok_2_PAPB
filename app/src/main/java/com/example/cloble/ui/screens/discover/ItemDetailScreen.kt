@@ -71,19 +71,11 @@ fun ItemDetailScreen(
     var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
     var viewerInitialIndex by remember { mutableStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    var hadPaused by remember { mutableStateOf(false) }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> hadPaused = true
-                Lifecycle.Event.ON_RESUME -> {
-                    if (hadPaused) {
-                        hadPaused = false
-                        viewModel.refreshDetail()
-                    }
-                }
-                else -> Unit
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onScreenResumed()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -464,7 +456,7 @@ fun ItemDetailScreen(
                             enabled = false,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    } else if (uiState.canReofferAfterCancelled || uiState.canReofferAfterInvalidated) {
+                    } else if (!uiState.isItemUnavailable && (uiState.canReofferAfterCancelled || uiState.canReofferAfterInvalidated)) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)

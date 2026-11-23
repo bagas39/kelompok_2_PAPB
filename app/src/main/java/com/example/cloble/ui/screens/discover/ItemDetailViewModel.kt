@@ -68,9 +68,18 @@ class ItemDetailViewModel(
     private val _uiState = MutableStateFlow(ItemDetailUiState(itemId = rawItemId))
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var hasObservedInitialResume = false
 
     init {
         loadDetail()
+    }
+
+    fun onScreenResumed() {
+        if (!hasObservedInitialResume) {
+            hasObservedInitialResume = true
+            return
+        }
+        refreshDetail()
     }
 
     fun refreshDetail() {
@@ -134,6 +143,8 @@ class ItemDetailViewModel(
                     wardrobeRepository.countEligibleBarterItems(currentUserId) > 0
 
                 _uiState.update {
+                    val shouldKeepError = !shouldClearBarterPrompt &&
+                        (it.requiresBarterItemCta || it.errorMessage == "Minat sudah diproses oleh pemilik.")
                     it.copy(
                         item = item,
                         owner = owner,
@@ -148,13 +159,26 @@ class ItemDetailViewModel(
                         isItemUnavailable = itemUnavailable,
                         interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
                         requiresBarterItemCta = if (shouldClearBarterPrompt) false else it.requiresBarterItemCta,
-                        errorMessage = if (shouldClearBarterPrompt) null else it.errorMessage,
+                        errorMessage = if (shouldKeepError) it.errorMessage else null,
                         isLoading = false
                     )
                 }
             } else {
                 _uiState.update {
                     it.copy(
+                        item = null,
+                        owner = null,
+                        isOwnItem = false,
+                        distanceKm = null,
+                        existingInterestId = null,
+                        existingInterestStatus = null,
+                        relatedMatchId = null,
+                        relatedMatchStatus = null,
+                        canReofferAfterCancelled = false,
+                        isLockedByOtherMatch = false,
+                        isItemUnavailable = true,
+                        interestSentSuccess = false,
+                        requiresBarterItemCta = false,
                         isLoading = false,
                         errorMessage = "Pakaian tidak ditemukan."
                     )
@@ -242,6 +266,7 @@ class ItemDetailViewModel(
                         it.copy(
                             isSendingInterest = false,
                             isItemUnavailable = true,
+                            canReofferAfterCancelled = false,
                             errorMessage = "Pakaian ini sudah tidak tersedia untuk dibarter.",
                             requiresBarterItemCta = false
                         )
@@ -261,6 +286,17 @@ class ItemDetailViewModel(
                         it.copy(
                             isSendingInterest = false,
                             errorMessage = "Pasangan pakaian ini sudah memiliki pertukaran aktif atau sudah selesai ditukar.",
+                            requiresBarterItemCta = false
+                        )
+                    }
+                }
+                is SendInterestResult.TargetItemNotFound -> {
+                    _uiState.update {
+                        it.copy(
+                            isSendingInterest = false,
+                            isItemUnavailable = true,
+                            canReofferAfterCancelled = false,
+                            errorMessage = "Pakaian tidak ditemukan atau sudah dihapus.",
                             requiresBarterItemCta = false
                         )
                     }
