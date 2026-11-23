@@ -1,6 +1,12 @@
 package com.example.cloble.ui.screens.wardrobe
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -31,14 +38,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.BarterEligibilitySwitchCard
 import com.example.cloble.ui.components.CloBleChoiceChipRow
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
@@ -52,6 +64,7 @@ import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.ClothingPhotoSlot
 import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.theme.CloBleColors
+import java.io.File
 
 @Composable
 fun AddEditClothingScreen(
@@ -59,24 +72,107 @@ fun AddEditClothingScreen(
     onSaveSuccess: () -> Unit,
     viewModel: AddEditClothingViewModel = viewModel(factory = AddEditClothingViewModel.Factory)
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    var activeSlotIndex by remember { mutableIntStateOf(0) }
+    var activeSlotIndex by rememberSaveable { mutableIntStateOf(0) }
+    var pendingCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var showPhotoSourceDialog by rememberSaveable { mutableStateOf(false) }
+    var permissionDeniedMessage by remember { mutableStateOf<String?>(null) }
     var viewerStartIndex by remember { mutableStateOf<Int?>(null) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
+            permissionDeniedMessage = null
             viewModel.onPhotoSelected(uri.toString(), activeSlotIndex)
         }
     }
 
-    val categories = listOf("Atasan", "Bawahan", "Luaran", "Terusan")
-    val sizes = listOf("S", "M", "L", "XL")
-    val genders = listOf("Pria", "Wanita", "Uniseks")
-    val colors = listOf("Hitam", "Putih", "Biru", "Krem", "Hijau", "Abu-abu", "Merah")
-    val conditions = listOf("Sangat baik", "Baik", "Layak pakai")
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val capturedUri = pendingCameraUriString
+        pendingCameraUriString = null
+        if (success && !capturedUri.isNullOrBlank()) {
+            permissionDeniedMessage = null
+            viewModel.onPhotoSelected(capturedUri, activeSlotIndex)
+        }
+    }
+
+    fun launchCameraCaptureNow() {
+        val tempUri = createCameraTempUri(context)
+        if (tempUri == null) {
+            permissionDeniedMessage = "Gagal menyiapkan file kamera sementara."
+            return
+        }
+        pendingCameraUriString = tempUri.toString()
+        try {
+            cameraLauncher.launch(tempUri)
+        } catch (_: Exception) {
+            pendingCameraUriString = null
+            permissionDeniedMessage = "Aplikasi kamera tidak tersedia di perangkat ini."
+        }
+    }
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.any { it } || hasStorageReadPermission(context)
+        if (granted) {
+            permissionDeniedMessage = null
+            photoPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        } else {
+            permissionDeniedMessage = "Izin akses penyimpanan/galeri ditolak. Izinkan akses foto & media di Pengaturan Aplikasi untuk memilih foto dari galeri."
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted || hasCameraPermission(context)) {
+            permissionDeniedMessage = null
+            launchCameraCaptureNow()
+        } else {
+            permissionDeniedMessage = "Izin akses kamera ditolak. Izinkan akses kamera di Pengaturan Aplikasi untuk mengambil foto pakaian."
+        }
+    }
+
+    fun requestGalleryWithPermission() {
+        if (hasStorageReadPermission(context)) {
+            permissionDeniedMessage = null
+            photoPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        } else {
+            storagePermissionLauncher.launch(requiredStoragePermissions())
+        }
+    }
+
+    fun requestCameraWithPermission() {
+        if (hasCameraPermission(context)) {
+            permissionDeniedMessage = null
+            launchCameraCaptureNow()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    fun nextAvailableSlotIndex(): Int = when {
+        uiState.mainPhotoUri == null -> 0
+        uiState.detailPhotoUri == null -> 1
+        uiState.extraPhotoUri == null -> 2
+        else -> 0
+    }
+
+    val categories = CloBleConstants.CATEGORIES
+    val sizes = CloBleConstants.SIZES
+    val genders = CloBleConstants.GENDERS
+    val colors = CloBleConstants.COLORS
+    val conditions = CloBleConstants.CONDITIONS
 
     val filledPhotos = remember(uiState.mainPhotoUri, uiState.detailPhotoUri, uiState.extraPhotoUri) {
         buildList {
@@ -156,7 +252,7 @@ fun AddEditClothingScreen(
                             color = CloBleColors.TextPrimary
                         )
                         Text(
-                            text = "Ketuk foto terisi untuk memperbesar, atau ketuk slot kosong untuk memilih dari galeri.",
+                            text = "Ketuk foto terisi untuk memperbesar, atau ketuk slot kosong untuk mengambil foto dari kamera maupun galeri.",
                             style = MaterialTheme.typography.bodySmall,
                             color = CloBleColors.TextSecondary
                         )
@@ -173,9 +269,7 @@ fun AddEditClothingScreen(
                                         openFullscreenForSlot(uiState.mainPhotoUri)
                                     } else if (canModifyPhotos) {
                                         activeSlotIndex = 0
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
+                                        showPhotoSourceDialog = true
                                     }
                                 },
                                 onRemoveClick = if (uiState.mainPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(0) } } else null,
@@ -191,9 +285,7 @@ fun AddEditClothingScreen(
                                         openFullscreenForSlot(uiState.detailPhotoUri)
                                     } else if (canModifyPhotos) {
                                         activeSlotIndex = 1
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
+                                        showPhotoSourceDialog = true
                                     }
                                 },
                                 onRemoveClick = if (uiState.detailPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(1) } } else null,
@@ -209,9 +301,7 @@ fun AddEditClothingScreen(
                                         openFullscreenForSlot(uiState.extraPhotoUri)
                                     } else if (canModifyPhotos) {
                                         activeSlotIndex = 2
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
+                                        showPhotoSourceDialog = true
                                     }
                                 },
                                 onRemoveClick = if (uiState.extraPhotoUri != null && canModifyPhotos) { { viewModel.onRemovePhoto(2) } } else null,
@@ -242,25 +332,76 @@ fun AddEditClothingScreen(
                             }
                         }
 
-                        CloBleOutlinedButton(
-                            text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Ubah / Tambah Foto",
-                            leadingIcon = CloBleIcons.Camera,
-                            enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving,
-                            onClick = {
-                                activeSlotIndex = when {
-                                    uiState.mainPhotoUri == null -> 0
-                                    uiState.detailPhotoUri == null -> 1
-                                    uiState.extraPhotoUri == null -> 2
-                                    else -> 0
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val canModifyActions = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving
+                            CloBleOutlinedButton(
+                                text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Ambil Foto Kamera",
+                                leadingIcon = CloBleIcons.Camera,
+                                enabled = canModifyActions,
+                                onClick = {
+                                    activeSlotIndex = nextAvailableSlotIndex()
+                                    requestCameraWithPermission()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_take_camera_photo")
+                            )
+                            CloBleOutlinedButton(
+                                text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Pilih dari Galeri",
+                                leadingIcon = CloBleIcons.ImagePlaceholder,
+                                enabled = canModifyActions,
+                                onClick = {
+                                    activeSlotIndex = nextAvailableSlotIndex()
+                                    requestGalleryWithPermission()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_pick_photo")
+                            )
+                        }
+
+                        if (!permissionDeniedMessage.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = CloBleColors.WarningContainer,
+                                border = BorderStroke(1.dp, CloBleColors.WarningText.copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("photo_permission_warning_card")
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = permissionDeniedMessage.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = CloBleColors.WarningText
+                                    )
+                                    CloBleOutlinedButton(
+                                        text = "Buka Pengaturan Izin",
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(
+                                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                    Uri.fromParts("package", context.packageName, null)
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("btn_open_photo_permission_settings")
+                                    )
                                 }
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("btn_pick_photo")
-                        )
+                            }
+                        }
                     }
                 }
 
@@ -418,6 +559,64 @@ fun AddEditClothingScreen(
             }
         }
 
+        if (showPhotoSourceDialog) {
+            AlertDialog(
+                onDismissRequest = { showPhotoSourceDialog = false },
+                modifier = Modifier.testTag("photo_source_dialog"),
+                title = {
+                    Text(
+                        text = "Pilih Sumber Foto",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = CloBleColors.TextPrimary
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Pilih cara mengambil foto pakaian untuk slot ini.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = CloBleColors.TextSecondary
+                        )
+                        CloBleOutlinedButton(
+                            text = "Ambil dari Kamera",
+                            leadingIcon = CloBleIcons.Camera,
+                            onClick = {
+                                showPhotoSourceDialog = false
+                                requestCameraWithPermission()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_dialog_camera")
+                        )
+                        CloBleOutlinedButton(
+                            text = "Pilih dari Galeri",
+                            leadingIcon = CloBleIcons.ImagePlaceholder,
+                            onClick = {
+                                showPhotoSourceDialog = false
+                                requestGalleryWithPermission()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_dialog_gallery")
+                        )
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showPhotoSourceDialog = false }) {
+                        Text(
+                            text = "Batal",
+                            color = CloBleColors.TextSecondary
+                        )
+                    }
+                },
+                containerColor = CloBleColors.Surface
+            )
+        }
+
         if (uiState.showDeleteDialog) {
             DeleteClothingConfirmDialog(
                 clothingName = uiState.name,
@@ -434,5 +633,62 @@ fun AddEditClothingScreen(
                 onDismiss = { viewerStartIndex = null }
             )
         }
+    }
+}
+
+private fun requiredStoragePermissions(): Array<String> = when {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
+        Manifest.permission.READ_MEDIA_IMAGES,
+        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+    )
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
+        Manifest.permission.READ_MEDIA_IMAGES
+    )
+    else -> arrayOf(
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    )
+}
+
+private fun hasStorageReadPermission(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val fullGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_MEDIA_IMAGES
+        ) == PackageManager.PERMISSION_GRANTED
+        val partialGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        ) == PackageManager.PERMISSION_GRANTED
+        return fullGranted || partialGranted
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_MEDIA_IMAGES
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun hasCameraPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+
+private fun createCameraTempUri(context: Context): Uri? {
+    return try {
+        val cameraDir = File(context.cacheDir, "camera_photos").apply { mkdirs() }
+        val photoFile = File(cameraDir, "capture_${System.currentTimeMillis()}.jpg")
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            photoFile
+        )
+    } catch (_: Exception) {
+        null
     }
 }

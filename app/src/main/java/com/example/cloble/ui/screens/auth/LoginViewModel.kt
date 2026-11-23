@@ -117,6 +117,7 @@ class LoginViewModel(
     }
 
     fun requestResetOtp() {
+        if (_uiState.value.isResetSubmitting) return
         val email = _uiState.value.resetEmail.trim()
         if (!PasswordPolicy.isValidEmail(email)) {
             _uiState.update { it.copy(resetErrorMessage = "Format email tidak valid") }
@@ -176,6 +177,7 @@ class LoginViewModel(
 
     fun submitResetPassword() {
         val state = _uiState.value
+        if (state.isResetSubmitting) return
         val email = state.resetEmail.trim()
         val otp = state.resetOtpCode.trim()
         val newPassword = state.resetNewPassword
@@ -267,6 +269,7 @@ class LoginViewModel(
     }
 
     fun submitLogin(onSuccess: () -> Unit) {
+        if (_uiState.value.isLoading) return
         val email = _uiState.value.email.trim()
         val password = _uiState.value.password
         if (email.isEmpty() || password.isEmpty()) {

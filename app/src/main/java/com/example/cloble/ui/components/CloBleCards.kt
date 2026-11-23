@@ -318,7 +318,8 @@ fun ClothingPhotoSlot(
 enum class WardrobeBarterBadge(val label: String) {
     ALLOWED("Diizinkan barter"),
     NOT_FOR_BARTER("Tidak untuk barter"),
-    IN_ACTIVE_MATCH("Sedang dalam Match")
+    IN_ACTIVE_MATCH("Sedang dalam Match"),
+    EXCHANGED("Sudah Ditukar")
 }
 
 @Composable
@@ -359,6 +360,11 @@ fun WardrobeItemCard(
             CloBleColors.WarningContainer,
             CloBleColors.WarningText,
             CloBleColors.WarningText
+        )
+        WardrobeBarterBadge.EXCHANGED -> Triple(
+            CloBleColors.SuccessContainer,
+            CloBleColors.SuccessText,
+            CloBleColors.SuccessText
         )
     }
 

@@ -170,6 +170,8 @@ class ConversationViewModel(
         _uiState.update {
             it.copy(
                 activeMatchId = targetMatchId,
+                messages = emptyList(),
+                isLoading = true,
                 meetingLocationInput = "",
                 hasReviewed = false,
                 canRatePartner = false,

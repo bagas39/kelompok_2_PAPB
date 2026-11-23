@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
 import com.example.cloble.domain.model.NotificationFeedItem
+import com.example.cloble.domain.model.NotificationType
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,7 @@ class NotificationsViewModel(
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
 
     private val isMarkingRead = AtomicBoolean(false)
+    private var lastAutoMarkedIds: Set<Long> = emptySet()
 
     init {
         viewModelScope.launch {
@@ -41,7 +43,12 @@ class NotificationsViewModel(
 
                 discoveryMatchRepository.observeNotifications(userId).collect { list ->
                     _uiState.update { it.copy(notifications = list, isLoading = false) }
-                    if (list.any { !it.isRead } && isMarkingRead.compareAndSet(false, true)) {
+                    val autoMarkIds = list.filter { notification ->
+                        !notification.isRead &&
+                            !(notification.type == NotificationType.INCOMING_INTEREST && notification.canReplyToInterest)
+                    }.map { it.id }.toSet()
+                    if (autoMarkIds.isNotEmpty() && autoMarkIds != lastAutoMarkedIds && isMarkingRead.compareAndSet(false, true)) {
+                        lastAutoMarkedIds = autoMarkIds
                         launch {
                             try {
                                 discoveryMatchRepository.markNotificationsRead(userId)
@@ -54,6 +61,12 @@ class NotificationsViewModel(
             } else {
                 _uiState.update { it.copy(isLoading = false) }
             }
+        }
+    }
+
+    fun markNotificationRead(notificationId: Long) {
+        viewModelScope.launch {
+            discoveryMatchRepository.markNotificationReadById(notificationId)
         }
     }
 

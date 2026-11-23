@@ -67,7 +67,20 @@ class MainActivity : ComponentActivity() {
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
         val destination = intent.getStringExtra("destination")
-        val matchId = intent.getLongExtra("matchId", -1L)
+
+        fun readLongExtra(key: String): Long {
+            val asLong = intent.getLongExtra(key, -1L)
+            if (asLong > 0L) return asLong
+            return intent.getStringExtra(key)?.toLongOrNull() ?: -1L
+        }
+
+        val matchId = readLongExtra("matchId")
+        val notificationId = readLongExtra("notificationId")
+        val targetUserId = readLongExtra("userId")
+        if (notificationId > 0L && targetUserId > 0L) {
+            SystemNotificationHelper.markAsNotified(this, targetUserId, notificationId)
+        }
+
         if (destination == "chat" && matchId > 0) {
             pendingRoute = CloBleDestinations.conversationRoute(matchId)
         } else if (destination == "notifications") {
@@ -88,20 +101,30 @@ class MainActivity : ComponentActivity() {
                         launch {
                             app.container.fcmRepository.registerCurrentToken(userId)
                         }
+                        var hasProcessedInitialBatch = false
                         matchRepo.observeNotifications(userId).collect { items ->
                             val unreadItems = items.filter { !it.isRead }
-                            for (item in unreadItems) {
-                                if (!SystemNotificationHelper.hasBeenNotified(this@MainActivity, userId, item.id)) {
-                                    val posted = SystemNotificationHelper.showNotification(
-                                        context = this@MainActivity,
-                                        id = item.id.toInt(),
-                                        title = item.title,
-                                        body = item.body,
-                                        relatedMatchId = item.relatedMatchId,
-                                        destination = "notifications"
-                                    )
-                                    if (posted) {
+                            if (!hasProcessedInitialBatch) {
+                                hasProcessedInitialBatch = true
+                                for (item in unreadItems) {
+                                    if (!SystemNotificationHelper.hasBeenNotified(this@MainActivity, userId, item.id)) {
                                         SystemNotificationHelper.markAsNotified(this@MainActivity, userId, item.id)
+                                    }
+                                }
+                            } else {
+                                for (item in unreadItems) {
+                                    if (!SystemNotificationHelper.hasBeenNotified(this@MainActivity, userId, item.id)) {
+                                        val posted = SystemNotificationHelper.showNotification(
+                                            context = this@MainActivity,
+                                            id = item.id.toInt(),
+                                            title = item.title,
+                                            body = item.body,
+                                            relatedMatchId = item.relatedMatchId,
+                                            destination = "notifications"
+                                        )
+                                        if (posted) {
+                                            SystemNotificationHelper.markAsNotified(this@MainActivity, userId, item.id)
+                                        }
                                     }
                                 }
                             }
