@@ -153,8 +153,8 @@ class DiscoverViewModel(
         val candidate = state.currentCandidate ?: return
         val userId = state.currentUserId ?: return
 
+        _uiState.update { it.copy(isActionInProgress = true) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionInProgress = true) }
             try {
                 val saved = discoveryMatchRepository.passCandidate(userId, candidate.item.id)
                 _uiState.update { current ->
@@ -186,8 +186,8 @@ class DiscoverViewModel(
         val candidate = state.currentCandidate ?: return
         val userId = state.currentUserId ?: return
 
+        _uiState.update { it.copy(isActionInProgress = true) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionInProgress = true) }
             try {
                 val result = discoveryMatchRepository.sendInterest(userId, candidate.item.id)
                 when (result) {
