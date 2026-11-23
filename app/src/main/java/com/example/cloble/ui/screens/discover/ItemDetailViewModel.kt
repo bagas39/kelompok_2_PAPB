@@ -81,17 +81,19 @@ class ItemDetailViewModel(
                 val isOwn = currentUserId != null && currentUserId == item.ownerId
 
                 val computedDistanceKm = if (!isOwn && viewerProfile != null && owner != null) {
-                    val (vLat, vLon) = DistanceCalculator.resolveEffectiveCoordinates(
-                        viewerProfile.city,
-                        viewerProfile.latitude,
-                        viewerProfile.longitude
-                    )
-                    val (oLat, oLon) = DistanceCalculator.resolveEffectiveCoordinates(
-                        owner.city,
-                        owner.latitude,
-                        owner.longitude
-                    )
-                    DistanceCalculator.calculateKm(vLat, vLon, oLat, oLon)
+                    owner.distanceKm ?: run {
+                        val (vLat, vLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                            viewerProfile.city,
+                            viewerProfile.latitude,
+                            viewerProfile.longitude
+                        )
+                        val (oLat, oLon) = DistanceCalculator.resolveEffectiveCoordinates(
+                            owner.city,
+                            owner.latitude,
+                            owner.longitude
+                        )
+                        DistanceCalculator.calculateKm(vLat, vLon, oLat, oLon)
+                    }
                 } else {
                     null
                 }
@@ -255,6 +257,7 @@ class ItemDetailViewModel(
 
     fun cancelPendingInterest() {
         val state = _uiState.value
+        if (state.isCancellingInterest || state.isSendingInterest) return
         val interestId = state.existingInterestId ?: return
         viewModelScope.launch {
             val currentUserId = authRepository.observeLoggedInUserId().firstOrNull() ?: return@launch

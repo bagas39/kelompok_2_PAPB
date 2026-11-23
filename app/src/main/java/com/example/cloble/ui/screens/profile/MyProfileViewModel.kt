@@ -153,6 +153,7 @@ class MyProfileViewModel(
 
     fun submitChangePassword() {
         val state = _uiState.value
+        if (state.isUpdatingPassword) return
         if (state.currentPassword.isEmpty()) {
             _uiState.update { it.copy(passwordErrorMessage = "Password saat ini wajib diisi") }
             return
