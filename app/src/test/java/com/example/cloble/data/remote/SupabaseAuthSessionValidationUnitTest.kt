@@ -1,5 +1,6 @@
 package com.example.cloble.data.remote
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -149,5 +150,58 @@ class SupabaseAuthSessionValidationUnitTest {
 
         assertTrue(valid)
         assertFalse(cleared)
+    }
+
+    @Test
+    fun validateSession_rethrowsCancellationException() = runBlocking {
+        var rethrown = false
+        var cleared = false
+
+        try {
+            validateSessionWithDeps(
+                getLocalUserId = { 7L },
+                getLocalToken = { "tok-valid" },
+                setClientToken = {},
+                clearLocalSession = { cleared = true },
+                callRpc = { _, _ -> throw CancellationException("cancelled") }
+            )
+        } catch (_: CancellationException) {
+            rethrown = true
+        }
+
+        assertTrue(rethrown)
+        assertFalse(cleared)
+    }
+
+    @Test
+    fun logoutWithDeps_loadsStoredTokenIntoClientBeforeServerRpcs() = runBlocking {
+        var clientToken: String? = null
+        var cleared = false
+        val recordedCalls = mutableListOf<Pair<String, String?>>()
+
+        logoutWithDeps(
+            getClientToken = { clientToken },
+            getStoredToken = { "stored-session-token" },
+            setClientToken = { clientToken = it },
+            getFcmToken = { "fcm-token-123" },
+            callRpc = { fn, _ ->
+                recordedCalls.add(fn to clientToken)
+                JSONObject().put("code", "SUCCESS")
+            },
+            clearLocalSession = {
+                cleared = true
+                clientToken = null
+            }
+        )
+
+        assertEquals(
+            listOf(
+                "rpc_unregister_fcm_token" to "stored-session-token",
+                "rpc_logout_session" to "stored-session-token"
+            ),
+            recordedCalls
+        )
+        assertTrue(cleared)
+        assertNull(clientToken)
     }
 }

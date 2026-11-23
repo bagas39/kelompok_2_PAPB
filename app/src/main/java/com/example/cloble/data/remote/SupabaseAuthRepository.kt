@@ -12,12 +12,14 @@ import com.example.cloble.domain.result.ResetPasswordResult
 import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.domain.util.PasswordHasher
 import com.example.cloble.domain.util.PasswordPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -37,7 +39,12 @@ class SupabaseAuthRepository(
     private suspend fun clearOfflineCacheIfAccountChanged(newUserId: Long) {
         val previousUserId = sessionPrefs.getLoggedInUserIdOnce()
         if (previousUserId != newUserId) {
-            runCatching { offlineChatCacheDao?.clearAll() }
+            try {
+                offlineChatCacheDao?.clearAll()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -108,6 +115,8 @@ class SupabaseAuthRepository(
                 )
                 else -> AuthResult.InvalidCredentials
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -139,6 +148,8 @@ class SupabaseAuthRepository(
                     DbFailure.UnexpectedDatabaseError("Gagal memproses permintaan OTP. Silakan coba lagi.")
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             RequestPasswordResetOtpResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -181,6 +192,8 @@ class SupabaseAuthRepository(
                     DbFailure.UnexpectedDatabaseError("Gagal mereset password")
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             ResetPasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -231,6 +244,8 @@ class SupabaseAuthRepository(
                     DbFailure.UnexpectedDatabaseError("Gagal memperbarui password")
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             ChangePasswordResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -273,8 +288,11 @@ class SupabaseAuthRepository(
             val regResp = client.rpc("rpc_register_user", regParams)
             when (regResp.optString("code")) {
                 "SUCCESS" -> {
-                    val newUserId = regResp.optLong("userId")
+                    val newUserId = regResp.optLong("userId", 0L)
                     val token = regResp.optString("sessionToken")
+                    if (newUserId <= 0L || token.isBlank()) {
+                        return AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal registrasi"))
+                    }
                     clearOfflineCacheIfAccountChanged(newUserId)
                     client.setSessionToken(token)
                     sessionPrefs.setSession(newUserId, token)
@@ -285,6 +303,8 @@ class SupabaseAuthRepository(
                 "VALIDATION_FAILED" -> AuthResult.ValidationFailed(regResp.optString("message", "Validasi gagal"))
                 else -> AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal registrasi"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             AuthResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
@@ -293,7 +313,12 @@ class SupabaseAuthRepository(
     private suspend fun clearInvalidLocalSession() {
         client.setSessionToken(null)
         sessionPrefs.clearSession()
-        runCatching { offlineChatCacheDao?.clearAll() }
+        try {
+            offlineChatCacheDao?.clearAll()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
         invalidator.invalidateAll()
     }
 
@@ -306,23 +331,61 @@ class SupabaseAuthRepository(
     )
 
     override suspend fun logout() {
-        try {
-            val fcmToken = sessionPrefs.getFcmTokenOnce()
-            if (!fcmToken.isNullOrBlank()) {
-                client.rpc("rpc_unregister_fcm_token", JSONObject().put("p_token", fcmToken))
-            }
-        } catch (_: Exception) {
-        }
-        try {
-            client.rpc("rpc_logout_session", JSONObject())
-        } catch (_: Exception) {
-        }
-        clearInvalidLocalSession()
+        logoutWithDeps(
+            getClientToken = { client.getSessionToken() },
+            getStoredToken = { sessionPrefs.sessionTokenFlow.firstOrNull() },
+            setClientToken = { token -> client.setSessionToken(token) },
+            getFcmToken = { sessionPrefs.getFcmTokenOnce() },
+            callRpc = { functionName, params -> client.rpc(functionName, params) },
+            clearLocalSession = { clearInvalidLocalSession() }
+        )
     }
 
     private companion object {
         const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
     }
+}
+
+internal suspend fun logoutWithDeps(
+    getClientToken: () -> String?,
+    getStoredToken: suspend () -> String?,
+    setClientToken: (String?) -> Unit,
+    getFcmToken: suspend () -> String?,
+    callRpc: suspend (String, JSONObject) -> JSONObject,
+    clearLocalSession: suspend () -> Unit
+) {
+    if (getClientToken().isNullOrBlank()) {
+        val storedToken = try {
+            getStoredToken()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (!storedToken.isNullOrBlank()) {
+            setClientToken(storedToken)
+        }
+    }
+
+    if (!getClientToken().isNullOrBlank()) {
+        try {
+            val fcmToken = getFcmToken()
+            if (!fcmToken.isNullOrBlank()) {
+                callRpc("rpc_unregister_fcm_token", JSONObject().put("p_token", fcmToken))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+        try {
+            callRpc("rpc_logout_session", JSONObject())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    clearLocalSession()
 }
 
 internal suspend fun validateSessionWithDeps(
@@ -358,6 +421,8 @@ internal suspend fun validateSessionWithDeps(
             }
             else -> true
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: IOException) {
         val message = e.message.orEmpty()
         if (message.contains("Supabase HTTP 404") || message.contains("PGRST202")) {
@@ -397,6 +462,8 @@ private suspend fun validateViaFallbackChallengeRpc(
             }
             else -> true
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         true
     }

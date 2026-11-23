@@ -14,18 +14,54 @@ class SessionTokenCipher internal constructor(
 ) {
     constructor() : this({ getOrCreateKeystoreSecretKey() })
 
+    @Volatile
+    private var cachedKey: SecretKey? = null
+    private val instanceKeyLock = Any()
+
+    private fun resolveSecretKey(): SecretKey? {
+        cachedKey?.let { return it }
+        return synchronized(instanceKeyLock) {
+            cachedKey?.let { return@synchronized it }
+            keyProvider()?.also { cachedKey = it }
+        }
+    }
+
+    private fun invalidateCachedKey() {
+        synchronized(instanceKeyLock) {
+            cachedKey = null
+        }
+        synchronized(keyLock) {
+            cachedKeystoreKey = null
+        }
+    }
+
+    private fun encryptWithKey(plainToken: String, secretKey: SecretKey): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        if (iv == null || iv.size != GCM_IV_LENGTH_BYTES) {
+            throw IllegalStateException("Invalid GCM IV generated")
+        }
+        val encrypted = cipher.doFinal(plainToken.toByteArray(StandardCharsets.UTF_8))
+        return "$PREFIX${encodeBase64(iv)}:${encodeBase64(encrypted)}"
+    }
+
     fun encrypt(plainToken: String): String {
-        if (plainToken.isBlank()) return plainToken
-        val secretKey = keyProvider() ?: return plainToken
+        if (plainToken.isBlank()) return ""
+        val secretKey = resolveSecretKey()
+            ?: throw IllegalStateException("Session encryption key unavailable")
         return try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            val iv = cipher.iv
-            if (iv == null || iv.size != GCM_IV_LENGTH_BYTES) return plainToken
-            val encrypted = cipher.doFinal(plainToken.toByteArray(StandardCharsets.UTF_8))
-            "$PREFIX${encodeBase64(iv)}:${encodeBase64(encrypted)}"
-        } catch (_: Exception) {
-            plainToken
+            encryptWithKey(plainToken, secretKey)
+        } catch (e: Exception) {
+            invalidateCachedKey()
+            val refreshedKey = resolveSecretKey()
+                ?: throw IllegalStateException("Failed to encrypt session token", e)
+            try {
+                encryptWithKey(plainToken, refreshedKey)
+            } catch (retryError: Exception) {
+                invalidateCachedKey()
+                throw IllegalStateException("Failed to encrypt session token", retryError)
+            }
         }
     }
 
@@ -40,7 +76,7 @@ class SessionTokenCipher internal constructor(
         val iv = decodeBase64(parts[0]) ?: return null
         val ciphertext = decodeBase64(parts[1]) ?: return null
         if (iv.size != GCM_IV_LENGTH_BYTES || ciphertext.isEmpty()) return null
-        val secretKey = keyProvider() ?: return null
+        val secretKey = resolveSecretKey() ?: return null
         return try {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
@@ -61,6 +97,10 @@ class SessionTokenCipher internal constructor(
         private const val BASE64_ALPHABET =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
+        @Volatile
+        private var cachedKeystoreKey: SecretKey? = null
+        private val keyLock = Any()
+
         private val BASE64_DECODE_TABLE = IntArray(256) { -1 }.apply {
             for (i in BASE64_ALPHABET.indices) {
                 this[BASE64_ALPHABET[i].code] = i
@@ -68,28 +108,33 @@ class SessionTokenCipher internal constructor(
         }
 
         private fun getOrCreateKeystoreSecretKey(): SecretKey? {
-            return try {
-                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-                val existing = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
-                if (existing != null) {
-                    return existing
+            cachedKeystoreKey?.let { return it }
+            return synchronized(keyLock) {
+                cachedKeystoreKey?.let { return@synchronized it }
+                try {
+                    val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                    val existing = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
+                    if (existing != null) {
+                        cachedKeystoreKey = existing
+                        return@synchronized existing
+                    }
+                    val keyGenerator = KeyGenerator.getInstance(
+                        KeyProperties.KEY_ALGORITHM_AES,
+                        ANDROID_KEYSTORE
+                    )
+                    val spec = KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .build()
+                    keyGenerator.init(spec)
+                    keyGenerator.generateKey().also { cachedKeystoreKey = it }
+                } catch (_: Exception) {
+                    null
                 }
-                val keyGenerator = KeyGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_AES,
-                    ANDROID_KEYSTORE
-                )
-                val spec = KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(256)
-                    .build()
-                keyGenerator.init(spec)
-                keyGenerator.generateKey()
-            } catch (_: Exception) {
-                null
             }
         }
 

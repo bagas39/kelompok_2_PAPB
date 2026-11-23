@@ -38,7 +38,8 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
 
         val destination = remoteMessage.data["destination"] ?: "notifications"
         val matchId = remoteMessage.data["matchId"]?.toLongOrNull()
-        val notifLongId = remoteMessage.data["id"]?.toLongOrNull()
+        val notifLongId = remoteMessage.data["notificationId"]?.toLongOrNull()
+            ?: remoteMessage.data["id"]?.toLongOrNull()
         val targetUserId = remoteMessage.data["userId"]?.toLongOrNull()
         val notifId = when (destination) {
             "chat" -> {
@@ -71,7 +72,9 @@ class CloBleFirebaseMessagingService : FirebaseMessagingService() {
                     title = title,
                     body = body,
                     relatedMatchId = matchId,
-                    destination = destination
+                    destination = destination,
+                    notificationId = if (destination == "notifications") notifLongId else null,
+                    userId = loggedInUserId
                 )
                 if (posted &&
                     destination == "notifications" &&

@@ -190,57 +190,105 @@ serve(async (req) => {
       });
     }
 
-    const { data: tokenRows } = await supabase
+    if (!admin.apps.length) {
+      return new Response(JSON.stringify({ error: "Firebase Admin is not configured" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+
+    const { data: sessionRows, error: sessionError } = await supabase
+      .from("user_sessions")
+      .select("userId")
+      .in("userId", targetUserIds)
+      .gt("expiresAt", Date.now());
+
+    if (sessionError) {
+      return new Response(JSON.stringify({ error: "Failed to verify active sessions" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+
+    const activeTargetUserIds = Array.from(
+      new Set(
+        (sessionRows || [])
+          .map((row) => Number(row.userId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+
+    if (activeTargetUserIds.length === 0) {
+      return new Response(JSON.stringify({ success: true, sent: 0, reason: "No active sessions" }), {
+        headers: jsonHeaders,
+      });
+    }
+
+    const { data: tokenRows, error: tokenError } = await supabase
       .from("user_fcm_tokens")
       .select("fcmToken")
-      .in("userId", targetUserIds);
+      .in("userId", activeTargetUserIds);
 
-    const tokens = (tokenRows || []).map((r) => r.fcmToken).filter(Boolean);
+    if (tokenError) {
+      return new Response(JSON.stringify({ error: "Failed to fetch FCM tokens" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+
+    const tokens = Array.from(
+      new Set(
+        (tokenRows || [])
+          .map((r) => (typeof r.fcmToken === "string" ? r.fcmToken.trim() : ""))
+          .filter((token) => token.length > 0)
+      )
+    );
     if (tokens.length === 0) {
       return new Response(JSON.stringify({ success: true, sent: 0, reason: "No FCM tokens found" }), {
         headers: jsonHeaders,
       });
     }
 
-    const messagePayload = {
-      tokens: tokens,
-      notification: {
-        title: title,
-        body: body,
-      },
-      data: {
-        id: eventId,
-        userId: targetUserId,
-        title: title,
-        body: body,
-        destination: destination,
-        ...(matchId ? { matchId } : {}),
-      },
-      android: {
-        priority: "high" as const,
-        notification: {
-          channelId: "cloble_barter_notifications",
-          sound: "default",
-        },
-      },
+    const MAX_MULTICAST_TOKENS = 500;
+    const dataPayload: Record<string, string> = {
+      id: eventId,
+      userId: targetUserId,
+      title: title,
+      body: body,
+      destination: destination,
+      ...(table === "notifications" ? { notificationId: eventId } : {}),
+      ...(matchId ? { matchId } : {}),
     };
 
-    const response = await admin.messaging().sendEachForMulticast(messagePayload);
-
+    let successCount = 0;
+    let failureCount = 0;
     const invalidTokens: string[] = [];
-    response.responses.forEach((res, idx) => {
-      const errCode = res.error?.code;
-      if (
-        !res.success &&
-        (errCode === "messaging/registration-token-not-registered" ||
-          errCode === "messaging/invalid-registration-token")
-      ) {
-        const badToken = tokens[idx];
-        if (badToken) {
-          invalidTokens.push(badToken);
+
+    for (let offset = 0; offset < tokens.length; offset += MAX_MULTICAST_TOKENS) {
+      const tokenChunk = tokens.slice(offset, offset + MAX_MULTICAST_TOKENS);
+      const response = await admin.messaging().sendEachForMulticast({
+        tokens: tokenChunk,
+        data: dataPayload,
+        android: {
+          priority: "high" as const,
+        },
+      });
+      successCount += response.successCount;
+      failureCount += response.failureCount;
+      response.responses.forEach((res, idx) => {
+        const errCode = res.error?.code;
+        if (
+          !res.success &&
+          (errCode === "messaging/registration-token-not-registered" ||
+            errCode === "messaging/invalid-registration-token")
+        ) {
+          const badToken = tokenChunk[idx];
+          if (badToken) {
+            invalidTokens.push(badToken);
+          }
         }
-      }
-    });
+      });
+    }
 
     if (invalidTokens.length > 0) {
       await supabase.from("user_fcm_tokens").delete().in("fcmToken", invalidTokens);
@@ -249,8 +297,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        successCount: response.successCount,
-        failureCount: response.failureCount,
+        successCount: successCount,
+        failureCount: failureCount,
       }),
       { headers: jsonHeaders }
     );

@@ -8,10 +8,14 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cloble_session_prefs")
@@ -48,8 +52,13 @@ class SessionPreferencesDataSource(
             }
         }
         .map { preferences ->
-            tokenCipher.decrypt(preferences[PreferencesKeys.KEY_SESSION_TOKEN])
+            preferences[PreferencesKeys.KEY_SESSION_TOKEN]
         }
+        .distinctUntilChanged()
+        .map { encrypted ->
+            tokenCipher.decrypt(encrypted)
+        }
+        .flowOn(Dispatchers.IO)
 
     val fcmTokenFlow: Flow<String?> = context.dataStore.data
         .catch { exception ->
@@ -74,7 +83,9 @@ class SessionPreferencesDataSource(
     }
 
     suspend fun setSession(userId: Long, sessionToken: String) {
-        val storedToken = tokenCipher.encrypt(sessionToken)
+        val storedToken = withContext(Dispatchers.IO) {
+            tokenCipher.encrypt(sessionToken)
+        }
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.KEY_LOGGED_IN_USER_ID] = userId
             preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken
@@ -82,7 +93,11 @@ class SessionPreferencesDataSource(
     }
 
     suspend fun setSessionToken(token: String?) {
-        val storedToken = token?.let { tokenCipher.encrypt(it) }
+        val storedToken = token?.let { raw ->
+            withContext(Dispatchers.IO) {
+                tokenCipher.encrypt(raw)
+            }
+        }
         context.dataStore.edit { preferences ->
             if (storedToken != null) {
                 preferences[PreferencesKeys.KEY_SESSION_TOKEN] = storedToken

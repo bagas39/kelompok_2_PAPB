@@ -275,7 +275,10 @@ fun LoginScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(
                         text = if (uiState.resetStep == 1) {
                             "Masukkan email akun Anda. Kami akan mengirimkan kode OTP jika email Anda terdaftar."

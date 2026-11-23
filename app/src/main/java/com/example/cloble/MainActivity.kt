@@ -28,8 +28,10 @@ class MainActivity : ComponentActivity() {
     private var notificationObserverJob: Job? = null
 
     private val requestNotificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
-            observeIncomingSystemNotifications()
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && notificationObserverJob?.isActive != true) {
+                observeIncomingSystemNotifications()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,7 +77,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val matchId = readLongExtra("matchId")
-        val notificationId = readLongExtra("notificationId")
+        val notificationId = readLongExtra("notificationId").takeIf { it > 0L } ?: readLongExtra("id")
         val targetUserId = readLongExtra("userId")
         if (notificationId > 0L && targetUserId > 0L) {
             SystemNotificationHelper.markAsNotified(this, targetUserId, notificationId)
@@ -120,7 +122,9 @@ class MainActivity : ComponentActivity() {
                                             title = item.title,
                                             body = item.body,
                                             relatedMatchId = item.relatedMatchId,
-                                            destination = "notifications"
+                                            destination = "notifications",
+                                            notificationId = item.id,
+                                            userId = userId
                                         )
                                         if (posted) {
                                             SystemNotificationHelper.markAsNotified(this@MainActivity, userId, item.id)

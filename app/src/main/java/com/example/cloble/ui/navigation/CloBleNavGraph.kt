@@ -168,12 +168,12 @@ fun CloBleNavGraph(
         }
     }
 
-    LaunchedEffect(pendingRoute, sessionGateState) {
-        if (pendingRoute != null && sessionGateState is SessionGateState.Authenticated) {
-            navController.navigate(pendingRoute) {
+    fun navigateSingle(route: String) {
+        val currentEntry = navController.currentBackStackEntry
+        if (currentEntry == null || currentEntry.lifecycle.currentState == Lifecycle.State.RESUMED) {
+            navController.navigate(route) {
                 launchSingleTop = true
             }
-            onRouteHandled()
         }
     }
 
@@ -199,11 +199,12 @@ fun CloBleNavGraph(
             composable(route = CloBleDestinations.LOGIN) {
                 LoginScreen(
                     onNavigateToRegister = {
-                        navController.navigate(CloBleDestinations.REGISTER)
+                        navigateSingle(CloBleDestinations.REGISTER)
                     },
                     onLoginSuccess = {
                         navController.navigate(CloBleDestinations.DISCOVER) {
                             popUpTo(CloBleDestinations.LOGIN) { inclusive = true }
+                            launchSingleTop = true
                         }
                     }
                 )
@@ -217,6 +218,7 @@ fun CloBleNavGraph(
                     onRegisterSuccess = {
                         navController.navigate(CloBleDestinations.preferencesRoute(isOnboarding = true)) {
                             popUpTo(CloBleDestinations.LOGIN) { inclusive = true }
+                            launchSingleTop = true
                         }
                     }
                 )
@@ -240,6 +242,7 @@ fun CloBleNavGraph(
                         if (isOnboarding) {
                             navController.navigate(CloBleDestinations.DISCOVER) {
                                 popUpTo(CloBleDestinations.PREFERENCES) { inclusive = true }
+                                launchSingleTop = true
                             }
                         } else {
                             navController.popBackStack()
@@ -251,10 +254,10 @@ fun CloBleNavGraph(
             composable(route = CloBleDestinations.MY_PROFILE) {
                 MyProfileScreen(
                     onNavigateToEditProfile = {
-                        navController.navigate(CloBleDestinations.EDIT_PROFILE)
+                        navigateSingle(CloBleDestinations.EDIT_PROFILE)
                     },
                     onNavigateToPreferences = {
-                        navController.navigate(CloBleDestinations.preferencesRoute(isOnboarding = false))
+                        navigateSingle(CloBleDestinations.preferencesRoute(isOnboarding = false))
                     },
                     onNavigateToWardrobe = {
                         navController.navigate(CloBleDestinations.WARDROBE) {
@@ -264,7 +267,7 @@ fun CloBleNavGraph(
                         }
                     },
                     onNavigateToNotifications = {
-                        navController.navigate(CloBleDestinations.NOTIFICATIONS)
+                        navigateSingle(CloBleDestinations.NOTIFICATIONS)
                     },
                     onNavigateToDiscover = {
                         navController.navigate(CloBleDestinations.DISCOVER) {
@@ -281,11 +284,12 @@ fun CloBleNavGraph(
                         }
                     },
                     onNavigateToHistory = {
-                        navController.navigate(CloBleDestinations.ACTIVITY_HISTORY)
+                        navigateSingle(CloBleDestinations.ACTIVITY_HISTORY)
                     },
                     onLogoutSuccess = {
                         navController.navigate(CloBleDestinations.LOGIN) {
                             popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
                         }
                     }
                 )
@@ -301,13 +305,13 @@ fun CloBleNavGraph(
         composable(route = CloBleDestinations.WARDROBE) {
             WardrobeScreen(
                 onNavigateToAddClothing = {
-                    navController.navigate(CloBleDestinations.ADD_CLOTHING)
+                    navigateSingle(CloBleDestinations.ADD_CLOTHING)
                 },
                 onNavigateToEditClothing = { itemId ->
-                    navController.navigate(CloBleDestinations.editClothingRoute(itemId))
+                    navigateSingle(CloBleDestinations.editClothingRoute(itemId))
                 },
                 onNavigateToNotifications = {
-                    navController.navigate(CloBleDestinations.NOTIFICATIONS)
+                    navigateSingle(CloBleDestinations.NOTIFICATIONS)
                 },
                 onNavigateToDiscover = {
                     navController.navigate(CloBleDestinations.DISCOVER) {
@@ -365,13 +369,13 @@ fun CloBleNavGraph(
         composable(route = CloBleDestinations.DISCOVER) {
             DiscoverScreen(
                 onNavigateToFilter = {
-                    navController.navigate(CloBleDestinations.FILTER)
+                    navigateSingle(CloBleDestinations.FILTER)
                 },
                 onNavigateToNotifications = {
-                    navController.navigate(CloBleDestinations.NOTIFICATIONS)
+                    navigateSingle(CloBleDestinations.NOTIFICATIONS)
                 },
                 onNavigateToItemDetail = { itemId ->
-                    navController.navigate(CloBleDestinations.itemDetailRoute(itemId))
+                    navigateSingle(CloBleDestinations.itemDetailRoute(itemId))
                 },
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE) {
@@ -395,10 +399,10 @@ fun CloBleNavGraph(
                     }
                 },
                 onNavigateToHistory = {
-                    navController.navigate(CloBleDestinations.ACTIVITY_HISTORY)
+                    navigateSingle(CloBleDestinations.ACTIVITY_HISTORY)
                 },
                 onNavigateToMatch = { matchId ->
-                    navController.navigate(CloBleDestinations.matchedRoute(matchId))
+                    navigateSingle(CloBleDestinations.matchedRoute(matchId))
                 }
             )
         }
@@ -407,10 +411,10 @@ fun CloBleNavGraph(
             ActivityHistoryScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToItemDetail = { itemId ->
-                    navController.navigate(CloBleDestinations.itemDetailRoute(itemId))
+                    navigateSingle(CloBleDestinations.itemDetailRoute(itemId))
                 },
                 onNavigateToMatchDetail = { matchId ->
-                    navController.navigate(CloBleDestinations.matchedRoute(matchId))
+                    navigateSingle(CloBleDestinations.matchedRoute(matchId))
                 }
             )
         }
@@ -432,7 +436,7 @@ fun CloBleNavGraph(
             ItemDetailScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToOtherUserProfile = { ownerId ->
-                    navController.navigate(CloBleDestinations.otherUserProfileRoute(ownerId))
+                    navigateSingle(CloBleDestinations.otherUserProfileRoute(ownerId))
                 },
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE) {
@@ -444,7 +448,7 @@ fun CloBleNavGraph(
                     }
                 },
                 onNavigateToMatch = { matchId ->
-                    navController.navigate(CloBleDestinations.matchedRoute(matchId))
+                    navigateSingle(CloBleDestinations.matchedRoute(matchId))
                 }
             )
         }
@@ -453,13 +457,13 @@ fun CloBleNavGraph(
             NotificationsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToReplyInterest = { senderUserId, interestId ->
-                    navController.navigate(CloBleDestinations.otherUserProfileRoute(senderUserId, interestId))
+                    navigateSingle(CloBleDestinations.otherUserProfileRoute(senderUserId, interestId))
                 },
                 onNavigateToConversation = { matchId ->
-                    navController.navigate(CloBleDestinations.conversationRoute(matchId))
+                    navigateSingle(CloBleDestinations.conversationRoute(matchId))
                 },
                 onNavigateToRateUser = { matchId, otherUserId ->
-                    navController.navigate(CloBleDestinations.rateUserRoute(matchId))
+                    navigateSingle(CloBleDestinations.rateUserRoute(matchId))
                 }
             )
         }
@@ -474,12 +478,16 @@ fun CloBleNavGraph(
             OtherUserProfileScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToMatched = { matchId ->
-                    navController.navigate(CloBleDestinations.matchedRoute(matchId)) {
-                        popUpTo(CloBleDestinations.NOTIFICATIONS) { inclusive = false }
+                    val currentEntry = navController.currentBackStackEntry
+                    if (currentEntry == null || currentEntry.lifecycle.currentState == Lifecycle.State.RESUMED) {
+                        navController.navigate(CloBleDestinations.matchedRoute(matchId)) {
+                            popUpTo(CloBleDestinations.NOTIFICATIONS) { inclusive = false }
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onNavigateToItemDetail = { itemId ->
-                    navController.navigate(CloBleDestinations.itemDetailRoute(itemId))
+                    navigateSingle(CloBleDestinations.itemDetailRoute(itemId))
                 }
             )
         }
@@ -492,11 +500,18 @@ fun CloBleNavGraph(
         ) {
             MatchedScreen(
                 onNavigateToConversation = { matchId ->
-                    navController.navigate(CloBleDestinations.conversationRoute(matchId))
+                    val currentEntry = navController.currentBackStackEntry
+                    if (currentEntry == null || currentEntry.lifecycle.currentState == Lifecycle.State.RESUMED) {
+                        navController.navigate(CloBleDestinations.conversationRoute(matchId)) {
+                            popUpTo(CloBleDestinations.MATCHED) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
                 },
                 onNavigateToDiscover = {
                     navController.navigate(CloBleDestinations.DISCOVER) {
                         popUpTo(CloBleDestinations.DISCOVER) { inclusive = true }
+                        launchSingleTop = true
                     }
                 }
             )
@@ -505,10 +520,10 @@ fun CloBleNavGraph(
         composable(route = CloBleDestinations.CHAT_LIST) {
             ChatListScreen(
                 onNavigateToConversation = { matchId ->
-                    navController.navigate(CloBleDestinations.conversationRoute(matchId))
+                    navigateSingle(CloBleDestinations.conversationRoute(matchId))
                 },
                 onNavigateToNotifications = {
-                    navController.navigate(CloBleDestinations.NOTIFICATIONS)
+                    navigateSingle(CloBleDestinations.NOTIFICATIONS)
                 },
                 onNavigateToDiscover = {
                     navController.navigate(CloBleDestinations.DISCOVER) {
@@ -545,10 +560,10 @@ fun CloBleNavGraph(
                     navController.popBackStack()
                 },
                 onNavigateToOtherUserProfile = { partnerId ->
-                    navController.navigate(CloBleDestinations.otherUserProfileRoute(partnerId))
+                    navigateSingle(CloBleDestinations.otherUserProfileRoute(partnerId))
                 },
                 onNavigateToRateUser = { matchId ->
-                    navController.navigate(CloBleDestinations.rateUserRoute(matchId))
+                    navigateSingle(CloBleDestinations.rateUserRoute(matchId))
                 }
             )
         }
@@ -564,9 +579,18 @@ fun CloBleNavGraph(
                     navController.popBackStack()
                 },
                 onNavigateToOtherUserProfile = { partnerId ->
-                    navController.navigate(CloBleDestinations.otherUserProfileRoute(partnerId))
+                    navigateSingle(CloBleDestinations.otherUserProfileRoute(partnerId))
                 }
             )
+        }
+    }
+
+    LaunchedEffect(pendingRoute, sessionGateState, navController) {
+        if (pendingRoute != null && sessionGateState is SessionGateState.Authenticated) {
+            navController.navigate(pendingRoute) {
+                launchSingleTop = true
+            }
+            onRouteHandled()
         }
     }
 }

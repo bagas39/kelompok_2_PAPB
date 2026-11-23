@@ -63,7 +63,9 @@ object SystemNotificationHelper {
         title: String,
         body: String,
         relatedMatchId: Long? = null,
-        destination: String = "notifications"
+        destination: String = "notifications",
+        notificationId: Long? = null,
+        userId: Long? = null
     ): Boolean {
         initNotificationChannel(context)
 
@@ -75,6 +77,12 @@ object SystemNotificationHelper {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (relatedMatchId != null) {
                 putExtra("matchId", relatedMatchId)
+            }
+            if (notificationId != null && notificationId > 0L) {
+                putExtra("notificationId", notificationId)
+            }
+            if (userId != null && userId > 0L) {
+                putExtra("userId", userId)
             }
             putExtra("destination", destination)
         }

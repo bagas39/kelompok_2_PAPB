@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +55,7 @@ fun NotificationsScreen(
     viewModel: NotificationsViewModel = viewModel(factory = NotificationsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val dateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
+    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     Scaffold(
         topBar = {
@@ -134,10 +135,9 @@ fun NotificationsScreen(
                         }
                         item.type == NotificationType.EXCHANGE_COMPLETED &&
                             !item.hasReviewedMatch &&
-                            item.relatedMatchId != null &&
-                            item.counterpartUserId != null -> {
+                            item.relatedMatchId != null -> {
                             Modifier.clickable {
-                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
+                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId ?: -1L)
                             }
                         }
                         else -> Modifier
@@ -222,12 +222,12 @@ fun NotificationsScreen(
                                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                                                 color = CloBleColors.SuccessText
                                             )
-                                            if (!item.hasReviewedMatch && item.relatedMatchId != null && item.counterpartUserId != null) {
+                                            if (!item.hasReviewedMatch && item.relatedMatchId != null) {
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 CloBleOutlinedButton(
                                                     text = "Beri Ulasan",
                                                     onClick = {
-                                                        onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
+                                                        onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId ?: -1L)
                                                     },
                                                     modifier = Modifier
                                                         .fillMaxWidth()
@@ -258,12 +258,12 @@ fun NotificationsScreen(
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                                             color = CloBleColors.SuccessText
                                         )
-                                    } else if (item.relatedMatchId != null && item.counterpartUserId != null) {
+                                    } else if (item.relatedMatchId != null) {
                                         Spacer(modifier = Modifier.height(2.dp))
                                         CloBleOutlinedButton(
                                             text = "Beri Ulasan",
                                             onClick = {
-                                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId)
+                                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId ?: -1L)
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()

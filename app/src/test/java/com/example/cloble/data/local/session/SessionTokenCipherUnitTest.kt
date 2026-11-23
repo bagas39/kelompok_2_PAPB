@@ -73,4 +73,28 @@ class SessionTokenCipherUnitTest {
         assertNull(SessionTokenCipher.decodeBase64("abc"))
         assertNull(SessionTokenCipher.decodeBase64("ab=c"))
     }
+
+    @Test(expected = IllegalStateException::class)
+    fun encrypt_whenKeyProviderReturnsNull_throwsIllegalStateException() {
+        val cipher = SessionTokenCipher { null }
+        cipher.encrypt("plain-session-token")
+    }
+
+    @Test
+    fun encryptAndDecrypt_cachesSecretKeyAcrossMultipleCalls() {
+        val keyGen = KeyGenerator.getInstance("AES")
+        keyGen.init(256)
+        val secretKey = keyGen.generateKey()
+        var providerCalls = 0
+        val cipher = SessionTokenCipher {
+            providerCalls += 1
+            secretKey
+        }
+
+        val enc1 = cipher.encrypt("tok-1")
+        val enc2 = cipher.encrypt("tok-2")
+        assertEquals("tok-1", cipher.decrypt(enc1))
+        assertEquals("tok-2", cipher.decrypt(enc2))
+        assertEquals(1, providerCalls)
+    }
 }

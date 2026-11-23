@@ -167,6 +167,7 @@ serve(async (req) => {
     }
 
     const shouldSendEmail = Boolean(issueResult?.shouldSendEmail);
+    const otpRowId = Number(issueResult?.otpRowId ?? 0);
     if (shouldSendEmail) {
       const userName = sanitizeHeaderValue(String(issueResult?.userName ?? "")) || "Pengguna CloBle";
       const transporter = nodemailer.createTransport({
@@ -179,14 +180,30 @@ serve(async (req) => {
         },
       });
 
-      await transporter.sendMail({
-        from: `CloBle <${gmailUser}>`,
-        replyTo: gmailUser,
-        to: cleanEmail,
-        subject: `Kode verifikasi akun CloBle untuk ${userName}`,
-        text: buildOtpEmailText(userName, otpCode, cleanEmail),
-        html: buildOtpEmailHtml(userName, otpCode, cleanEmail),
-      });
+      try {
+        await transporter.sendMail({
+          from: `CloBle <${gmailUser}>`,
+          replyTo: gmailUser,
+          to: cleanEmail,
+          subject: `Kode verifikasi akun CloBle untuk ${userName}`,
+          text: buildOtpEmailText(userName, otpCode, cleanEmail),
+          html: buildOtpEmailHtml(userName, otpCode, cleanEmail),
+        });
+      } catch (_mailErr) {
+        if (Number.isInteger(otpRowId) && otpRowId > 0) {
+          try {
+            await supabase.rpc("rpc_rollback_issued_password_reset_otp", {
+              p_otp_id: otpRowId,
+            });
+          } catch (rollbackErr) {
+            console.error("Failed to rollback OTP after SMTP failure:", rollbackErr);
+          }
+        }
+        return jsonResponse({
+          code: "SMTP_SEND_FAILED",
+          message: "Terjadi gangguan saat memproses permintaan OTP. Silakan coba lagi.",
+        });
+      }
     }
 
     return jsonResponse({
