@@ -35,6 +35,7 @@ data class AddEditClothingUiState(
     val extraPhotoUri: String? = null,
     val isBarterAllowed: Boolean = false,
     val isLockedInActiveMatch: Boolean = false,
+    val isItemLoadFailed: Boolean = false,
     val isLoading: Boolean = false,
     val isUploadingPhoto: Boolean = false,
     val isSaving: Boolean = false,
@@ -93,50 +94,56 @@ class AddEditClothingViewModel(
                         )
                     }
                 } else {
-                    _uiState.update { it.copy(isLoading = false, errorMessage = "Pakaian tidak ditemukan") }
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isItemLoadFailed = true,
+                            errorMessage = "Pakaian tidak ditemukan atau gagal dimuat. Silakan kembali dan coba lagi."
+                        )
+                    }
                 }
             }
         }
     }
 
     fun onNameChanged(newName: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(name = newName, errorMessage = null) }
     }
 
     fun onDescriptionChanged(newDesc: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(description = newDesc, errorMessage = null) }
     }
 
     fun onCategorySelected(cat: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(category = cat) }
     }
 
     fun onSizeSelected(s: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(size = s) }
     }
 
     fun onGenderSelected(g: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(gender = g) }
     }
 
     fun onColorSelected(c: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(color = c) }
     }
 
     fun onConditionSelected(cond: String) {
-        if (_uiState.value.isLockedInActiveMatch) return
+        if (_uiState.value.isLockedInActiveMatch || _uiState.value.isItemLoadFailed) return
         _uiState.update { it.copy(condition = cond) }
     }
 
     fun onPhotoSelected(photoUri: String, slotIndex: Int = 0) {
         val current = _uiState.value
-        if (current.isLockedInActiveMatch || current.isUploadingPhoto || current.isSaving) return
+        if (current.isLockedInActiveMatch || current.isItemLoadFailed || current.isUploadingPhoto || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingPhoto = true, errorMessage = null) }
             val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri)
@@ -161,17 +168,26 @@ class AddEditClothingViewModel(
 
     fun onRemovePhoto(slotIndex: Int) {
         val current = _uiState.value
-        if (current.isLockedInActiveMatch || current.isUploadingPhoto || current.isSaving) return
+        if (current.isLockedInActiveMatch || current.isItemLoadFailed || current.isUploadingPhoto || current.isSaving) return
         _uiState.update {
-            when (slotIndex) {
-                0 -> it.copy(mainPhotoUri = null)
-                1 -> it.copy(detailPhotoUri = null)
-                else -> it.copy(extraPhotoUri = null)
-            }
+            val rawMain = if (slotIndex == 0) null else it.mainPhotoUri
+            val rawDetail = if (slotIndex == 1) null else it.detailPhotoUri
+            val rawExtra = if (slotIndex != 0 && slotIndex != 1) null else it.extraPhotoUri
+            val (normalizedMain, normalizedDetail, normalizedExtra) = normalizePhotoSlots(
+                rawMain,
+                rawDetail,
+                rawExtra
+            )
+            it.copy(
+                mainPhotoUri = normalizedMain,
+                detailPhotoUri = normalizedDetail,
+                extraPhotoUri = normalizedExtra
+            )
         }
     }
 
     fun onBarterAllowedChanged(allowed: Boolean) {
+        if (_uiState.value.isItemLoadFailed) return
         if (_uiState.value.isLockedInActiveMatch) {
             _uiState.update { it.copy(errorMessage = "Pakaian sedang terikat Match aktif.") }
             return
@@ -180,6 +196,10 @@ class AddEditClothingViewModel(
     }
 
     fun requestDelete() {
+        if (_uiState.value.isItemLoadFailed) {
+            _uiState.update { it.copy(errorMessage = "Pakaian gagal dimuat dan tidak dapat dihapus.") }
+            return
+        }
         if (_uiState.value.isLockedInActiveMatch) {
             _uiState.update { it.copy(errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif.") }
             return
@@ -188,17 +208,29 @@ class AddEditClothingViewModel(
     }
 
     fun dismissDeleteDialog() {
+        if (_uiState.value.isDeleting) return
         _uiState.update { it.copy(showDeleteDialog = false) }
     }
 
     fun confirmDelete(onSuccess: () -> Unit) {
         val s = _uiState.value
-        if (s.isDeleting || s.isSaving) return
-        val userId = s.currentUserId ?: return
+        if (s.isDeleting || s.isSaving || s.isItemLoadFailed) return
         viewModelScope.launch {
             _uiState.update { it.copy(isDeleting = true, errorMessage = null) }
             try {
-                when (wardrobeRepository.softDeleteClothingItem(userId, s.itemId)) {
+                val userId = s.currentUserId ?: authRepository.observeLoggedInUserId().firstOrNull()
+                if (userId == null) {
+                    _uiState.update {
+                        it.copy(
+                            showDeleteDialog = false,
+                            isDeleting = false,
+                            errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update { it.copy(currentUserId = userId) }
+                when (val result = wardrobeRepository.softDeleteClothingItem(userId, s.itemId)) {
                     is WardrobeMutationResult.Success -> {
                         _uiState.update { it.copy(showDeleteDialog = false, isDeleting = false) }
                         onSuccess()
@@ -208,16 +240,43 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dihapus."
+                                errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dihapus."
                             )
                         }
                     }
-                    else -> {
+                    is WardrobeMutationResult.InvalidOwnership -> {
                         _uiState.update {
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = "Gagal menghapus pakaian."
+                                errorMessage = "Anda tidak memiliki izin untuk menghapus pakaian ini."
+                            )
+                        }
+                    }
+                    is WardrobeMutationResult.ItemNotFound -> {
+                        _uiState.update {
+                            it.copy(
+                                showDeleteDialog = false,
+                                isDeleting = false,
+                                errorMessage = "Pakaian tidak ditemukan atau sudah dihapus."
+                            )
+                        }
+                    }
+                    is WardrobeMutationResult.ValidationFailed -> {
+                        _uiState.update {
+                            it.copy(
+                                showDeleteDialog = false,
+                                isDeleting = false,
+                                errorMessage = result.message
+                            )
+                        }
+                    }
+                    is WardrobeMutationResult.DatabaseError -> {
+                        _uiState.update {
+                            it.copy(
+                                showDeleteDialog = false,
+                                isDeleting = false,
+                                errorMessage = result.failure.message ?: "Gagal menghapus pakaian."
                             )
                         }
                     }
@@ -231,6 +290,10 @@ class AddEditClothingViewModel(
     fun save(onSuccess: () -> Unit) {
         val s = _uiState.value
         if (s.isSaving || s.isDeleting) return
+        if (s.isItemLoadFailed) {
+            _uiState.update { it.copy(errorMessage = "Data pakaian gagal dimuat. Silakan kembali dan muat ulang.") }
+            return
+        }
         if (s.isLockedInActiveMatch) {
             _uiState.update { it.copy(errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.") }
             return
@@ -239,30 +302,63 @@ class AddEditClothingViewModel(
             _uiState.update { it.copy(errorMessage = "Tunggu hingga proses unggah foto selesai.") }
             return
         }
-        val userId = s.currentUserId ?: return
         val name = s.name.trim()
+        val description = s.description.trim()
 
         if (name.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Nama pakaian wajib diisi") }
             return
         }
+        if (name.length > 120) {
+            _uiState.update { it.copy(errorMessage = "Nama pakaian maksimal 120 karakter.") }
+            return
+        }
+        if (description.length > 2000) {
+            _uiState.update { it.copy(errorMessage = "Deskripsi pakaian maksimal 2000 karakter.") }
+            return
+        }
+
+        val (normalizedMain, normalizedDetail, normalizedExtra) = normalizePhotoSlots(
+            s.mainPhotoUri,
+            s.detailPhotoUri,
+            s.extraPhotoUri
+        )
 
         val draft = ClothingDraft(
             name = name,
-            description = s.description.trim(),
+            description = description,
             category = s.category,
             size = s.size,
             gender = s.gender,
             color = s.color,
             condition = s.condition,
-            mainPhotoUri = s.mainPhotoUri,
-            detailPhotoUri = s.detailPhotoUri,
-            extraPhotoUri = s.extraPhotoUri,
+            mainPhotoUri = normalizedMain,
+            detailPhotoUri = normalizedDetail,
+            extraPhotoUri = normalizedExtra,
             isBarterAllowed = s.isBarterAllowed
         )
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    mainPhotoUri = normalizedMain,
+                    detailPhotoUri = normalizedDetail,
+                    extraPhotoUri = normalizedExtra,
+                    isSaving = true,
+                    errorMessage = null
+                )
+            }
+            val userId = s.currentUserId ?: authRepository.observeLoggedInUserId().firstOrNull()
+            if (userId == null) {
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                    )
+                }
+                return@launch
+            }
+            _uiState.update { it.copy(currentUserId = userId) }
             val result = if (s.isEditMode) {
                 wardrobeRepository.updateClothingItem(userId, s.itemId, draft)
             } else {
@@ -278,15 +374,36 @@ class AddEditClothingViewModel(
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi."
+                            errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dimodifikasi."
+                        )
+                    }
+                }
+                is WardrobeMutationResult.InvalidOwnership -> {
+                    _uiState.update {
+                        it.copy(
+                            isSaving = false,
+                            errorMessage = "Anda tidak memiliki izin untuk mengubah pakaian ini."
+                        )
+                    }
+                }
+                is WardrobeMutationResult.ItemNotFound -> {
+                    _uiState.update {
+                        it.copy(
+                            isSaving = false,
+                            errorMessage = "Pakaian tidak ditemukan atau sudah dihapus."
                         )
                     }
                 }
                 is WardrobeMutationResult.ValidationFailed -> {
                     _uiState.update { it.copy(isSaving = false, errorMessage = result.message) }
                 }
-                else -> {
-                    _uiState.update { it.copy(isSaving = false, errorMessage = "Gagal menyimpan pakaian.") }
+                is WardrobeMutationResult.DatabaseError -> {
+                    _uiState.update {
+                        it.copy(
+                            isSaving = false,
+                            errorMessage = result.failure.message ?: "Gagal menyimpan pakaian."
+                        )
+                    }
                 }
             }
         }
@@ -304,5 +421,21 @@ class AddEditClothingViewModel(
                 )
             }
         }
+    }
+}
+
+internal fun normalizePhotoSlots(
+    mainPhotoUri: String?,
+    detailPhotoUri: String?,
+    extraPhotoUri: String?
+): Triple<String?, String?, String?> {
+    val cleanMain = mainPhotoUri?.takeIf { it.isNotBlank() }
+    val cleanDetail = detailPhotoUri?.takeIf { it.isNotBlank() }
+    val cleanExtra = extraPhotoUri?.takeIf { it.isNotBlank() }
+    return when {
+        cleanMain != null -> Triple(cleanMain, cleanDetail, cleanExtra)
+        cleanDetail != null -> Triple(cleanDetail, cleanExtra, null)
+        cleanExtra != null -> Triple(cleanExtra, null, null)
+        else -> Triple(null, null, null)
     }
 }

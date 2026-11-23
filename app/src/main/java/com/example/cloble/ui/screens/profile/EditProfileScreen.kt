@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,13 @@ fun EditProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showLocationPicker by remember { mutableStateOf(false) }
     var showAvatarFullscreen by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(uiState.errorMessage) {
+        if (uiState.errorMessage != null) {
+            scrollState.animateScrollTo(0)
+        }
+    }
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -115,10 +123,42 @@ fun EditProfileScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .imePadding()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(scrollState)
                         .padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    if (uiState.isProfileLoadFailed) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CloBleStatusInfoBox(
+                                    tone = CloBleInfoBoxTone.WARNING,
+                                    title = "Data Profil Gagal Dimuat",
+                                    message = "Profil lama Anda belum dapat dimuat dari server. Muat ulang sebelum menyimpan agar data profil tidak tertimpa.",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("edit_profile_load_error_box")
+                                )
+                                CloBleOutlinedButton(
+                                    text = "Muat Ulang",
+                                    onClick = viewModel::retryLoadProfile,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("btn_retry_edit_profile")
+                                )
+                            }
+                        }
+                    }
+
                     if (uiState.errorMessage != null) {
                         CloBleStatusInfoBox(
                             tone = CloBleInfoBoxTone.WARNING,
@@ -198,7 +238,7 @@ fun EditProfileScreen(
                             ) {
                                 CloBleOutlinedButton(
                                     text = if (uiState.avatarUri.isNullOrBlank()) "Pilih Foto" else "Ganti Foto",
-                                    leadingIcon = CloBleIcons.Camera,
+                                    leadingIcon = CloBleIcons.ImagePlaceholder,
                                     enabled = !uiState.isUploadingAvatar && !uiState.isSaving,
                                     onClick = {
                                         avatarPickerLauncher.launch(

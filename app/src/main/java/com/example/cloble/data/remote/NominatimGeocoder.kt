@@ -1,13 +1,21 @@
 package com.example.cloble.data.remote
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 data class ResolvedLocation(
     val displayName: String,
@@ -31,32 +39,65 @@ object NominatimGeocoder {
         val encoded = URLEncoder.encode(trimmed, "UTF-8")
         val primaryUrl = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&accept-language=id&countrycodes=id&limit=$limit&q=$encoded"
         val primaryBody = fetchBody(primaryUrl)
+        coroutineContext.ensureActive()
         val primaryResults = parseSearchJson(primaryBody)
         if (primaryResults.isNotEmpty()) {
             return@withContext primaryResults
         }
+        coroutineContext.ensureActive()
         val fallbackUrl = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&accept-language=id&limit=$limit&q=$encoded"
         val fallbackBody = fetchBody(fallbackUrl)
+        coroutineContext.ensureActive()
         parseSearchJson(fallbackBody)
     }
 
     suspend fun reverseGeocode(latitude: Double, longitude: Double): ResolvedLocation? = withContext(Dispatchers.IO) {
         val url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=id&lat=$latitude&lon=$longitude"
-        val body = fetchBody(url) ?: return@withContext null
+        val body = fetchBody(url)
+        coroutineContext.ensureActive()
+        if (body == null) return@withContext null
         parseReverseJson(body, latitude, longitude)
     }
 
-    private fun fetchBody(url: String): String? {
+    private suspend fun fetchBody(url: String): String? {
         return try {
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "CloBleAndroid/1.0 (contact@cloble.app)")
                 .get()
                 .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                response.body?.string()
+            suspendCancellableCoroutine { continuation ->
+                val call = httpClient.newCall(request)
+                continuation.invokeOnCancellation {
+                    call.cancel()
+                }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) {
+                            continuation.resume(null)
+                        }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use { res ->
+                            val bodyText = if (res.isSuccessful) {
+                                try {
+                                    res.body?.string()
+                                } catch (_: IOException) {
+                                    null
+                                }
+                            } else {
+                                null
+                            }
+                            if (continuation.isActive) {
+                                continuation.resume(bodyText)
+                            }
+                        }
+                    }
+                })
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -92,19 +133,23 @@ object NominatimGeocoder {
         }
     }
 
+    private fun JSONObject.optNonNullString(key: String): String {
+        return if (isNull(key)) "" else optString(key, "").trim()
+    }
+
     private fun parseLocationObject(
         obj: JSONObject,
         fallbackLat: Double?,
         fallbackLon: Double?
     ): ResolvedLocation? {
-        val lat = obj.optString("lat").toDoubleOrNull()
+        val lat = obj.optNonNullString("lat").toDoubleOrNull()
             ?: if (obj.has("lat") && !obj.isNull("lat")) obj.optDouble("lat", Double.NaN) else Double.NaN
-        val lon = obj.optString("lon").toDoubleOrNull()
+        val lon = obj.optNonNullString("lon").toDoubleOrNull()
             ?: if (obj.has("lon") && !obj.isNull("lon")) obj.optDouble("lon", Double.NaN) else Double.NaN
-        val resolvedLat = if (!lat.isNaN()) lat else fallbackLat ?: return null
-        val resolvedLon = if (!lon.isNaN()) lon else fallbackLon ?: return null
+        val resolvedLat = if (lat.isFinite()) lat else fallbackLat?.takeIf { it.isFinite() } ?: return null
+        val resolvedLon = if (lon.isFinite()) lon else fallbackLon?.takeIf { it.isFinite() } ?: return null
 
-        val displayName = obj.optString("display_name").trim()
+        val displayName = obj.optNonNullString("display_name")
         val addressObj = obj.optJSONObject("address")
         val shortLabel = buildShortLabel(addressObj, displayName)
         if (shortLabel.isBlank() && displayName.isBlank()) return null
@@ -127,7 +172,7 @@ object NominatimGeocoder {
                 "municipality",
                 "county"
             ).firstNotNullOfOrNull { key ->
-                addressObj.optString(key).trim().takeIf { it.isNotEmpty() }
+                addressObj.optNonNullString(key).takeIf { it.isNotEmpty() }
             }
             val city = listOf(
                 "city",
@@ -136,9 +181,9 @@ object NominatimGeocoder {
                 "state_district",
                 "state"
             ).firstNotNullOfOrNull { key ->
-                addressObj.optString(key).trim().takeIf { it.isNotEmpty() }
+                addressObj.optNonNullString(key).takeIf { it.isNotEmpty() }
             }
-            val province = addressObj.optString("state").trim().takeIf { it.isNotEmpty() }
+            val province = addressObj.optNonNullString("state").takeIf { it.isNotEmpty() }
 
             val parts = linkedSetOf<String>()
             if (locality != null) parts.add(locality)

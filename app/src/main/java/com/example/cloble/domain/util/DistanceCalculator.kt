@@ -66,14 +66,30 @@ object DistanceCalculator {
         listOf("jayapura") to (-2.5916 to 140.6690)
     )
 
+    private val indonesianCityCenterPatterns: List<Pair<List<Regex>, Pair<Double, Double>>> =
+        indonesianCityCenters.map { (keywords, coords) ->
+            keywords.map { keyword -> Regex("\\b${Regex.escape(keyword)}\\b") } to coords
+        }
+
+    private val bandungWordRegex = Regex("\\bbandung\\b")
+
+    fun isValidCoordinate(latitude: Double, longitude: Double): Boolean {
+        return latitude.isFinite() &&
+            longitude.isFinite() &&
+            latitude in -90.0..90.0 &&
+            longitude in -180.0..180.0
+    }
+
     fun calculateKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Int {
+        if (!isValidCoordinate(lat1, lon1) || !isValidCoordinate(lat2, lon2)) return 0
         if (lat1 == lat2 && lon1 == lon2) return 0
         val distance = calculateKmExact(lat1, lon1, lat2, lon2)
-        if (distance.isNaN()) return 0
+        if (!distance.isFinite()) return 0
         return distance.roundToInt().coerceAtLeast(0)
     }
 
     fun calculateKmExact(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        if (!isValidCoordinate(lat1, lon1) || !isValidCoordinate(lat2, lon2)) return Double.NaN
         if (lat1 == lat2 && lon1 == lon2) return 0.0
 
         val dLat = Math.toRadians(lat2 - lat1)
@@ -91,12 +107,11 @@ object DistanceCalculator {
 
     fun resolveEffectiveCoordinates(city: String, latitude: Double, longitude: Double): Pair<Double, Double> {
         val normalizedCity = city.trim().lowercase()
-        val isUnsetOrInvalid = latitude.isNaN() ||
-                longitude.isNaN() ||
+        val isUnsetOrInvalid = !isValidCoordinate(latitude, longitude) ||
                 (abs(latitude) < 1e-6 && abs(longitude) < 1e-6)
         val isDefaultBandungCoords = abs(latitude - DEFAULT_BANDUNG_LAT) < 1e-4 &&
                 abs(longitude - DEFAULT_BANDUNG_LON) < 1e-4
-        val cityMentionsBandung = normalizedCity.contains("bandung")
+        val cityMentionsBandung = bandungWordRegex.containsMatchIn(normalizedCity)
 
         if (isUnsetOrInvalid || (isDefaultBandungCoords && normalizedCity.isNotEmpty() && !cityMentionsBandung)) {
             val matched = findCityCenter(normalizedCity)
@@ -112,8 +127,8 @@ object DistanceCalculator {
     fun findCityCenter(cityQuery: String): Pair<Double, Double>? {
         val normalized = cityQuery.trim().lowercase()
         if (normalized.isEmpty()) return null
-        return indonesianCityCenters.firstOrNull { (keywords, _) ->
-            keywords.any { keyword -> normalized.contains(keyword) }
+        return indonesianCityCenterPatterns.firstOrNull { (patterns, _) ->
+            patterns.any { pattern -> pattern.containsMatchIn(normalized) }
         }?.second
     }
 

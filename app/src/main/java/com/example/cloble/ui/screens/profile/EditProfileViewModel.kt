@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
+import com.example.cloble.data.remote.SupabaseProfileReviewRepository
 import com.example.cloble.domain.model.CityPreset
 import com.example.cloble.domain.model.UserProfileUpdate
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +34,7 @@ data class EditProfileUiState(
     val preferredRadiusKm: Int = 10,
     val isCustomRadius: Boolean = false,
     val customRadiusText: String = "10",
+    val isProfileLoadFailed: Boolean = false,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isUploadingAvatar: Boolean = false,
@@ -47,9 +50,15 @@ class EditProfileViewModel(
     val uiState: StateFlow<EditProfileUiState> = _uiState.asStateFlow()
 
     private var hasInitialized = false
+    private var loadJob: Job? = null
 
     init {
-        viewModelScope.launch {
+        loadProfile()
+    }
+
+    private fun loadProfile() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             val user = authRepository.observeCurrentUser().firstOrNull()
             if (user != null && !hasInitialized) {
                 hasInitialized = true
@@ -67,13 +76,27 @@ class EditProfileViewModel(
                         preferredRadiusKm = user.preferredRadiusKm,
                         isCustomRadius = user.preferredRadiusKm !in PRESET_RADII_KM,
                         customRadiusText = user.preferredRadiusKm.toString(),
+                        isProfileLoadFailed = false,
                         isLoading = false
                     )
                 }
             } else {
-                _uiState.update { it.copy(isLoading = false) }
+                val fallbackUserId = user?.id ?: authRepository.observeLoggedInUserId().firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        userId = it.userId ?: fallbackUserId,
+                        isProfileLoadFailed = user == null && !hasInitialized,
+                        isLoading = false
+                    )
+                }
             }
         }
+    }
+
+    fun retryLoadProfile() {
+        hasInitialized = false
+        _uiState.update { it.copy(isLoading = true, isProfileLoadFailed = false, errorMessage = null) }
+        loadProfile()
     }
 
     fun onNameChanged(newName: String) {
@@ -167,45 +190,83 @@ class EditProfileViewModel(
     fun saveProfile(onSuccess: () -> Unit) {
         val state = _uiState.value
         if (state.isSaving || state.isUploadingAvatar) return
-        val userId = state.userId ?: return
         val cleanName = state.name.trim()
+        val cleanBio = state.bio.trim()
         val cleanCity = state.city.trim()
 
         if (cleanName.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Nama lengkap tidak boleh kosong.") }
             return
         }
+        if (cleanName.length > 100) {
+            _uiState.update { it.copy(errorMessage = "Nama lengkap maksimal 100 karakter.") }
+            return
+        }
+        if (cleanBio.length > 1000) {
+            _uiState.update { it.copy(errorMessage = "Bio maksimal 1000 karakter.") }
+            return
+        }
         if (cleanCity.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Lokasi tidak boleh kosong.") }
             return
         }
+        if (cleanCity.length > 120) {
+            _uiState.update { it.copy(errorMessage = "Nama lokasi maksimal 120 karakter.") }
+            return
+        }
 
-        val effectiveRadius = if (state.isCustomRadius) {
+        val rawRadius = if (state.isCustomRadius) {
             state.customRadiusText.toIntOrNull() ?: 0
         } else {
             state.preferredRadiusKm
         }
-        if (effectiveRadius <= 0) {
+        if (rawRadius <= 0) {
             _uiState.update {
                 it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
             }
             return
         }
+        val effectiveRadius = rawRadius.coerceAtMost(20000)
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null) }
-            val finalAvatar = state.avatarUri?.let { uri ->
-                if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("/")) {
-                    uri
-                } else {
-                    profileReviewRepository.persistAvatarPhoto(uri)
+            val userId = state.userId ?: authRepository.observeLoggedInUserId().firstOrNull()
+            if (userId == null) {
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                    )
                 }
+                return@launch
+            }
+            _uiState.update { it.copy(userId = userId) }
+            val rawAvatar = state.avatarUri
+            val finalAvatar = if (
+                rawAvatar == null ||
+                rawAvatar.startsWith("http://") ||
+                rawAvatar.startsWith("https://") ||
+                rawAvatar.startsWith("/")
+            ) {
+                rawAvatar
+            } else {
+                val uploadedAvatar = profileReviewRepository.persistAvatarPhoto(rawAvatar)
+                if (uploadedAvatar == null) {
+                    _uiState.update {
+                        it.copy(
+                            isSaving = false,
+                            errorMessage = "Gagal mengunggah foto profil. Silakan pilih ulang foto dan coba lagi."
+                        )
+                    }
+                    return@launch
+                }
+                uploadedAvatar
             }
             val success = profileReviewRepository.updateProfile(
                 userId = userId,
                 update = UserProfileUpdate(
                     name = cleanName,
-                    bio = state.bio.trim(),
+                    bio = cleanBio,
                     avatarUri = finalAvatar,
                     city = cleanCity,
                     latitude = state.latitude,
@@ -219,10 +280,13 @@ class EditProfileViewModel(
                 _uiState.update { it.copy(isSaving = false) }
                 onSuccess()
             } else {
+                val serverError = (profileReviewRepository as? SupabaseProfileReviewRepository)
+                    ?.consumeLastMutationError()
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = "Gagal menyimpan perubahan profil. Periksa koneksi internet Anda."
+                        errorMessage = serverError
+                            ?: "Gagal menyimpan perubahan profil. Periksa koneksi internet Anda."
                     )
                 }
             }

@@ -49,16 +49,30 @@ class RateUserViewModel(
             val userId = authRepository.observeLoggedInUserId().firstOrNull()
             if (userId != null && matchId > 0L) {
                 _uiState.update { it.copy(currentUserId = userId) }
+                var detailLoaded = false
+                var reviewStatusLoaded = false
 
                 launch {
                     discoveryMatchRepository.observeMatchDetail(matchId, userId).collect { detail ->
-                        _uiState.update { it.copy(matchDetail = detail, isLoading = false) }
+                        detailLoaded = true
+                        _uiState.update {
+                            it.copy(
+                                matchDetail = detail,
+                                isLoading = !(detailLoaded && reviewStatusLoaded)
+                            )
+                        }
                     }
                 }
 
                 launch {
                     profileReviewRepository.hasUserReviewedMatch(matchId, userId).collect { reviewed ->
-                        _uiState.update { it.copy(alreadyReviewed = reviewed) }
+                        reviewStatusLoaded = true
+                        _uiState.update {
+                            it.copy(
+                                alreadyReviewed = reviewed,
+                                isLoading = !(detailLoaded && reviewStatusLoaded)
+                            )
+                        }
                     }
                 }
             } else {
@@ -86,7 +100,6 @@ class RateUserViewModel(
     fun submitReview() {
         val state = _uiState.value
         if (state.isSubmitting) return
-        val userId = state.currentUserId ?: return
 
         if (state.alreadyReviewed) {
             _uiState.update { it.copy(errorMessage = "Anda sudah memberikan ulasan untuk pertukaran ini.") }
@@ -100,6 +113,16 @@ class RateUserViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val userId = state.currentUserId ?: authRepository.observeLoggedInUserId().firstOrNull()
+            if (userId == null) {
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                    )
+                }
+                return@launch
+            }
             val result = profileReviewRepository.submitReview(
                 matchId = matchId,
                 reviewerId = userId,
@@ -130,7 +153,7 @@ class RateUserViewModel(
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
-                            errorMessage = "Gagal menyimpan ulasan. Periksa koneksi internet Anda dan coba lagi."
+                            errorMessage = result.failure.message ?: "Gagal menyimpan ulasan. Periksa koneksi internet Anda dan coba lagi."
                         )
                     }
                 }

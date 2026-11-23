@@ -6,13 +6,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
+import com.example.cloble.data.remote.SupabaseWardrobeRepository
 import com.example.cloble.domain.model.ClothingItem
+import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.WardrobeItemSummary
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.WardrobeMutationResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +34,7 @@ data class WardrobeUiState(
     val isDeleting: Boolean = false,
     val togglingItemIds: Set<Long> = emptySet(),
     val itemPendingDelete: ClothingItem? = null,
+    val loadErrorMessage: String? = null,
     val errorMessage: String? = null
 )
 
@@ -43,29 +47,50 @@ class WardrobeViewModel(
 
     private val _uiState = MutableStateFlow(WardrobeUiState())
     val uiState: StateFlow<WardrobeUiState> = _uiState.asStateFlow()
+    private var wardrobeJob: Job? = null
+    private var unreadJob: Job? = null
 
     init {
-        viewModelScope.launch {
-            authRepository.observeLoggedInUserId().flatMapLatest { userId ->
-                if (userId == null) {
-                    flowOf(emptyList())
-                } else {
-                    _uiState.update { it.copy(currentUserId = userId) }
-                    wardrobeRepository.observeMyWardrobe(userId)
+        startObserving()
+    }
+
+    private fun startObserving() {
+        wardrobeJob?.cancel()
+        unreadJob?.cancel()
+
+        wardrobeJob = viewModelScope.launch {
+            authRepository.observeLoggedInUserId()
+                .distinctUntilChanged()
+                .flatMapLatest { userId ->
+                    if (userId == null) {
+                        flowOf(emptyList())
+                    } else {
+                        _uiState.update { it.copy(currentUserId = userId) }
+                        wardrobeRepository.observeMyWardrobe(userId)
+                    }
                 }
-            }.collect { wardrobeItems ->
-                val eligible = wardrobeItems.count { it.item.isBarterAllowed && !it.isInActiveMatch && it.item.status == com.example.cloble.domain.model.ItemStatus.AVAILABLE }
-                _uiState.update {
-                    it.copy(
-                        items = wardrobeItems,
-                        eligibleBarterCount = eligible,
-                        isLoading = false
-                    )
+                .collect { wardrobeItems ->
+                    val eligible = wardrobeItems.count {
+                        it.item.isBarterAllowed && !it.isInActiveMatch && it.item.status == ItemStatus.AVAILABLE
+                    }
+                    val fetchFailed = wardrobeItems.isEmpty() &&
+                        (wardrobeRepository as? SupabaseWardrobeRepository)?.lastMyWardrobeFetchFailed == true
+                    _uiState.update {
+                        it.copy(
+                            items = wardrobeItems,
+                            eligibleBarterCount = eligible,
+                            isLoading = false,
+                            loadErrorMessage = if (fetchFailed) {
+                                "Gagal memuat koleksi lemari. Periksa koneksi internet Anda lalu coba lagi."
+                            } else {
+                                null
+                            }
+                        )
+                    }
                 }
-            }
         }
 
-        viewModelScope.launch {
+        unreadJob = viewModelScope.launch {
             authRepository.observeLoggedInUserId()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
@@ -76,6 +101,12 @@ class WardrobeViewModel(
                     _uiState.update { it.copy(unreadNotificationCount = count) }
                 }
         }
+    }
+
+    fun retryLoadWardrobe() {
+        _uiState.update { it.copy(isLoading = true, loadErrorMessage = null, errorMessage = null) }
+        (wardrobeRepository as? SupabaseWardrobeRepository)?.triggerWardrobeRefresh()
+        startObserving()
     }
 
     fun toggleBarterAllowed(itemId: Long, currentAllowed: Boolean) {
@@ -95,6 +126,14 @@ class WardrobeViewModel(
                     }
                     is WardrobeMutationResult.ValidationFailed -> {
                         _uiState.update { it.copy(errorMessage = result.message) }
+                    }
+                    is WardrobeMutationResult.DatabaseError -> {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = result.failure.message
+                                    ?: "Gagal mengubah izin barter pakaian. Periksa koneksi internet Anda."
+                            )
+                        }
                     }
                     else -> {
                         _uiState.update {
@@ -124,7 +163,7 @@ class WardrobeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isDeleting = true, errorMessage = null) }
             try {
-                when (wardrobeRepository.softDeleteClothingItem(userId, item.id)) {
+                when (val result = wardrobeRepository.softDeleteClothingItem(userId, item.id)) {
                     is WardrobeMutationResult.Success -> {
                         _uiState.update { it.copy(itemPendingDelete = null) }
                     }
@@ -133,6 +172,14 @@ class WardrobeViewModel(
                             it.copy(
                                 itemPendingDelete = null,
                                 errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif."
+                            )
+                        }
+                    }
+                    is WardrobeMutationResult.DatabaseError -> {
+                        _uiState.update {
+                            it.copy(
+                                itemPendingDelete = null,
+                                errorMessage = result.failure.message ?: "Gagal menghapus pakaian."
                             )
                         }
                     }

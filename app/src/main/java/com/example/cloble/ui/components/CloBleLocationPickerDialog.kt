@@ -9,7 +9,6 @@ import android.graphics.Canvas
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
-import android.os.Build
 import android.os.CancellationSignal
 import android.provider.Settings
 import android.view.MotionEvent
@@ -54,6 +53,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -114,16 +114,22 @@ fun CloBleLocationPickerDialog(
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
+    val (normalizedInitLat, normalizedInitLon) = remember(initialCity, initialLatitude, initialLongitude) {
+        DistanceCalculator.resolveEffectiveCoordinates(initialCity, initialLatitude, initialLongitude)
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<ResolvedLocation>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
+    var searchEmptyMessage by remember { mutableStateOf<String?>(null) }
 
-    var selectedLat by remember { mutableDoubleStateOf(initialLatitude) }
-    var selectedLon by remember { mutableDoubleStateOf(initialLongitude) }
+    var selectedLat by remember { mutableDoubleStateOf(normalizedInitLat) }
+    var selectedLon by remember { mutableDoubleStateOf(normalizedInitLon) }
     var cityInput by remember { mutableStateOf(initialCity) }
     var fullAddressHint by remember { mutableStateOf(initialCity) }
     var isReverseGeocoding by remember { mutableStateOf(false) }
     var hasUserEditedCity by remember { mutableStateOf(false) }
+    var hasUserMovedPin by remember { mutableStateOf(false) }
     var isConfirmingLocation by remember { mutableStateOf(false) }
     var gpsStatusHint by remember { mutableStateOf<String?>(null) }
     var settingsActionType by remember { mutableStateOf<LocationSettingsPromptType?>(null) }
@@ -131,13 +137,42 @@ fun CloBleLocationPickerDialog(
     var isLocatingDevice by remember { mutableStateOf(false) }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    var suppressNextReverseLookup by remember { mutableStateOf(false) }
+    var lastProgrammaticLat by remember { mutableDoubleStateOf(normalizedInitLat) }
+    var lastProgrammaticLon by remember { mutableDoubleStateOf(normalizedInitLon) }
+    var suppressReverseUntilMs by remember { mutableLongStateOf(System.currentTimeMillis() + 1500L) }
     var reverseGeocodeJob by remember { mutableStateOf<Job?>(null) }
 
-    fun moveMapTo(lat: Double, lon: Double, zoom: Double = 14.0) {
+    fun moveMapTo(lat: Double, lon: Double, zoom: Double = 14.0, suppressReverseLookup: Boolean = true) {
+        if (suppressReverseLookup) {
+            lastProgrammaticLat = lat
+            lastProgrammaticLon = lon
+            suppressReverseUntilMs = System.currentTimeMillis() + 1500L
+        }
         selectedLat = lat
         selectedLon = lon
         mapViewRef?.controller?.animateTo(GeoPoint(lat, lon), zoom, 350L)
+    }
+
+    fun startReverseGeocode(lat: Double, lon: Double) {
+        reverseGeocodeJob?.cancel()
+        isReverseGeocoding = true
+        var startedJob: Job? = null
+        startedJob = coroutineScope.launch {
+            try {
+                val resolved = NominatimGeocoder.reverseGeocode(lat, lon)
+                if (resolved != null) {
+                    fullAddressHint = resolved.displayName
+                    if (!hasUserEditedCity) {
+                        cityInput = resolved.shortLabel
+                    }
+                }
+            } finally {
+                if (reverseGeocodeJob == startedJob) {
+                    isReverseGeocoding = false
+                }
+            }
+        }
+        reverseGeocodeJob = startedJob
     }
 
     fun applyDeviceLocation() {
@@ -167,18 +202,9 @@ fun CloBleLocationPickerDialog(
                 gpsStatusHint = null
                 settingsActionType = null
                 hasUserEditedCity = false
-                suppressNextReverseLookup = false
-                moveMapTo(location.latitude, location.longitude, 15.0)
-                reverseGeocodeJob?.cancel()
-                reverseGeocodeJob = coroutineScope.launch {
-                    isReverseGeocoding = true
-                    val resolved = NominatimGeocoder.reverseGeocode(location.latitude, location.longitude)
-                    if (resolved != null && !hasUserEditedCity) {
-                        cityInput = resolved.shortLabel
-                        fullAddressHint = resolved.displayName
-                    }
-                    isReverseGeocoding = false
-                }
+                hasUserMovedPin = true
+                moveMapTo(location.latitude, location.longitude, 15.0, suppressReverseLookup = true)
+                startReverseGeocode(location.latitude, location.longitude)
             } else {
                 gpsStatusHint = "Lokasi GPS belum tersedia, geser pin peta atau cari nama kota."
                 settingsActionType = null
@@ -204,12 +230,20 @@ fun CloBleLocationPickerDialog(
         val q = searchQuery.trim()
         if (q.length < 2) {
             searchResults = emptyList()
+            searchEmptyMessage = null
             isSearching = false
             return@LaunchedEffect
         }
         isSearching = true
+        searchEmptyMessage = null
         delay(500L)
-        searchResults = NominatimGeocoder.searchPlaces(q)
+        val results = NominatimGeocoder.searchPlaces(q)
+        searchResults = results
+        searchEmptyMessage = if (results.isEmpty()) {
+            "Lokasi \"$q\" tidak ditemukan. Coba nama kota atau kecamatan lain."
+        } else {
+            null
+        }
         isSearching = false
     }
 
@@ -349,8 +383,11 @@ fun CloBleLocationPickerDialog(
                         CloBleLabeledTextField(
                             label = "",
                             value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = "Cari kota, kecamatan, atau daerah di Indonesia...",
+                            onValueChange = {
+                                searchQuery = it
+                                searchEmptyMessage = null
+                            },
+                            placeholder = "Cari kota atau kecamatan...",
                             singleLine = true,
                             minHeight = 46.dp,
                             inputTestTag = "input_search_location",
@@ -368,6 +405,7 @@ fun CloBleLocationPickerDialog(
                                             onClick = {
                                                 searchQuery = ""
                                                 searchResults = emptyList()
+                                                searchEmptyMessage = null
                                             },
                                             modifier = Modifier.size(28.dp)
                                         ) {
@@ -390,6 +428,24 @@ fun CloBleLocationPickerDialog(
                                 }
                             }
                         )
+
+                        if (!searchEmptyMessage.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = CloBleColors.SecondarySurface,
+                                border = BorderStroke(1.dp, CloBleColors.Outline),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("location_search_empty_card")
+                            ) {
+                                Text(
+                                    text = searchEmptyMessage.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
 
                         if (!gpsStatusHint.isNullOrBlank()) {
                             Surface(
@@ -507,7 +563,7 @@ fun CloBleLocationPickerDialog(
                                     setTileSource(TileSourceFactory.MAPNIK)
                                     setMultiTouchControls(true)
                                     controller.setZoom(13.0)
-                                    controller.setCenter(GeoPoint(initialLatitude, initialLongitude))
+                                    controller.setCenter(GeoPoint(normalizedInitLat, normalizedInitLon))
                                     addMapListener(
                                         DelayedMapListener(
                                             object : MapListener {
@@ -517,22 +573,18 @@ fun CloBleLocationPickerDialog(
                                                     val lon = center.longitude
                                                     selectedLat = lat
                                                     selectedLon = lon
-                                                    if (suppressNextReverseLookup) {
-                                                        suppressNextReverseLookup = false
+                                                    val withinWindow = System.currentTimeMillis() < suppressReverseUntilMs
+                                                    val nearTarget = DistanceCalculator.calculateKmExact(
+                                                        lat,
+                                                        lon,
+                                                        lastProgrammaticLat,
+                                                        lastProgrammaticLon
+                                                    ).let { dist -> !dist.isNaN() && dist < 0.05 }
+                                                    if (withinWindow && nearTarget) {
                                                         return true
                                                     }
-                                                    reverseGeocodeJob?.cancel()
-                                                    reverseGeocodeJob = coroutineScope.launch {
-                                                        isReverseGeocoding = true
-                                                        val resolved = NominatimGeocoder.reverseGeocode(lat, lon)
-                                                        if (resolved != null) {
-                                                            fullAddressHint = resolved.displayName
-                                                            if (!hasUserEditedCity) {
-                                                                cityInput = resolved.shortLabel
-                                                            }
-                                                        }
-                                                        isReverseGeocoding = false
-                                                    }
+                                                    hasUserMovedPin = true
+                                                    startReverseGeocode(lat, lon)
                                                     return true
                                                 }
 
@@ -637,13 +689,17 @@ fun CloBleLocationPickerDialog(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
+                                                    reverseGeocodeJob?.cancel()
+                                                    reverseGeocodeJob = null
+                                                    isReverseGeocoding = false
                                                     hasUserEditedCity = false
-                                                    suppressNextReverseLookup = true
+                                                    hasUserMovedPin = true
                                                     cityInput = item.shortLabel
                                                     fullAddressHint = item.displayName
                                                     searchQuery = ""
                                                     searchResults = emptyList()
-                                                    moveMapTo(item.latitude, item.longitude, 13.5)
+                                                    searchEmptyMessage = null
+                                                    moveMapTo(item.latitude, item.longitude, 13.5, suppressReverseLookup = true)
                                                 }
                                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                                             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -717,15 +773,16 @@ fun CloBleLocationPickerDialog(
                             val pinUnmovedFromInitial = DistanceCalculator.calculateKmExact(
                                 finalLat,
                                 finalLon,
-                                initialLatitude,
-                                initialLongitude
-                            ) < 0.05
-                            if (hasUserEditedCity || (searchQuery.isNotBlank() && pinUnmovedFromInitial)) {
+                                normalizedInitLat,
+                                normalizedInitLon
+                            ).let { dist -> !dist.isNaN() && dist < 0.05 }
+                            if ((hasUserEditedCity && !hasUserMovedPin) || (searchQuery.isNotBlank() && pinUnmovedFromInitial && !hasUserMovedPin)) {
                                 coroutineScope.launch {
                                     isConfirmingLocation = true
                                     val queryText = cleanCity.ifBlank { searchQuery.trim() }
-                                    val geocoded = NominatimGeocoder.searchPlaces(queryText, limit = 1).firstOrNull()
-                                    if (geocoded != null && (hasUserEditedCity || pinUnmovedFromInitial)) {
+                                    val geocoded = NominatimGeocoder.searchPlaces(queryText, limit = 1)
+                                        .firstOrNull { it.latitude in -12.0..7.5 && it.longitude in 94.0..142.0 }
+                                    if (geocoded != null) {
                                         finalLat = geocoded.latitude
                                         finalLon = geocoded.longitude
                                     } else {
@@ -783,28 +840,39 @@ private fun isDeviceLocationEnabled(context: Context): Boolean {
     }
 }
 
+private fun isProviderSafelyEnabled(manager: LocationManager, provider: String): Boolean {
+    return try {
+        manager.isProviderEnabled(provider)
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @SuppressLint("MissingPermission")
 private suspend fun fetchCurrentLocationOrLastKnown(context: Context): Location? {
-    readBestLastKnownLocation(context)?.let { return it }
     if (!hasLocationPermission(context) || !isDeviceLocationEnabled(context)) return null
     val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val provider = when {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
-                LocationManager.GPS_PROVIDER
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
-                LocationManager.NETWORK_PROVIDER
-            else -> return readBestLastKnownLocation(context)
+    val hasFine = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val enabledProviders = buildList {
+        if (hasFine && isProviderSafelyEnabled(manager, LocationManager.GPS_PROVIDER)) {
+            add(LocationManager.GPS_PROVIDER)
         }
-        val freshLocation = withTimeoutOrNull(6000L) {
+        if (isProviderSafelyEnabled(manager, LocationManager.NETWORK_PROVIDER)) {
+            add(LocationManager.NETWORK_PROVIDER)
+        }
+    }
+    for ((index, provider) in enabledProviders.withIndex()) {
+        val timeoutMs = if (index < enabledProviders.lastIndex) 5000L else 6000L
+        val freshLocation = withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine { continuation ->
                 val cancellationSignal = CancellationSignal()
                 continuation.invokeOnCancellation { cancellationSignal.cancel() }
                 try {
-                    manager.getCurrentLocation(
+                    LocationManagerCompat.getCurrentLocation(
+                        manager,
                         provider,
                         cancellationSignal,
                         ContextCompat.getMainExecutor(context)

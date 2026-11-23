@@ -16,6 +16,7 @@ import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.ChangePasswordResult
 import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,8 @@ data class MyProfileUiState(
     val isConfirmPasswordVisible: Boolean = false,
     val isUpdatingPassword: Boolean = false,
     val passwordErrorMessage: String? = null,
-    val passwordSuccessMessage: String? = null
+    val passwordSuccessMessage: String? = null,
+    val errorMessage: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,20 +56,42 @@ class MyProfileViewModel(
     private val _uiState = MutableStateFlow(MyProfileUiState())
     val uiState: StateFlow<MyProfileUiState> = _uiState.asStateFlow()
     private var isLoggingOut = false
+    private var hasLoggedOut = false
+    private var profileJob: Job? = null
+    private var reviewsJob: Job? = null
+    private var wardrobeJob: Job? = null
+    private var unreadJob: Job? = null
 
     init {
-        viewModelScope.launch {
+        startObserving()
+    }
+
+    private fun startObserving() {
+        profileJob?.cancel()
+        reviewsJob?.cancel()
+        wardrobeJob?.cancel()
+        unreadJob?.cancel()
+
+        profileJob = viewModelScope.launch {
             authRepository.observeCurrentUser().collect { user ->
+                if ((isLoggingOut || hasLoggedOut) && user == null) {
+                    return@collect
+                }
                 _uiState.update { current ->
                     current.copy(
                         userProfile = user,
-                        isLoading = false
+                        isLoading = false,
+                        errorMessage = if (user == null) {
+                            "Profil Anda tidak dapat dimuat. Periksa koneksi internet Anda lalu coba muat ulang."
+                        } else {
+                            null
+                        }
                     )
                 }
             }
         }
 
-        viewModelScope.launch {
+        reviewsJob = viewModelScope.launch {
             authRepository.observeLoggedInUserId().flatMapLatest { userId ->
                 if (userId == null) flowOf(emptyList())
                 else profileReviewRepository.observeUserReviews(userId)
@@ -76,7 +100,7 @@ class MyProfileViewModel(
             }
         }
 
-        viewModelScope.launch {
+        wardrobeJob = viewModelScope.launch {
             authRepository.observeLoggedInUserId().flatMapLatest { userId ->
                 if (userId == null) flowOf(emptyList())
                 else wardrobeRepository.observeMyWardrobe(userId)
@@ -85,7 +109,7 @@ class MyProfileViewModel(
             }
         }
 
-        viewModelScope.launch {
+        unreadJob = viewModelScope.launch {
             authRepository.observeLoggedInUserId()
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
@@ -96,6 +120,16 @@ class MyProfileViewModel(
                     _uiState.update { it.copy(unreadNotificationCount = count) }
                 }
         }
+    }
+
+    fun retryLoadProfile() {
+        hasLoggedOut = false
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        startObserving()
+    }
+
+    fun clearPasswordSuccessMessage() {
+        _uiState.update { it.copy(passwordSuccessMessage = null) }
     }
 
     fun openChangePasswordDialog() {
@@ -120,6 +154,8 @@ class MyProfileViewModel(
                 showChangePasswordDialog = false,
                 isUpdatingPassword = false,
                 currentPassword = "",
+                newPassword = "",
+                confirmPassword = "",
                 isCurrentPasswordVisible = false,
                 isNewPasswordVisible = false,
                 isConfirmPasswordVisible = false,
@@ -227,6 +263,7 @@ class MyProfileViewModel(
         viewModelScope.launch {
             try {
                 authRepository.logout()
+                hasLoggedOut = true
                 onSuccess()
             } finally {
                 isLoggingOut = false

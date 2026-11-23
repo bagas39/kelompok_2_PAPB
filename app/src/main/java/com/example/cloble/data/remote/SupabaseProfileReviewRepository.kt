@@ -10,6 +10,7 @@ import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.ReviewSubmitResult
 import com.example.cloble.domain.util.DistanceCalculator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -24,6 +25,15 @@ class SupabaseProfileReviewRepository(
     private val context: Context,
     private val invalidator: SupabaseDataInvalidator
 ) : ProfileReviewRepository {
+
+    @Volatile
+    private var lastMutationErrorMessage: String? = null
+
+    fun consumeLastMutationError(): String? {
+        val message = lastMutationErrorMessage
+        lastMutationErrorMessage = null
+        return message
+    }
 
     override fun observeUserProfile(
         userId: Long,
@@ -56,6 +66,8 @@ class SupabaseProfileReviewRepository(
                 list.add(SupabaseMappers.parseUserReview(arr.getJSONObject(i)))
             }
             list
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             emptyList()
         }
@@ -71,6 +83,8 @@ class SupabaseProfileReviewRepository(
                         JSONObject().put("p_match_id", matchId)
                     )
                     resp.optString("code") == "SUCCESS" && resp.optBoolean("hasReviewed", false)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     false
                 }
@@ -78,6 +92,7 @@ class SupabaseProfileReviewRepository(
             .flowOn(Dispatchers.IO)
 
     override suspend fun updatePreferences(userId: Long, prefs: UserPreferences): Boolean {
+        lastMutationErrorMessage = null
         return try {
             val (effectiveLat, effectiveLon) = DistanceCalculator.resolveEffectiveCoordinates(
                 city = prefs.city,
@@ -98,8 +113,15 @@ class SupabaseProfileReviewRepository(
                 invalidator.invalidateDiscovery()
                 true
             } else {
+                lastMutationErrorMessage = if (resp.isNull("message")) {
+                    null
+                } else {
+                    resp.optString("message", "").trim().takeIf { it.isNotEmpty() }
+                }
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             false
         }
@@ -114,13 +136,19 @@ class SupabaseProfileReviewRepository(
             if (resp.optString("code") == "SUCCESS") {
                 invalidator.invalidateUser()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
         }
     }
 
     override suspend fun updateProfile(userId: Long, update: UserProfileUpdate): Boolean {
+        lastMutationErrorMessage = null
         val cleanName = update.name.trim()
-        if (cleanName.isEmpty()) return false
+        if (cleanName.isEmpty()) {
+            lastMutationErrorMessage = "Nama lengkap tidak boleh kosong."
+            return false
+        }
         return try {
             val cleanCity = update.city.trim()
             val (effectiveLat, effectiveLon) = DistanceCalculator.resolveEffectiveCoordinates(
@@ -145,8 +173,15 @@ class SupabaseProfileReviewRepository(
                 invalidator.invalidateDiscovery()
                 true
             } else {
+                lastMutationErrorMessage = if (resp.isNull("message")) {
+                    null
+                } else {
+                    resp.optString("message", "").trim().takeIf { it.isNotEmpty() }
+                }
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             false
         }
@@ -158,21 +193,16 @@ class SupabaseProfileReviewRepository(
         }
         try {
             val uri = Uri.parse(sourceUriString)
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: return@withContext null
-            if (bytes.size > MAX_PHOTO_BYTES) return@withContext null
-            val ext = when (context.contentResolver.getType(uri)) {
-                "image/png" -> "png"
-                "image/webp" -> "webp"
-                else -> "jpg"
-            }
-            val mime = when (ext) {
-                "png" -> "image/png"
-                "webp" -> "image/webp"
-                else -> "image/jpeg"
-            }
-            val filename = "avatar_${UUID.randomUUID()}.$ext"
-            client.uploadPhoto(bytes, filename, mime)
+            val bytes = compressAndStripExifJpeg(
+                context = context,
+                uri = uri,
+                maxDimensionPx = MAX_AVATAR_PHOTO_DIMENSION_PX,
+                maxBytes = MAX_PHOTO_BYTES
+            ) ?: return@withContext null
+            val filename = "avatar_${UUID.randomUUID()}.jpg"
+            client.uploadPhoto(bytes, filename, "image/jpeg")
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -198,6 +228,7 @@ class SupabaseProfileReviewRepository(
                 "SUCCESS" -> {
                     invalidator.invalidateUser()
                     invalidator.invalidateDiscovery()
+                    invalidator.invalidateNotifications()
                     ReviewSubmitResult.Success(res.optLong("reviewId"))
                 }
                 "MATCH_NOT_FOUND" -> ReviewSubmitResult.MatchNotFound
@@ -210,6 +241,8 @@ class SupabaseProfileReviewRepository(
                 )
                 else -> ReviewSubmitResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal memberi review"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             ReviewSubmitResult.DatabaseError(
                 DbFailure.UnexpectedDatabaseError("Terjadi gangguan koneksi ke server. Silakan coba lagi.")
@@ -219,6 +252,7 @@ class SupabaseProfileReviewRepository(
 
     private companion object {
         const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
+        const val MAX_AVATAR_PHOTO_DIMENSION_PX = 1024
     }
 }
 
@@ -230,6 +264,8 @@ internal suspend fun fetchUserProfileViaRpc(client: SupabaseClient, userId: Long
         val avg = resp.optDouble("averageRating", 0.0)
         val count = resp.optInt("reviewCount", 0)
         SupabaseMappers.parseUserProfile(userJson, avg, count)
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         null
     }

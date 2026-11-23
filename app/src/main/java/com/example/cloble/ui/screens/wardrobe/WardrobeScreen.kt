@@ -19,11 +19,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +37,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.ClothingItem
@@ -65,6 +70,19 @@ fun WardrobeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.clearErrorMessage()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -74,7 +92,10 @@ fun WardrobeScreen(
                     CloBleTopBarAction(
                         icon = CloBleIcons.Bell,
                         contentDescription = "Notifikasi",
-                        onClick = onNavigateToNotifications,
+                        onClick = {
+                            viewModel.clearErrorMessage()
+                            onNavigateToNotifications()
+                        },
                         showBadgeDot = uiState.unreadNotificationCount > 0,
                         testTag = "btn_notifications_from_wardrobe"
                     )
@@ -96,7 +117,10 @@ fun WardrobeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onNavigateToAddClothing,
+                onClick = {
+                    viewModel.clearErrorMessage()
+                    onNavigateToAddClothing()
+                },
                 containerColor = CloBleColors.Primary,
                 contentColor = Color.White,
                 modifier = Modifier.testTag("fab_add_clothing")
@@ -152,14 +176,52 @@ fun WardrobeScreen(
             }
 
             if (uiState.errorMessage != null) {
-                CloBleStatusInfoBox(
-                    tone = CloBleInfoBoxTone.WARNING,
-                    title = "Perhatian",
-                    message = uiState.errorMessage!!,
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CloBleColors.WarningContainer,
+                    border = BorderStroke(1.dp, CloBleColors.WarningText),
                     modifier = Modifier
+                        .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("wardrobe_error_box")
-                )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Perhatian",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = CloBleColors.WarningText
+                            )
+                            Text(
+                                text = uiState.errorMessage!!,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = CloBleColors.TextPrimary
+                            )
+                        }
+                        IconButton(
+                            onClick = viewModel::clearErrorMessage,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .testTag("btn_dismiss_wardrobe_error")
+                        ) {
+                            Icon(
+                                imageVector = CloBleIcons.XClose,
+                                contentDescription = "Tutup peringatan",
+                                tint = CloBleColors.WarningText,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             if (uiState.isLoading) {
@@ -170,6 +232,43 @@ fun WardrobeScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(color = CloBleColors.Primary)
+                }
+            } else if (uiState.items.isEmpty() && uiState.loadErrorMessage != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = CloBleColors.Surface,
+                        border = BorderStroke(1.dp, CloBleColors.Outline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CloBleStatusInfoBox(
+                                tone = CloBleInfoBoxTone.WARNING,
+                                title = "Lemari Gagal Dimuat",
+                                message = uiState.loadErrorMessage!!,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("wardrobe_load_error_box")
+                            )
+                            CloBlePrimaryButton(
+                                text = "Muat Ulang",
+                                onClick = viewModel::retryLoadWardrobe,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_retry_wardrobe")
+                            )
+                        }
+                    }
                 }
             } else if (uiState.items.isEmpty()) {
                 Box(
@@ -221,7 +320,10 @@ fun WardrobeScreen(
                             CloBlePrimaryButton(
                                 text = "Tambah Pakaian Pertama",
                                 leadingIcon = CloBleIcons.Plus,
-                                onClick = onNavigateToAddClothing
+                                onClick = {
+                                    viewModel.clearErrorMessage()
+                                    onNavigateToAddClothing()
+                                }
                             )
                         }
                     }
@@ -246,7 +348,7 @@ fun WardrobeScreen(
                         }
 
                         val statusNote = when {
-                            item.status == ItemStatus.EXCHANGED -> null
+                            item.status == ItemStatus.EXCHANGED || summary.isInActiveMatch -> null
                             summary.interestedSenderNames.isNotEmpty() ->
                                 "Diminati: ${summary.interestedSenderNames.joinToString(", ")}"
                             else -> null
@@ -271,7 +373,7 @@ fun WardrobeScreen(
                                 item.status != ItemStatus.AVAILABLE -> "Sudah Ditukar"
                                 else -> "Kelola"
                             },
-                            actionButtonEnabled = !isLocked,
+                            actionButtonEnabled = true,
                             onPhotoClick = if (itemPhotos.isNotEmpty()) {
                                 { viewerPhotos = itemPhotos }
                             } else {
@@ -281,6 +383,7 @@ fun WardrobeScreen(
                                 if (isLocked) {
                                     viewModel.showLockedItemWarning(item.name, summary.isInActiveMatch)
                                 } else {
+                                    viewModel.clearErrorMessage()
                                     onNavigateToEditClothing(item.id)
                                 }
                             },
@@ -288,6 +391,7 @@ fun WardrobeScreen(
                                 if (isLocked) {
                                     viewModel.showLockedItemWarning(item.name, summary.isInActiveMatch)
                                 } else {
+                                    viewModel.clearErrorMessage()
                                     onNavigateToEditClothing(item.id)
                                 }
                             },

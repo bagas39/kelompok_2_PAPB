@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +47,7 @@ import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleLocationPickerDialog
+import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -59,24 +63,75 @@ fun PreferencesScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
     var showLocationPicker by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(uiState.errorMessage) {
+        if (uiState.errorMessage != null) {
+            scrollState.animateScrollTo(0)
+        }
+    }
 
     Scaffold(
         topBar = {
             CloBleTopAppBar(
-                title = if (uiState.isOnboarding) "Atur Preferensi Awal" else "Preferensi Pakaian",
+                title = if (uiState.isOnboarding) "Atur Preferensi Awal" else "Preferensi Barter",
                 onNavigateBack = if (uiState.isOnboarding) null else onNavigateBack
             )
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        if (uiState.isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = CloBleColors.Primary)
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+            if (uiState.isProfileLoadFailed) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = CloBleColors.Surface,
+                    border = BorderStroke(1.dp, CloBleColors.Outline),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.WARNING,
+                            title = "Preferensi Gagal Dimuat",
+                            message = "Preferensi lama Anda gagal dimuat dari server. Muat ulang sebelum menyimpan agar tidak tertimpa nilai bawaan.",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("preferences_load_error_box")
+                        )
+                        CloBleOutlinedButton(
+                            text = "Muat Ulang",
+                            onClick = viewModel::retryLoadPreferences,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_retry_preferences")
+                        )
+                    }
+                }
+            }
+
             if (uiState.errorMessage != null) {
                 CloBleStatusInfoBox(
                     tone = CloBleInfoBoxTone.WARNING,
@@ -179,7 +234,7 @@ fun PreferencesScreen(
                     }
 
                     CloBleChoiceChipRow(
-                        label = "Radius Jarak Maksimum",
+                        label = "Radius Pencarian Maksimum",
                         options = radiusOptions,
                         selectedOptions = if (uiState.isCustomRadius) {
                             setOf("Kustom")
@@ -213,7 +268,7 @@ fun PreferencesScreen(
 
                     CloBleChoiceChipRow(
                         label = "Ukuran Pakaian Pilihan",
-                        options = CloBleConstants.SIZES,
+                        options = CloBleConstants.SIZES + "Semua",
                         selectedOptions = if (uiState.selectedSize.isNotEmpty()) setOf(uiState.selectedSize) else emptySet(),
                         onOptionClick = viewModel::onSizeSelected,
                         modifier = Modifier
@@ -222,7 +277,7 @@ fun PreferencesScreen(
                     )
 
                     CloBleChoiceChipRow(
-                        label = "Kategori Gender Pilihan",
+                        label = "Kategori Pengguna",
                         options = CloBleConstants.GENDERS,
                         selectedOptions = if (uiState.selectedGender.isNotEmpty()) setOf(uiState.selectedGender) else emptySet(),
                         onOptionClick = viewModel::onGenderSelected,
@@ -250,6 +305,7 @@ fun PreferencesScreen(
                         .fillMaxWidth()
                         .testTag("btn_save_preferences")
                 )
+            }
             }
         }
     }

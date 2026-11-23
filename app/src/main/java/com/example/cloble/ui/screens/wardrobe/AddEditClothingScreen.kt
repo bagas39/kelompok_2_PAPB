@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -34,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +50,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.data.remote.deleteCameraTempFileForUri
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.BarterEligibilitySwitchCard
 import com.example.cloble.ui.components.CloBleChoiceChipRow
@@ -78,8 +79,15 @@ fun AddEditClothingScreen(
     var activeSlotIndex by rememberSaveable { mutableIntStateOf(0) }
     var pendingCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
     var showPhotoSourceDialog by rememberSaveable { mutableStateOf(false) }
-    var permissionDeniedMessage by remember { mutableStateOf<String?>(null) }
+    var permissionDeniedMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var viewerStartIndex by remember { mutableStateOf<Int?>(null) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(uiState.errorMessage) {
+        if (uiState.errorMessage != null) {
+            scrollState.animateScrollTo(0)
+        }
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -98,6 +106,8 @@ fun AddEditClothingScreen(
         if (success && !capturedUri.isNullOrBlank()) {
             permissionDeniedMessage = null
             viewModel.onPhotoSelected(capturedUri, activeSlotIndex)
+        } else {
+            deleteCameraTempFileForUri(context, capturedUri)
         }
     }
 
@@ -112,21 +122,8 @@ fun AddEditClothingScreen(
             cameraLauncher.launch(tempUri)
         } catch (_: Exception) {
             pendingCameraUriString = null
+            deleteCameraTempFileForUri(context, tempUri.toString())
             permissionDeniedMessage = "Aplikasi kamera tidak tersedia di perangkat ini."
-        }
-    }
-
-    val storagePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        val granted = grants.values.any { it } || hasStorageReadPermission(context)
-        if (granted) {
-            permissionDeniedMessage = null
-            photoPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        } else {
-            permissionDeniedMessage = "Izin akses penyimpanan/galeri ditolak. Izinkan akses foto & media di Pengaturan Aplikasi untuk memilih foto dari galeri."
         }
     }
 
@@ -141,15 +138,11 @@ fun AddEditClothingScreen(
         }
     }
 
-    fun requestGalleryWithPermission() {
-        if (hasStorageReadPermission(context)) {
-            permissionDeniedMessage = null
-            photoPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        } else {
-            storagePermissionLauncher.launch(requiredStoragePermissions())
-        }
+    fun launchGalleryPicker() {
+        permissionDeniedMessage = null
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
     }
 
     fun requestCameraWithPermission() {
@@ -161,11 +154,11 @@ fun AddEditClothingScreen(
         }
     }
 
-    fun nextAvailableSlotIndex(): Int = when {
-        uiState.mainPhotoUri == null -> 0
-        uiState.detailPhotoUri == null -> 1
-        uiState.extraPhotoUri == null -> 2
-        else -> 0
+    fun nextAvailableSlotIndex(): Int? = when {
+        uiState.mainPhotoUri.isNullOrBlank() -> 0
+        uiState.detailPhotoUri.isNullOrBlank() -> 1
+        uiState.extraPhotoUri.isNullOrBlank() -> 2
+        else -> null
     }
 
     val categories = CloBleConstants.CATEGORIES
@@ -180,7 +173,7 @@ fun AddEditClothingScreen(
                 add(LabeledPhoto(it, "Foto Utama"))
             }
             uiState.detailPhotoUri?.takeIf { it.isNotBlank() }?.let {
-                add(LabeledPhoto(it, "Tampak Belakang"))
+                add(LabeledPhoto(it, "Foto Belakang"))
             }
             uiState.extraPhotoUri?.takeIf { it.isNotBlank() }?.let {
                 add(LabeledPhoto(it, "Detail Label"))
@@ -213,13 +206,14 @@ fun AddEditClothingScreen(
                 CircularProgressIndicator(color = CloBleColors.Primary)
             }
         } else {
+            val isFormBlocked = uiState.isLockedInActiveMatch || uiState.isItemLoadFailed
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
                     .imePadding()
                     .navigationBarsPadding()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -260,7 +254,7 @@ fun AddEditClothingScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            val canModifyPhotos = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving
+                            val canModifyPhotos = !isFormBlocked && !uiState.isUploadingPhoto && !uiState.isSaving
                             ClothingPhotoSlot(
                                 label = "Foto Utama",
                                 imageModel = uiState.mainPhotoUri,
@@ -278,7 +272,7 @@ fun AddEditClothingScreen(
                                     .testTag("photo_slot_main")
                             )
                             ClothingPhotoSlot(
-                                label = "Tampak Belakang",
+                                label = "Foto Belakang",
                                 imageModel = uiState.detailPhotoUri,
                                 onClick = {
                                     if (!uiState.detailPhotoUri.isNullOrBlank()) {
@@ -336,13 +330,15 @@ fun AddEditClothingScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val canModifyActions = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto && !uiState.isSaving
+                            val canModifyActions = !isFormBlocked && !uiState.isUploadingPhoto && !uiState.isSaving
+                            val hasAvailableSlot = nextAvailableSlotIndex() != null
                             CloBleOutlinedButton(
                                 text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Ambil Foto Kamera",
                                 leadingIcon = CloBleIcons.Camera,
-                                enabled = canModifyActions,
+                                enabled = canModifyActions && hasAvailableSlot,
                                 onClick = {
-                                    activeSlotIndex = nextAvailableSlotIndex()
+                                    val slot = nextAvailableSlotIndex() ?: return@CloBleOutlinedButton
+                                    activeSlotIndex = slot
                                     requestCameraWithPermission()
                                 },
                                 modifier = Modifier
@@ -352,15 +348,24 @@ fun AddEditClothingScreen(
                             CloBleOutlinedButton(
                                 text = if (uiState.isUploadingPhoto) "Mengunggah Foto..." else "Pilih dari Galeri",
                                 leadingIcon = CloBleIcons.ImagePlaceholder,
-                                enabled = canModifyActions,
+                                enabled = canModifyActions && hasAvailableSlot,
                                 onClick = {
-                                    activeSlotIndex = nextAvailableSlotIndex()
-                                    requestGalleryWithPermission()
+                                    val slot = nextAvailableSlotIndex() ?: return@CloBleOutlinedButton
+                                    activeSlotIndex = slot
+                                    launchGalleryPicker()
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("btn_pick_photo")
                             )
+                            if (!hasAvailableSlot && !isFormBlocked) {
+                                Text(
+                                    text = "Semua 3 slot foto sudah terisi. Hapus salah satu foto untuk menggantinya.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary,
+                                    modifier = Modifier.testTag("text_photo_slots_full")
+                                )
+                            }
                         }
 
                         if (!permissionDeniedMessage.isNullOrBlank()) {
@@ -422,7 +427,7 @@ fun AddEditClothingScreen(
                             value = uiState.name,
                             onValueChange = viewModel::onNameChanged,
                             placeholder = "Misal: Kemeja Flanel Hijau",
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("input_clothing_name")
@@ -435,7 +440,7 @@ fun AddEditClothingScreen(
                             placeholder = "Jelaskan bahan, kecocokan ukuran, dan kondisi pakaian...",
                             singleLine = false,
                             minHeight = 96.dp,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("input_clothing_description")
@@ -460,7 +465,7 @@ fun AddEditClothingScreen(
                             options = categories,
                             selectedOptions = setOf(uiState.category),
                             onOptionClick = viewModel::onCategorySelected,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_category")
@@ -471,7 +476,7 @@ fun AddEditClothingScreen(
                             options = sizes,
                             selectedOptions = setOf(uiState.size),
                             onOptionClick = viewModel::onSizeSelected,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_size")
@@ -482,7 +487,7 @@ fun AddEditClothingScreen(
                             options = genders,
                             selectedOptions = setOf(uiState.gender),
                             onOptionClick = viewModel::onGenderSelected,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_gender")
@@ -493,7 +498,7 @@ fun AddEditClothingScreen(
                             options = colors,
                             selectedOptions = setOf(uiState.color),
                             onOptionClick = viewModel::onColorSelected,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_color")
@@ -504,7 +509,7 @@ fun AddEditClothingScreen(
                             options = conditions,
                             selectedOptions = setOf(uiState.condition),
                             onOptionClick = viewModel::onConditionSelected,
-                            enabled = !uiState.isLockedInActiveMatch,
+                            enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("chips_clothing_condition")
@@ -515,7 +520,7 @@ fun AddEditClothingScreen(
                 BarterEligibilitySwitchCard(
                     isBarterAllowed = uiState.isBarterAllowed,
                     onBarterAllowedChange = viewModel::onBarterAllowedChanged,
-                    enabled = !uiState.isLockedInActiveMatch,
+                    enabled = !isFormBlocked,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("switch_barter_allowed")
@@ -534,7 +539,7 @@ fun AddEditClothingScreen(
                     CloBlePrimaryButton(
                         text = if (uiState.isEditMode) "Simpan Perubahan" else "Simpan ke Lemari",
                         onClick = { viewModel.save(onSaveSuccess) },
-                        enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto,
+                        enabled = !isFormBlocked && !uiState.isUploadingPhoto,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("btn_save_clothing")
@@ -543,7 +548,7 @@ fun AddEditClothingScreen(
                     if (uiState.isEditMode) {
                         TextButton(
                             onClick = viewModel::requestDelete,
-                            enabled = !uiState.isLockedInActiveMatch && !uiState.isUploadingPhoto,
+                            enabled = !isFormBlocked && !uiState.isUploadingPhoto && !uiState.isDeleting,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("btn_delete_clothing")
@@ -551,7 +556,11 @@ fun AddEditClothingScreen(
                             Text(
                                 text = "Hapus Pakaian Ini",
                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (uiState.isLockedInActiveMatch || uiState.isUploadingPhoto) CloBleColors.Outline else CloBleColors.DangerText
+                                color = if (isFormBlocked || uiState.isUploadingPhoto || uiState.isDeleting) {
+                                    CloBleColors.Outline
+                                } else {
+                                    CloBleColors.DangerText
+                                }
                             )
                         }
                     }
@@ -596,7 +605,7 @@ fun AddEditClothingScreen(
                             leadingIcon = CloBleIcons.ImagePlaceholder,
                             onClick = {
                                 showPhotoSourceDialog = false
-                                requestGalleryWithPermission()
+                                launchGalleryPicker()
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -618,11 +627,47 @@ fun AddEditClothingScreen(
         }
 
         if (uiState.showDeleteDialog) {
-            DeleteClothingConfirmDialog(
-                clothingName = uiState.name,
-                onConfirm = { viewModel.confirmDelete(onSaveSuccess) },
-                onDismiss = viewModel::dismissDeleteDialog
-            )
+            if (uiState.isDeleting) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    containerColor = CloBleColors.Surface,
+                    title = {
+                        Text(
+                            text = "Menghapus Pakaian...",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = CloBleColors.TextPrimary
+                        )
+                    },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.5.dp,
+                                color = CloBleColors.Primary
+                            )
+                            Text(
+                                text = "Mohon tunggu, sedang menghapus pakaian dari lemari Anda.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CloBleColors.TextSecondary
+                            )
+                        }
+                    },
+                    confirmButton = {}
+                )
+            } else {
+                DeleteClothingConfirmDialog(
+                    clothingName = uiState.name,
+                    onConfirm = { viewModel.confirmDelete(onSaveSuccess) },
+                    onDismiss = {
+                        if (!uiState.isDeleting) {
+                            viewModel.dismissDeleteDialog()
+                        }
+                    }
+                )
+            }
         }
 
         val activeViewerIndex = viewerStartIndex
@@ -634,43 +679,6 @@ fun AddEditClothingScreen(
             )
         }
     }
-}
-
-private fun requiredStoragePermissions(): Array<String> = when {
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES,
-        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-    )
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES
-    )
-    else -> arrayOf(
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    )
-}
-
-private fun hasStorageReadPermission(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        val fullGranted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.READ_MEDIA_IMAGES
-        ) == PackageManager.PERMISSION_GRANTED
-        val partialGranted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-        ) == PackageManager.PERMISSION_GRANTED
-        return fullGranted || partialGranted
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.READ_MEDIA_IMAGES
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-    return ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun hasCameraPermission(context: Context): Boolean =
