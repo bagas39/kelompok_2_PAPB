@@ -40,7 +40,7 @@ class SupabaseDiscoveryMatchRepository(
     private val cacheDao: OfflineChatCacheDao? = null
 ) : DiscoveryMatchRepository {
 
-    private sealed interface RemoteMatchDetailResult {
+        private sealed interface RemoteMatchDetailResult {
         data class Found(val detail: VerifiedMatchDetail) : RemoteMatchDetailResult
         data object NotFoundOrForbidden : RemoteMatchDetailResult
         data object NetworkError : RemoteMatchDetailResult
@@ -358,54 +358,14 @@ class SupabaseDiscoveryMatchRepository(
             val resp = client.rpc("rpc_get_outgoing_interests", JSONObject())
             if (resp.optString("code") != "SUCCESS") return emptyList()
             val arr = resp.optJSONArray("interests") ?: return emptyList()
-            val otherActiveItemIds = parseLongIdSet(resp.optJSONArray("otherActiveItemIds"))
+            val activeItemIds = parseLongIdSet(resp.optJSONArray("activeItemIds"))
 
-            val list = mutableListOf<OutgoingInterestSummary>()
-            for (i in 0 until arr.length()) {
-                val raw = arr.getJSONObject(i)
-                val targetItemId = raw.optLong("targetItemId")
-                val targetItemJson = raw.optJSONObject("clothing_items")
-                val itemStatus = try {
-                    ItemStatus.valueOf(targetItemJson?.optString("status", "AVAILABLE") ?: "AVAILABLE")
-                } catch (_: Exception) {
-                    ItemStatus.AVAILABLE
-                }
-                val interestStatus = try {
-                    InterestStatus.valueOf(raw.optString("status"))
-                } catch (_: Exception) {
-                    InterestStatus.PENDING
-                }
-
-                var resolvedMatchId: Long? = null
-                var resolvedMatchStatus: MatchStatus? = null
-                val directMatchArr = raw.optJSONArray("matches")
-                if (directMatchArr != null && directMatchArr.length() > 0) {
-                    val dm = directMatchArr.optJSONObject(0)
-                    if (dm != null) {
-                        resolvedMatchId = dm.optLong("id")
-                        resolvedMatchStatus = try {
-                            MatchStatus.valueOf(dm.optString("status", "ACTIVE"))
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                }
-
-                val isLockedByOther = (resolvedMatchId == null || resolvedMatchStatus == MatchStatus.CANCELLED) && (
-                    otherActiveItemIds.contains(targetItemId) ||
-                        (resolvedMatchId == null && interestStatus == InterestStatus.RESOLVED_BY_MATCH && itemStatus != ItemStatus.AVAILABLE)
-                    )
-
-                list.add(
-                    SupabaseMappers.parseOutgoingInterest(
-                        json = raw,
-                        resolvedMatchId = resolvedMatchId,
-                        resolvedMatchStatus = resolvedMatchStatus,
-                        isLockedByOtherMatch = isLockedByOther
-                    )
+            List(arr.length()) { index ->
+                SupabaseMappers.parseOutgoingInterest(
+                    json = arr.getJSONObject(index),
+                    activeItemIds = activeItemIds
                 )
             }
-            list
         } catch (_: Exception) {
             emptyList()
         }

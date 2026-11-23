@@ -38,7 +38,6 @@ data class ItemDetailUiState(
     val relatedMatchId: Long? = null,
     val relatedMatchStatus: MatchStatus? = null,
     val canReofferAfterCancelled: Boolean = false,
-    val canReofferAfterInvalidated: Boolean = false,
     val isLockedByOtherMatch: Boolean = false,
     val isItemUnavailable: Boolean = false,
     val isLoading: Boolean = true,
@@ -48,7 +47,13 @@ data class ItemDetailUiState(
     val actionMessage: String? = null,
     val errorMessage: String? = null,
     val requiresBarterItemCta: Boolean = false
-)
+) {
+    val canReofferAfterInvalidated: Boolean
+        get() = existingInterestStatus == InterestStatus.INVALIDATED &&
+            relatedMatchId == null &&
+            !isLockedByOtherMatch &&
+            !isItemUnavailable
+}
 
 class ItemDetailViewModel(
     savedStateHandle: SavedStateHandle,
@@ -124,9 +129,6 @@ class ItemDetailViewModel(
                 val canReofferAfterCancelled = outgoing?.matchStatus == MatchStatus.CANCELLED &&
                     !lockedByOther &&
                     !itemUnavailable
-                val canReofferAfterInvalidated = outgoing?.interestStatus == InterestStatus.INVALIDATED &&
-                    !lockedByOther &&
-                    !itemUnavailable
                 val shouldClearBarterPrompt = _uiState.value.requiresBarterItemCta &&
                     currentUserId != null &&
                     wardrobeRepository.countEligibleBarterItems(currentUserId) > 0
@@ -142,7 +144,6 @@ class ItemDetailViewModel(
                         relatedMatchId = outgoing?.matchId,
                         relatedMatchStatus = outgoing?.matchStatus,
                         canReofferAfterCancelled = canReofferAfterCancelled,
-                        canReofferAfterInvalidated = canReofferAfterInvalidated,
                         isLockedByOtherMatch = lockedByOther,
                         isItemUnavailable = itemUnavailable,
                         interestSentSuccess = outgoing?.interestStatus == InterestStatus.PENDING,
@@ -195,7 +196,6 @@ class ItemDetailViewModel(
                             relatedMatchId = result.matchId ?: outgoingAfter?.matchId,
                             relatedMatchStatus = if (result.matchId != null) MatchStatus.ACTIVE else outgoingAfter?.matchStatus,
                             canReofferAfterCancelled = false,
-                            canReofferAfterInvalidated = false,
                             requiresBarterItemCta = false,
                             actionMessage = if (result.matchId != null) {
                                 "Match langsung terbentuk karena pemilik juga menyukai pakaian Anda!"

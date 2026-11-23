@@ -1,6 +1,8 @@
 package com.example.cloble.data.remote
 
 import com.example.cloble.domain.model.ItemStatus
+import com.example.cloble.domain.model.InterestStatus
+import com.example.cloble.domain.model.MatchStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -189,5 +191,67 @@ class SupabaseMappersUnitTest {
 
         val notif = SupabaseMappers.parseNotification(json)
         assertEquals("Sudah terhubung dalam Match", notif.disabledReasonText)
+    }
+
+    @Test
+    fun parseOutgoingInterest_reactivatedItemKeepsInvalidatedHistoryButUnlocksReoffer() {
+        val item = JSONObject().apply {
+            put("id", 20L)
+            put("ownerId", 2L)
+            put("status", "AVAILABLE")
+            put("isBarterAllowed", false)
+        }
+        val interest = JSONObject().apply {
+            put("id", 10L)
+            put("targetItemId", 20L)
+            put("status", "INVALIDATED")
+            put("clothing_items", item)
+        }
+        assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+
+        item.put("isBarterAllowed", true)
+        val reactivated = SupabaseMappers.parseOutgoingInterest(interest)
+        assertFalse(reactivated.isLockedByOtherMatch)
+        assertEquals(InterestStatus.INVALIDATED, reactivated.interestStatus)
+        assertEquals(10L, reactivated.interestId)
+        assertNull(reactivated.matchId)
+
+        assertTrue(SupabaseMappers.parseOutgoingInterest(interest, activeItemIds = setOf(20L)).isLockedByOtherMatch)
+        for (status in listOf("EXCHANGED", "HIDDEN_DELETED")) {
+            item.put("status", status)
+            assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+        }
+    }
+
+    @Test
+    fun parseOutgoingInterest_retryDoesNotRewriteOldInterestStatus() {
+        val old = JSONObject("""
+            {"id": 10, "targetItemId": 20, "status": "INVALIDATED",
+             "clothing_items": {"status": "AVAILABLE", "isBarterAllowed": true}}
+        """.trimIndent())
+        val pending = JSONObject(old.toString()).put("id", 11L).put("status", "PENDING")
+        assertEquals(InterestStatus.INVALIDATED, SupabaseMappers.parseOutgoingInterest(old).interestStatus)
+        assertEquals(InterestStatus.PENDING, SupabaseMappers.parseOutgoingInterest(pending).interestStatus)
+        assertFalse(SupabaseMappers.parseOutgoingInterest(pending).isLockedByOtherMatch)
+    }
+
+    @Test
+    fun parseOutgoingInterest_missingTargetDoesNotUnlockOldOffer() {
+        val interest = JSONObject("""{"id": 10, "targetItemId": 20, "status": "INVALIDATED"}""")
+        assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+    }
+
+    @Test
+    fun parseOutgoingInterest_rpcMatchRemainsLinkedWhenItsItemIsReserved() {
+        val interest = JSONObject("""
+            {"id": 10, "targetItemId": 20, "status": "RESOLVED_BY_MATCH",
+             "clothing_items": {"status": "AVAILABLE", "isBarterAllowed": true},
+             "matches": [{"id": 30, "status": "ACTIVE"}]}
+        """.trimIndent())
+
+        val summary = SupabaseMappers.parseOutgoingInterest(interest, activeItemIds = setOf(20L))
+        assertEquals(30L, summary.matchId)
+        assertEquals(MatchStatus.ACTIVE, summary.matchStatus)
+        assertFalse(summary.isLockedByOtherMatch)
     }
 }

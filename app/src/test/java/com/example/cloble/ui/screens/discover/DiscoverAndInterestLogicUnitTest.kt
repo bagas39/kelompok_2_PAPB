@@ -43,6 +43,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -134,7 +136,8 @@ class DiscoverAndInterestLogicUnitTest {
         private val outgoing: List<OutgoingInterestSummary> = emptyList(),
         var passResult: Boolean = true,
         var sendInterestResult: SendInterestResult = SendInterestResult.Success(10L, null),
-        private val sendGate: CompletableDeferred<Unit>? = null
+        private val sendGate: CompletableDeferred<Unit>? = null,
+        private val passGate: CompletableDeferred<Unit>? = null
     ) : DiscoveryMatchRepository {
         private val candidatesFlow = MutableStateFlow(candidates)
         var sendInterestCalls = 0
@@ -150,6 +153,7 @@ class DiscoverAndInterestLogicUnitTest {
 
         override suspend fun passCandidate(userId: Long, targetItemId: Long): Boolean {
             passCandidateCalls += 1
+            passGate?.await()
             return passResult
         }
 
@@ -326,6 +330,80 @@ class DiscoverAndInterestLogicUnitTest {
         assertEquals(0, repo.passCandidateCalls)
 
         gate.complete(Unit)
+        assertFalse(viewModel.uiState.value.isActionInProgress)
+    }
+
+    @Test
+    fun likeCurrentCandidate_beforeCoroutineStarts_blocksDuplicateLikeAndPass() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val candidate = DiscoverCandidate(
+            item = sampleItem(id = 105L), ownerName = "Naya", ownerCity = "Bandung",
+            ownerAverageRating = 5.0, ownerReviewCount = 1, distanceKm = 1
+        )
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeDiscoveryMatchRepository(candidates = listOf(candidate), sendGate = gate)
+        val viewModel = DiscoverViewModel(
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            discoveryMatchRepository = repo
+        )
+        runCurrent()
+
+        try {
+            viewModel.likeCurrentCandidate()
+            viewModel.likeCurrentCandidate()
+            viewModel.passCurrentCandidate()
+            runCurrent()
+
+            assertEquals(1, repo.sendInterestCalls)
+            assertEquals(0, repo.passCandidateCalls)
+            assertTrue(viewModel.uiState.value.isActionInProgress)
+        } finally {
+            gate.complete(Unit)
+            runCurrent()
+        }
+        assertFalse(viewModel.uiState.value.isActionInProgress)
+        assertTrue(viewModel.uiState.value.candidates.isEmpty())
+    }
+
+    @Test
+    fun passCurrentCandidate_beforeCoroutineStarts_blocksDuplicatePassAndLike_thenAllowsRetry() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val candidate = DiscoverCandidate(
+            item = sampleItem(id = 106L), ownerName = "Naya", ownerCity = "Bandung",
+            ownerAverageRating = 5.0, ownerReviewCount = 1, distanceKm = 1
+        )
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeDiscoveryMatchRepository(
+            candidates = listOf(candidate), passResult = false, passGate = gate
+        )
+        val viewModel = DiscoverViewModel(
+            authRepository = FakeAuthRepository(sampleUser(1L, "Raka")),
+            discoveryMatchRepository = repo
+        )
+        runCurrent()
+
+        try {
+            viewModel.passCurrentCandidate()
+            viewModel.passCurrentCandidate()
+            viewModel.likeCurrentCandidate()
+            runCurrent()
+
+            assertEquals(1, repo.passCandidateCalls)
+            assertEquals(0, repo.sendInterestCalls)
+            assertTrue(viewModel.uiState.value.isActionInProgress)
+        } finally {
+            gate.complete(Unit)
+            runCurrent()
+        }
+        assertFalse(viewModel.uiState.value.isActionInProgress)
+        assertEquals(106L, viewModel.uiState.value.currentCandidate?.item?.id)
+        assertEquals("Gagal menyimpan aksi lewati. Periksa koneksi internet Anda.", viewModel.uiState.value.bannerMessage)
+
+        repo.passResult = true
+        viewModel.passCurrentCandidate()
+        runCurrent()
+        assertEquals(2, repo.passCandidateCalls)
+        assertTrue(viewModel.uiState.value.candidates.isEmpty())
         assertFalse(viewModel.uiState.value.isActionInProgress)
     }
 
