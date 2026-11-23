@@ -40,7 +40,7 @@ class SupabaseDiscoveryMatchRepository(
     private val cacheDao: OfflineChatCacheDao? = null
 ) : DiscoveryMatchRepository {
 
-        private sealed interface RemoteMatchDetailResult {
+    private sealed interface RemoteMatchDetailResult {
         data class Found(val detail: VerifiedMatchDetail) : RemoteMatchDetailResult
         data object NotFoundOrForbidden : RemoteMatchDetailResult
         data object NetworkError : RemoteMatchDetailResult
@@ -358,7 +358,9 @@ class SupabaseDiscoveryMatchRepository(
             val resp = client.rpc("rpc_get_outgoing_interests", JSONObject())
             if (resp.optString("code") != "SUCCESS") return emptyList()
             val arr = resp.optJSONArray("interests") ?: return emptyList()
-            val activeItemIds = parseLongIdSet(resp.optJSONArray("activeItemIds"))
+            val activeItemIds = parseLongIdSet(
+                resp.optJSONArray("otherActiveItemIds") ?: resp.optJSONArray("activeItemIds")
+            )
 
             List(arr.length()) { index ->
                 SupabaseMappers.parseOutgoingInterest(

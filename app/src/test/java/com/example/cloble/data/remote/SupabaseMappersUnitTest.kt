@@ -194,7 +194,7 @@ class SupabaseMappersUnitTest {
     }
 
     @Test
-    fun parseOutgoingInterest_reactivatedItemKeepsInvalidatedHistoryButUnlocksReoffer() {
+    fun parseOutgoingInterest_disabledOrDeletedItemIsNotFalselyLockedByOtherMatch() {
         val item = JSONObject().apply {
             put("id", 20L)
             put("ownerId", 2L)
@@ -207,8 +207,14 @@ class SupabaseMappersUnitTest {
             put("status", "INVALIDATED")
             put("clothing_items", item)
         }
-        assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+        val disabledSummary = SupabaseMappers.parseOutgoingInterest(interest)
+        assertFalse(disabledSummary.isLockedByOtherMatch)
+        assertEquals(InterestStatus.INVALIDATED, disabledSummary.interestStatus)
 
+        item.put("status", "HIDDEN_DELETED")
+        assertFalse(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+
+        item.put("status", "AVAILABLE")
         item.put("isBarterAllowed", true)
         val reactivated = SupabaseMappers.parseOutgoingInterest(interest)
         assertFalse(reactivated.isLockedByOtherMatch)
@@ -217,10 +223,8 @@ class SupabaseMappersUnitTest {
         assertNull(reactivated.matchId)
 
         assertTrue(SupabaseMappers.parseOutgoingInterest(interest, activeItemIds = setOf(20L)).isLockedByOtherMatch)
-        for (status in listOf("EXCHANGED", "HIDDEN_DELETED")) {
-            item.put("status", status)
-            assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
-        }
+        item.put("status", "EXCHANGED")
+        assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
     }
 
     @Test
@@ -236,9 +240,15 @@ class SupabaseMappersUnitTest {
     }
 
     @Test
-    fun parseOutgoingInterest_missingTargetDoesNotUnlockOldOffer() {
-        val interest = JSONObject("""{"id": 10, "targetItemId": 20, "status": "INVALIDATED"}""")
-        assertTrue(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+    fun parseOutgoingInterest_cancelledMatchWithOtherActiveItem_marksLockedByOtherMatch() {
+        val interest = JSONObject("""
+            {"id": 10, "targetItemId": 20, "status": "ACCEPTED_MATCHED",
+             "clothing_items": {"status": "AVAILABLE", "isBarterAllowed": true},
+             "matches": [{"id": 30, "status": "CANCELLED"}]}
+        """.trimIndent())
+
+        assertFalse(SupabaseMappers.parseOutgoingInterest(interest).isLockedByOtherMatch)
+        assertTrue(SupabaseMappers.parseOutgoingInterest(interest, activeItemIds = setOf(20L)).isLockedByOtherMatch)
     }
 
     @Test
