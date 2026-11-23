@@ -2,6 +2,7 @@ package com.example.cloble.data.remote
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,7 +38,7 @@ class SupabaseRealtimeClientUnitTest {
         val leavesAfterFirstUnsubscribe = parseFrames(sentFrames).filter {
             it.optString("topic") == topic && it.optString("event") == "phx_leave"
         }
-        assertTrue("Leaving ConversationScreen should not leave shared user_threads topic", leavesAfterFirstUnsubscribe.isEmpty())
+        assertTrue(leavesAfterFirstUnsubscribe.isEmpty())
 
         client.unsubscribeTopic(topic)
         assertEquals(0, client.activeTopicCount(topic))
@@ -75,10 +76,12 @@ class SupabaseRealtimeClientUnitTest {
         assertEquals(1, framesBeforeReply.size)
         assertEquals("phx_join", framesBeforeReply[0].optString("event"))
         assertEquals(recipientTopic, framesBeforeReply[0].optString("topic"))
+        val joinRef = framesBeforeReply[0].optString("ref")
 
         val replyJson = JSONObject()
             .put("topic", recipientTopic)
             .put("event", "phx_reply")
+            .put("ref", joinRef)
             .put("payload", JSONObject().put("status", "ok"))
             .toString()
         client.handleIncomingMessage(replyJson)
@@ -95,5 +98,75 @@ class SupabaseRealtimeClientUnitTest {
                 ?.optJSONObject("payload")
                 ?.optLong("matchId")
         )
+    }
+
+    @Test
+    fun phxReplyWithErrorOrMismatchedRef_doesNotFlushEphemeralBroadcasts() {
+        val sentFrames = mutableListOf<String>()
+        val client = SupabaseRealtimeClient(
+            autoConnect = false,
+            frameSenderOverride = { frame ->
+                sentFrames.add(frame)
+                true
+            }
+        )
+        client.setConnectedForTest(true)
+
+        val topicA = "realtime:user_threads_11"
+        client.broadcast(topicA, "thread_sync", JSONObject().put("seq", 1))
+        val joinRefA = parseFrames(sentFrames).first().optString("ref")
+
+        val mismatchedReply = JSONObject()
+            .put("topic", topicA)
+            .put("event", "phx_reply")
+            .put("ref", "wrong-$joinRefA")
+            .put("payload", JSONObject().put("status", "ok"))
+            .toString()
+        client.handleIncomingMessage(mismatchedReply)
+        assertTrue(parseFrames(sentFrames).none { it.optString("event") == "broadcast" })
+        assertEquals(1, client.pendingEphemeralCountForTest(topicA))
+
+        val errorReply = JSONObject()
+            .put("topic", topicA)
+            .put("event", "phx_reply")
+            .put("ref", joinRefA)
+            .put("payload", JSONObject().put("status", "error"))
+            .toString()
+        client.handleIncomingMessage(errorReply)
+
+        assertTrue(parseFrames(sentFrames).none { it.optString("event") == "broadcast" })
+        assertEquals(0, client.pendingEphemeralCountForTest(topicA))
+        assertTrue(
+            parseFrames(sentFrames).any {
+                it.optString("topic") == topicA && it.optString("event") == "phx_leave"
+            }
+        )
+    }
+
+    @Test
+    fun offlineBroadcastQueues_areBoundedAndClearedOnDisconnect() {
+        val client = SupabaseRealtimeClient(
+            autoConnect = false,
+            frameSenderOverride = { true }
+        )
+        client.setConnectedForTest(false)
+
+        val subscribedTopic = "realtime:match_77"
+        client.subscribeTopic(subscribedTopic)
+        repeat(80) { idx ->
+            client.broadcast(subscribedTopic, "chat_sync", JSONObject().put("seq", idx))
+        }
+        assertEquals(64, client.pendingBroadcastCountForTest())
+
+        val ephemeralTopic = "realtime:user_threads_88"
+        repeat(45) { idx ->
+            client.broadcast(ephemeralTopic, "thread_sync", JSONObject().put("seq", idx))
+        }
+        assertEquals(32, client.pendingEphemeralCountForTest(ephemeralTopic))
+
+        client.disconnect()
+        assertEquals(0, client.pendingBroadcastCountForTest())
+        assertEquals(0, client.pendingEphemeralCountForTest(ephemeralTopic))
+        assertFalse(client.hasPendingReconnectForTest())
     }
 }

@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -42,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.ChatBubbleItem
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
@@ -77,9 +81,17 @@ fun ConversationScreen(
     val listState = rememberLazyListState()
     var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
     var viewerStartIndex by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
 
     LaunchedEffect(uiState.activeMatchId, uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
+            listState.animateScrollToItem(uiState.messages.size - 1)
+        }
+    }
+
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible && uiState.messages.isNotEmpty()) {
             listState.animateScrollToItem(uiState.messages.size - 1)
         }
     }
@@ -129,12 +141,14 @@ fun ConversationScreen(
 
                 else -> {
                     val detail = uiState.matchDetail!!
+                    val myItemPhoto = detail.myItem.primaryPhotoUri()
+                    val partnerItemPhoto = detail.partnerItem.primaryPhotoUri()
                     val itemPairPhotos = remember(detail.myItem, detail.partnerItem) {
                         buildList {
-                            detail.myItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                            myItemPhoto?.let {
                                 add(LabeledPhoto(it, "Pakaian Anda · ${detail.myItem.name}"))
                             }
-                            detail.partnerItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
+                            partnerItemPhoto?.let {
                                 add(LabeledPhoto(it, "Milik ${detail.partnerName} · ${detail.partnerItem.name}"))
                             }
                         }
@@ -152,222 +166,263 @@ fun ConversationScreen(
                             border = BorderStroke(1.dp, CloBleColors.Outline),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                UserSummaryHeader(
-                                    name = detail.partnerName,
-                                    city = detail.partnerCity,
-                                    averageRating = detail.partnerAverageRating,
-                                    reviewCount = detail.partnerReviewCount,
-                                    isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
-                                    photoUri = detail.partnerAvatarUri,
-                                    onAvatarClick = if (!detail.partnerAvatarUri.isNullOrBlank()) {
-                                        {
-                                            viewerStartIndex = 0
-                                            viewerPhotos = listOf(LabeledPhoto(detail.partnerAvatarUri, detail.partnerName))
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                    onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
-                                )
-
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = CloBleColors.PrimaryContainer,
-                                    border = BorderStroke(1.dp, CloBleColors.Outline),
+                            if (isImeVisible) {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .testTag("conversation_items_badge")
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(10.dp),
+                                            .clickable { onNavigateToOtherUserProfile(detail.partnerUserId) },
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        MiniSwapThumb(
-                                            uri = detail.myItem.mainPhotoUri,
-                                            label = detail.myItem.name,
-                                            onClick = if (itemPairPhotos.isNotEmpty() && !detail.myItem.mainPhotoUri.isNullOrBlank()) {
-                                                {
-                                                    viewerStartIndex = 0
-                                                    viewerPhotos = itemPairPhotos
-                                                }
-                                            } else {
-                                                null
-                                            }
+                                        Text(
+                                            text = detail.partnerName,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = CloBleColors.TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = CloBleIcons.CheckCircle,
-                                                    contentDescription = null,
-                                                    tint = CloBleColors.OnPrimaryContainer,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                                Text(
-                                                    text = "Pertukaran Terverifikasi",
-                                                    style = CloBleTextStyles.BadgeSemiBold,
-                                                    color = CloBleColors.OnPrimaryContainer
-                                                )
+                                        Text(
+                                            text = "· ${detail.myItem.name} - ${detail.partnerItem.name}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = CloBleColors.TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    if (uiState.errorMessage != null) {
+                                        CloBleStatusInfoBox(
+                                            title = "Pemberitahuan",
+                                            message = uiState.errorMessage!!,
+                                            tone = CloBleInfoBoxTone.WARNING,
+                                            modifier = Modifier.testTag("conversation_error_banner")
+                                        )
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    UserSummaryHeader(
+                                        name = detail.partnerName,
+                                        city = detail.partnerCity,
+                                        averageRating = detail.partnerAverageRating,
+                                        reviewCount = detail.partnerReviewCount,
+                                        isLowCredibility = detail.partnerAverageRating in 0.1..<3.0 && detail.partnerReviewCount > 0,
+                                        photoUri = detail.partnerAvatarUri,
+                                        onAvatarClick = if (!detail.partnerAvatarUri.isNullOrBlank()) {
+                                            {
+                                                viewerStartIndex = 0
+                                                viewerPhotos = listOf(LabeledPhoto(detail.partnerAvatarUri, detail.partnerName))
                                             }
-                                            Text(
-                                                text = "${detail.myItem.name} - ${detail.partnerItem.name}",
-                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                                color = CloBleColors.TextPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                        } else {
+                                            null
+                                        },
+                                        onProfileClick = { onNavigateToOtherUserProfile(detail.partnerUserId) }
+                                    )
+
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = CloBleColors.PrimaryContainer,
+                                        border = BorderStroke(1.dp, CloBleColors.Outline),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("conversation_items_badge")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            MiniSwapThumb(
+                                                uri = myItemPhoto,
+                                                label = detail.myItem.name,
+                                                onClick = if (itemPairPhotos.isNotEmpty() && myItemPhoto != null) {
+                                                    {
+                                                        viewerStartIndex = 0
+                                                        viewerPhotos = itemPairPhotos
+                                                    }
+                                                } else {
+                                                    null
+                                                }
                                             )
-                                            if (!detail.meetingLocation.isNullOrBlank()) {
+
+                                            Column(
+                                                modifier = Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = CloBleIcons.CheckCircle,
+                                                        contentDescription = null,
+                                                        tint = CloBleColors.OnPrimaryContainer,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Pertukaran Terverifikasi",
+                                                        style = CloBleTextStyles.BadgeSemiBold,
+                                                        color = CloBleColors.OnPrimaryContainer
+                                                    )
+                                                }
                                                 Text(
-                                                    text = "Lokasi temu: ${detail.meetingLocation}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = CloBleColors.TextSecondary,
+                                                    text = "${detail.myItem.name} - ${detail.partnerItem.name}",
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = CloBleColors.TextPrimary,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
+                                                if (!detail.meetingLocation.isNullOrBlank()) {
+                                                    Text(
+                                                        text = "Lokasi temu: ${detail.meetingLocation}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = CloBleColors.TextSecondary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+
+                                            MiniSwapThumb(
+                                                uri = partnerItemPhoto,
+                                                label = detail.partnerItem.name,
+                                                onClick = if (itemPairPhotos.isNotEmpty() && partnerItemPhoto != null) {
+                                                    {
+                                                        viewerStartIndex = (itemPairPhotos.size - 1).coerceAtLeast(0)
+                                                        viewerPhotos = itemPairPhotos
+                                                    }
+                                                } else {
+                                                    null
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    if (uiState.partnerMatches.size > 1) {
+                                        LazyRow(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("conversation_match_history_selector"),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(uiState.partnerMatches, key = { it.matchId }) { item ->
+                                                val isSelected = item.matchId == uiState.activeMatchId
+                                                val prefix = when (item.status) {
+                                                    MatchStatus.ACTIVE -> "Aktif"
+                                                    MatchStatus.COMPLETED -> "Selesai"
+                                                    MatchStatus.CANCELLED -> "Batal"
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(99.dp),
+                                                    color = if (isSelected) CloBleColors.Primary else CloBleColors.SecondarySurface,
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (isSelected) CloBleColors.Primary else CloBleColors.Outline
+                                                    ),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(99.dp))
+                                                        .clickable { viewModel.selectMatch(item.matchId) }
+                                                        .testTag("match_selector_chip_${item.matchId}")
+                                                ) {
+                                                    val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
+                                                        " (${item.unreadCount})"
+                                                    } else {
+                                                        ""
+                                                    }
+                                                    Text(
+                                                        text = "$prefix · ${item.myItemName} - ${item.partnerItemName}$unreadSuffix",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                        color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                    )
+                                                }
                                             }
                                         }
-
-                                        MiniSwapThumb(
-                                            uri = detail.partnerItem.mainPhotoUri,
-                                            label = detail.partnerItem.name,
-                                            onClick = if (itemPairPhotos.isNotEmpty() && !detail.partnerItem.mainPhotoUri.isNullOrBlank()) {
-                                                {
-                                                    viewerStartIndex = (itemPairPhotos.size - 1).coerceAtLeast(0)
-                                                    viewerPhotos = itemPairPhotos
-                                                }
-                                            } else {
-                                                null
-                                            }
-                                        )
                                     }
-                                }
 
-                                if (uiState.partnerMatches.size > 1) {
-                                    LazyRow(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("conversation_match_history_selector"),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        items(uiState.partnerMatches, key = { it.matchId }) { item ->
-                                            val isSelected = item.matchId == uiState.activeMatchId
-                                            val prefix = when (item.status) {
-                                                MatchStatus.ACTIVE -> "Aktif"
-                                                MatchStatus.COMPLETED -> "Selesai"
-                                                MatchStatus.CANCELLED -> "Batal"
-                                            }
-                                            Surface(
-                                                shape = RoundedCornerShape(99.dp),
-                                                color = if (isSelected) CloBleColors.Primary else CloBleColors.SecondarySurface,
-                                                border = BorderStroke(
-                                                    1.dp,
-                                                    if (isSelected) CloBleColors.Primary else CloBleColors.Outline
-                                                ),
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(99.dp))
-                                                    .clickable { viewModel.selectMatch(item.matchId) }
-                                                    .testTag("match_selector_chip_${item.matchId}")
+                                    when (detail.status) {
+                                        MatchStatus.ACTIVE -> {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
-                                                    " (${item.unreadCount})"
-                                                } else {
-                                                    ""
-                                                }
-                                                Text(
-                                                    text = "$prefix · ${item.myItemName} - ${item.partnerItemName}$unreadSuffix",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                                    color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                CloBlePrimaryButton(
+                                                    text = "Selesaikan Pertukaran",
+                                                    onClick = viewModel::openCompleteDialog,
+                                                    enabled = !uiState.isActionInProgress,
+                                                    modifier = Modifier
+                                                        .weight(1.3f)
+                                                        .testTag("complete_match_button")
+                                                )
+                                                CloBleOutlinedButton(
+                                                    text = "Batalkan",
+                                                    onClick = viewModel::openCancelDialog,
+                                                    enabled = !uiState.isActionInProgress,
+                                                    modifier = Modifier
+                                                        .weight(0.9f)
+                                                        .testTag("cancel_match_button")
                                                 )
                                             }
                                         }
-                                    }
-                                }
 
-                                when (detail.status) {
-                                    MatchStatus.ACTIVE -> {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            CloBlePrimaryButton(
-                                                text = "Selesaikan Pertukaran",
-                                                onClick = viewModel::openCompleteDialog,
-                                                enabled = !uiState.isActionInProgress,
-                                                modifier = Modifier
-                                                    .weight(1.3f)
-                                                    .testTag("complete_match_button")
-                                            )
-                                            CloBleOutlinedButton(
-                                                text = "Batalkan",
-                                                onClick = viewModel::openCancelDialog,
-                                                enabled = !uiState.isActionInProgress,
-                                                modifier = Modifier
-                                                    .weight(0.9f)
-                                                    .testTag("cancel_match_button")
-                                            )
-                                        }
-                                    }
-
-                                    MatchStatus.COMPLETED -> {
-                                        CloBleStatusInfoBox(
-                                            title = "Pertukaran Selesai",
-                                            message = "Pertukaran pakaian telah berhasil diselesaikan. Ruang obrolan ditutup sebagai arsip riwayat.",
-                                            tone = CloBleInfoBoxTone.INFO,
-                                            modifier = Modifier.testTag("completed_status_info_box")
-                                        )
-
-                                        if (uiState.canRatePartner) {
-                                            CloBlePrimaryButton(
-                                                text = "Beri Rating & Ulasan",
-                                                leadingIcon = CloBleIcons.StarFilled,
-                                                onClick = { onNavigateToRateUser(detail.matchId) },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .testTag("rate_partner_button")
-                                            )
-                                        } else if (uiState.hasReviewed) {
+                                        MatchStatus.COMPLETED -> {
                                             CloBleStatusInfoBox(
-                                                message = "Anda sudah memberikan ulasan untuk pertukaran ini.",
-                                                tone = CloBleInfoBoxTone.SUCCESS
+                                                title = "Pertukaran Selesai",
+                                                message = "Pertukaran pakaian telah berhasil diselesaikan. Ruang obrolan ditutup sebagai arsip riwayat.",
+                                                tone = CloBleInfoBoxTone.INFO,
+                                                modifier = Modifier.testTag("completed_status_info_box")
+                                            )
+
+                                            if (uiState.canRatePartner) {
+                                                CloBlePrimaryButton(
+                                                    text = "Beri Rating & Ulasan",
+                                                    leadingIcon = CloBleIcons.StarFilled,
+                                                    onClick = { onNavigateToRateUser(detail.matchId) },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .testTag("rate_partner_button")
+                                                )
+                                            } else if (uiState.hasReviewed) {
+                                                CloBleStatusInfoBox(
+                                                    message = "Anda sudah memberikan ulasan untuk pertukaran ini.",
+                                                    tone = CloBleInfoBoxTone.SUCCESS
+                                                )
+                                            }
+                                        }
+
+                                        MatchStatus.CANCELLED -> {
+                                            CloBleStatusInfoBox(
+                                                title = "Pertukaran Dibatalkan",
+                                                message = "Pertukaran ini telah dibatalkan oleh salah satu pihak. Pakaian dikembalikan ke Lemari.",
+                                                tone = CloBleInfoBoxTone.NEUTRAL,
+                                                modifier = Modifier.testTag("cancelled_status_info_box")
                                             )
                                         }
                                     }
 
-                                    MatchStatus.CANCELLED -> {
+                                    if (uiState.errorMessage != null) {
                                         CloBleStatusInfoBox(
-                                            title = "Pertukaran Dibatalkan",
-                                            message = "Pertukaran ini telah dibatalkan oleh salah satu pihak. Pakaian dikembalikan ke Lemari.",
-                                            tone = CloBleInfoBoxTone.NEUTRAL,
-                                            modifier = Modifier.testTag("cancelled_status_info_box")
+                                            title = "Pemberitahuan",
+                                            message = uiState.errorMessage!!,
+                                            tone = CloBleInfoBoxTone.WARNING,
+                                            modifier = Modifier.testTag("conversation_error_banner")
                                         )
                                     }
-                                }
-
-                                if (uiState.errorMessage != null) {
-                                    CloBleStatusInfoBox(
-                                        title = "Pemberitahuan",
-                                        message = uiState.errorMessage!!,
-                                        tone = CloBleInfoBoxTone.WARNING,
-                                        modifier = Modifier.testTag("conversation_error_banner")
-                                    )
                                 }
                             }
                         }
@@ -617,3 +672,8 @@ private fun MiniSwapThumb(
         }
     }
 }
+
+private fun ClothingItem.primaryPhotoUri(): String? =
+    mainPhotoUri?.takeIf { it.isNotBlank() }
+        ?: detailPhotoUri?.takeIf { it.isNotBlank() }
+        ?: extraPhotoUri?.takeIf { it.isNotBlank() }

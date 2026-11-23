@@ -18,6 +18,7 @@ import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.DeclineInterestResult
 import com.example.cloble.domain.result.RespondInterestResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -75,12 +76,18 @@ class OtherUserProfileViewModel(
     private val _events = MutableSharedFlow<OtherUserProfileEvent>()
     val events: SharedFlow<OtherUserProfileEvent> = _events.asSharedFlow()
 
+    private var loadJob: Job? = null
+
     init {
         loadData()
     }
 
-    private fun loadData() {
-        viewModelScope.launch {
+    private fun loadData(showLoading: Boolean = true) {
+        loadJob?.cancel()
+        if (showLoading) {
+            _uiState.update { it.copy(isLoading = true) }
+        }
+        loadJob = viewModelScope.launch {
             combine(
                 profileReviewRepository.observeUserProfile(targetUserId),
                 profileReviewRepository.observeUserReviews(targetUserId),
@@ -109,6 +116,15 @@ class OtherUserProfileViewModel(
                 }
             }
         }
+    }
+
+    fun retry() {
+        _uiState.update { it.copy(errorMessage = null) }
+        loadData(showLoading = true)
+    }
+
+    private fun refreshPublicWardrobe() {
+        loadData(showLoading = false)
     }
 
     fun selectItem(itemId: Long) {
@@ -145,14 +161,73 @@ class OtherUserProfileViewModel(
                             errorMessage = "Tawaran interest ini sudah tidak berlaku atau sudah direspons."
                         )
                     }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.TargetItemNotFound -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Pakaian Anda yang ditawarkan sudah tidak ditemukan."
+                        )
+                    }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.TargetItemUnavailable -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Pakaian Anda yang ditawarkan sudah tidak tersedia untuk barter."
+                        )
+                    }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.ChosenItemNotFound -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            selectedItemId = null,
+                            errorMessage = "Pakaian lawan yang dipilih sudah dihapus atau tidak ditemukan."
+                        )
+                    }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.ChosenItemUnavailable -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            selectedItemId = null,
+                            errorMessage = "Pakaian lawan yang dipilih sudah tidak tersedia untuk barter."
+                        )
+                    }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.BarterNotAllowed -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            selectedItemId = null,
+                            errorMessage = "Salah satu pakaian saat ini tidak diizinkan untuk barter."
+                        )
+                    }
+                    refreshPublicWardrobe()
+                }
+                is RespondInterestResult.InvalidItemOwnership -> {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = "Kepemilikan pakaian tidak valid untuk tawaran ini."
+                        )
+                    }
                 }
                 is RespondInterestResult.ItemAlreadyInActiveMatch -> {
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
+                            selectedItemId = null,
                             errorMessage = "Pakaian yang dipilih saat ini sedang terikat dalam Match aktif lain."
                         )
                     }
+                    refreshPublicWardrobe()
                 }
                 is RespondInterestResult.PairAlreadyMatched -> {
                     _uiState.update {
@@ -162,11 +237,11 @@ class OtherUserProfileViewModel(
                         )
                     }
                 }
-                else -> {
+                is RespondInterestResult.DatabaseError -> {
                     _uiState.update {
                         it.copy(
                             isSubmitting = false,
-                            errorMessage = "Gagal memproses tawaran barter. Silakan coba lagi."
+                            errorMessage = "Gagal memproses tawaran barter. Periksa koneksi internet Anda dan coba lagi."
                         )
                     }
                 }

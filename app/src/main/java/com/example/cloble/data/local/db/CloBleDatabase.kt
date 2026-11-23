@@ -17,7 +17,7 @@ import com.example.cloble.data.local.entity.CachedMatchDetailEntity
         CachedChatMessageEntity::class,
         CachedMatchDetailEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(CloBleTypeConverters::class)

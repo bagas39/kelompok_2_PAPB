@@ -15,14 +15,20 @@ import com.example.cloble.domain.result.CancelInterestResult
 import com.example.cloble.domain.result.SendInterestResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+sealed interface ActivityHistoryEvent {
+    data class MutualMatchCreated(val matchId: Long) : ActivityHistoryEvent
+}
 
 data class ActivityHistoryUiState(
     val selectedTab: ActivityHistoryTab = ActivityHistoryTab.TERTARIK,
@@ -45,16 +51,30 @@ class ActivityHistoryViewModel(
     private val _uiState = MutableStateFlow(ActivityHistoryUiState())
     val uiState: StateFlow<ActivityHistoryUiState> = _uiState.asStateFlow()
 
+    private val _events = MutableSharedFlow<ActivityHistoryEvent>()
+    val events: SharedFlow<ActivityHistoryEvent> = _events.asSharedFlow()
+
     private var observationJob: Job? = null
 
     init {
         viewModelScope.launch {
             authRepository.observeLoggedInUserId()
-                .filterNotNull()
                 .distinctUntilChanged()
                 .collect { userId ->
-                    _uiState.update { it.copy(currentUserId = userId, isLoading = true) }
-                    startObservingHistory(userId)
+                    if (userId == null) {
+                        observationJob?.cancel()
+                        _uiState.update {
+                            it.copy(
+                                currentUserId = null,
+                                outgoingInterests = emptyList(),
+                                passedItems = emptyList(),
+                                isLoading = false
+                            )
+                        }
+                    } else {
+                        _uiState.update { it.copy(currentUserId = userId, isLoading = true) }
+                        startObservingHistory(userId)
+                    }
                 }
         }
     }
@@ -84,10 +104,16 @@ class ActivityHistoryViewModel(
     }
 
     fun cancelOutgoingInterest(interestId: Long) {
-        if (_uiState.value.cancellingInterestId == interestId) return
+        if (_uiState.value.cancellingInterestId != null) return
         val userId = _uiState.value.currentUserId ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(cancellingInterestId = interestId, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    cancellingInterestId = interestId,
+                    actionMessage = null,
+                    errorMessage = null
+                )
+            }
             when (discoveryMatchRepository.cancelOutgoingInterest(userId, interestId)) {
                 is CancelInterestResult.Success -> {
                     _uiState.update {
@@ -151,13 +177,24 @@ class ActivityHistoryViewModel(
                 )
             }
             try {
-                when (discoveryMatchRepository.convertPassToInterest(userId, targetItemId)) {
+                when (val result = discoveryMatchRepository.convertPassToInterest(userId, targetItemId)) {
                     is SendInterestResult.Success -> {
-                        _uiState.update {
-                            it.copy(
-                                actionMessage = "Berhasil mengirim Tertarik!",
-                                errorMessage = null
-                            )
+                        val createdMatchId = result.matchId
+                        if (createdMatchId != null && createdMatchId > 0L) {
+                            _uiState.update {
+                                it.copy(
+                                    actionMessage = "Match terbentuk! Membuka detail pertukaran...",
+                                    errorMessage = null
+                                )
+                            }
+                            _events.emit(ActivityHistoryEvent.MutualMatchCreated(createdMatchId))
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    actionMessage = "Berhasil mengirim Tertarik!",
+                                    errorMessage = null
+                                )
+                            }
                         }
                     }
                     is SendInterestResult.AlreadyInterested -> {

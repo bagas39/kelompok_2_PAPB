@@ -52,14 +52,24 @@ abstract class OfflineChatCacheDao {
     @Query("UPDATE cached_chat_threads SET unreadCount = 0 WHERE viewerUserId = :viewerUserId AND matchId = :matchId")
     abstract suspend fun clearThreadUnreadCount(viewerUserId: Long, matchId: Long)
 
-    @Query("UPDATE cached_chat_threads SET lastMessageText = :messageText, lastMessageSentAt = :sentAt, updatedAt = :sentAt WHERE matchId = :matchId")
-    abstract suspend fun updateThreadLastMessage(matchId: Long, messageText: String, sentAt: Long)
+    @Query("UPDATE cached_chat_threads SET lastMessageText = :messageText, lastMessageSentAt = :sentAt, updatedAt = :sentAt WHERE viewerUserId = :viewerUserId AND matchId = :matchId")
+    abstract suspend fun updateThreadLastMessage(
+        viewerUserId: Long,
+        matchId: Long,
+        messageText: String,
+        sentAt: Long
+    )
 
-    @Query("UPDATE cached_chat_threads SET status = :status, updatedAt = :updatedAt WHERE matchId = :matchId AND status != :status")
-    abstract suspend fun updateThreadStatus(matchId: Long, status: MatchStatus, updatedAt: Long)
+    @Query("UPDATE cached_chat_threads SET status = :status, updatedAt = :updatedAt WHERE viewerUserId = :viewerUserId AND matchId = :matchId AND status != :status")
+    abstract suspend fun updateThreadStatus(
+        viewerUserId: Long,
+        matchId: Long,
+        status: MatchStatus,
+        updatedAt: Long
+    )
 
-    @Query("SELECT * FROM cached_chat_messages WHERE matchId = :matchId ORDER BY sentAt ASC, id ASC")
-    abstract fun observeMessages(matchId: Long): Flow<List<CachedChatMessageEntity>>
+    @Query("SELECT * FROM cached_chat_messages WHERE viewerUserId = :viewerUserId AND matchId = :matchId ORDER BY sentAt ASC, id ASC")
+    abstract fun observeMessages(viewerUserId: Long, matchId: Long): Flow<List<CachedChatMessageEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertMessage(message: CachedChatMessageEntity)
@@ -67,8 +77,23 @@ abstract class OfflineChatCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertMessages(messages: List<CachedChatMessageEntity>)
 
-    @Query("UPDATE cached_chat_messages SET isRead = 1 WHERE matchId = :matchId AND senderId != :viewerUserId AND isRead = 0")
-    abstract suspend fun markMessagesReadLocal(matchId: Long, viewerUserId: Long)
+    @Query("DELETE FROM cached_chat_messages WHERE viewerUserId = :viewerUserId AND matchId = :matchId")
+    abstract suspend fun deleteMessagesForMatch(viewerUserId: Long, matchId: Long)
+
+    @Transaction
+    open suspend fun replaceMessagesForMatch(
+        viewerUserId: Long,
+        matchId: Long,
+        messages: List<CachedChatMessageEntity>
+    ) {
+        deleteMessagesForMatch(viewerUserId, matchId)
+        if (messages.isNotEmpty()) {
+            upsertMessages(messages)
+        }
+    }
+
+    @Query("UPDATE cached_chat_messages SET isRead = 1 WHERE viewerUserId = :viewerUserId AND matchId = :matchId AND senderId != :viewerUserId AND isRead = 0")
+    abstract suspend fun markMessagesReadLocal(viewerUserId: Long, matchId: Long)
 
     @Query("SELECT * FROM cached_match_details WHERE viewerUserId = :viewerUserId AND matchId = :matchId LIMIT 1")
     abstract fun observeMatchDetail(viewerUserId: Long, matchId: Long): Flow<CachedMatchDetailEntity?>
@@ -81,12 +106,30 @@ abstract class OfflineChatCacheDao {
         UPDATE cached_match_details
         SET status = :status,
             meetingLocation = COALESCE(:meetingLocation, meetingLocation),
-            updatedAt = :updatedAt
-        WHERE matchId = :matchId
-          AND (status != :status OR (:meetingLocation IS NOT NULL AND meetingLocation IS NULL))
+            updatedAt = :updatedAt,
+            myItem_status = CASE WHEN :status = 'COMPLETED' THEN 'EXCHANGED' ELSE myItem_status END,
+            partnerItem_status = CASE WHEN :status = 'COMPLETED' THEN 'EXCHANGED' ELSE partnerItem_status END,
+            myItem_isBarterAllowed = CASE WHEN :status = 'COMPLETED' THEN 0 ELSE myItem_isBarterAllowed END,
+            partnerItem_isBarterAllowed = CASE WHEN :status = 'COMPLETED' THEN 0 ELSE partnerItem_isBarterAllowed END
+        WHERE viewerUserId = :viewerUserId
+          AND matchId = :matchId
+          AND (
+              status != :status
+              OR (:meetingLocation IS NOT NULL AND meetingLocation IS NULL)
+              OR (
+                  :status = 'COMPLETED'
+                  AND (
+                      myItem_status != 'EXCHANGED'
+                      OR partnerItem_status != 'EXCHANGED'
+                      OR myItem_isBarterAllowed != 0
+                      OR partnerItem_isBarterAllowed != 0
+                  )
+              )
+          )
         """
     )
     abstract suspend fun updateMatchDetailStatus(
+        viewerUserId: Long,
         matchId: Long,
         status: MatchStatus,
         meetingLocation: String?,

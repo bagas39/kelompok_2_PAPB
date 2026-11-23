@@ -54,7 +54,7 @@ data class ConversationUiState(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConversationViewModel(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
     private val discoveryMatchRepository: DiscoveryMatchRepository,
     private val chatRepository: ChatRepository,
@@ -181,6 +181,7 @@ class ConversationViewModel(
             )
         }
         selectedMatchIdFlow.value = targetMatchId
+        savedStateHandle["matchId"] = targetMatchId
     }
 
     fun onDraftChanged(text: String) {
@@ -270,10 +271,10 @@ class ConversationViewModel(
         val userId = _uiState.value.currentUserId ?: return
         val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionInProgress = true, showCancelDialog = false) }
+            _uiState.update { it.copy(isActionInProgress = true, showCancelDialog = false, errorMessage = null) }
             when (discoveryMatchRepository.cancelMatch(activeId, userId)) {
                 is CancelMatchResult.Success -> {
-                    _uiState.update { it.copy(isActionInProgress = false) }
+                    _uiState.update { it.copy(isActionInProgress = false, errorMessage = null) }
                 }
                 is CancelMatchResult.NotMatchParticipant -> {
                     _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Hanya peserta yang dapat membatalkan pertukaran.") }
@@ -302,10 +303,10 @@ class ConversationViewModel(
         val activeId = _uiState.value.activeMatchId.takeIf { it > 0L } ?: matchId
         val location = _uiState.value.meetingLocationInput.trim().ifBlank { null }
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionInProgress = true, showCompleteDialog = false) }
+            _uiState.update { it.copy(isActionInProgress = true, showCompleteDialog = false, errorMessage = null) }
             when (discoveryMatchRepository.completeMatchExchange(activeId, userId, location)) {
                 is CompleteMatchResult.Success -> {
-                    _uiState.update { it.copy(isActionInProgress = false, meetingLocationInput = "") }
+                    _uiState.update { it.copy(isActionInProgress = false, meetingLocationInput = "", errorMessage = null) }
                 }
                 is CompleteMatchResult.NotMatchParticipant -> {
                     _uiState.update { it.copy(isActionInProgress = false, errorMessage = "Hanya peserta yang dapat menyelesaikan pertukaran.") }

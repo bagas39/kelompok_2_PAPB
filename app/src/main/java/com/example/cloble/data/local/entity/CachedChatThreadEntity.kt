@@ -26,5 +26,6 @@ data class CachedChatThreadEntity(
     val lastMessageText: String? = null,
     val lastMessageSentAt: Long? = null,
     val unreadCount: Int,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val totalMatchesWithPartner: Int = 1
 )

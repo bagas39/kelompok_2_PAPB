@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
@@ -71,77 +72,129 @@ fun MatchedScreen(
             }
         } else {
             val detail = uiState.matchDetail
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Box(
+            if (detail == null) {
+                Column(
                     modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(CloBleColors.PrimaryContainer),
-                    contentAlignment = Alignment.Center
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        imageVector = CloBleIcons.HeartFilled,
-                        contentDescription = "Match",
-                        tint = CloBleColors.Primary,
-                        modifier = Modifier.size(42.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(CloBleColors.SecondarySurface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CloBleIcons.XClose,
+                            contentDescription = "Match tidak tersedia",
+                            tint = CloBleColors.TextSecondary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "Data Match Tidak Tersedia",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = CloBleColors.TextPrimary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("matched_error_title")
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Detail pertukaran tidak ditemukan atau Anda tidak memiliki akses ke Match ini.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CloBleColors.TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    CloBlePrimaryButton(
+                        text = "Kembali ke Jelajah",
+                        onClick = onNavigateToDiscover,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_back_to_discover_from_matched")
                     )
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                val headlineText = when (detail?.status) {
-                    MatchStatus.COMPLETED -> "Pertukaran Selesai!"
-                    MatchStatus.CANCELLED -> "Match Dibatalkan"
-                    else -> "Kalian saling tertarik!"
-                }
-                val subtitleText = when (detail?.status) {
-                    MatchStatus.COMPLETED -> "Pertukaran pakaian antara Anda dan ${detail.partnerName} telah selesai diselesaikan."
-                    MatchStatus.CANCELLED -> "Match dengan ${detail.partnerName} ini telah dibatalkan. Anda dapat melihat riwayat obrolan atau menjelajahi pakaian lainnya."
-                    else -> if (detail != null) {
-                        "Anda dan ${detail.partnerName} telah menyetujui pertukaran pakaian. Buka obrolan untuk mengatur lokasi dan waktu serah terima fisik."
-                    } else {
-                        "Match terbentuk. Lanjutkan ke ruang obrolan untuk koordinasi."
-                    }
-                }
-
-                Text(
-                    text = headlineText,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = CloBleColors.TextPrimary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("matched_title")
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = subtitleText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = CloBleColors.TextSecondary,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (detail != null) {
-                    val pairPhotos = remember(detail.myItem, detail.partnerItem) {
-                        buildList {
-                            detail.myItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
-                                add(LabeledPhoto(it, "Pakaian Anda · ${detail.myItem.name}"))
-                            }
-                            detail.partnerItem.mainPhotoUri?.takeIf { it.isNotBlank() }?.let {
-                                add(LabeledPhoto(it, "Milik ${detail.partnerName} · ${detail.partnerItem.name}"))
-                            }
+            } else {
+                val myItemPhoto = detail.myItem.primaryPhotoUri()
+                val partnerItemPhoto = detail.partnerItem.primaryPhotoUri()
+                val pairPhotos = remember(detail.myItem, detail.partnerItem) {
+                    buildList {
+                        myItemPhoto?.let {
+                            add(LabeledPhoto(it, "Pakaian Anda · ${detail.myItem.name}"))
+                        }
+                        partnerItemPhoto?.let {
+                            add(LabeledPhoto(it, "Milik ${detail.partnerName} · ${detail.partnerItem.name}"))
                         }
                     }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(CloBleColors.PrimaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CloBleIcons.HeartFilled,
+                            contentDescription = "Match",
+                            tint = CloBleColors.Primary,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    val headlineText = when (detail.status) {
+                        MatchStatus.COMPLETED -> "Pertukaran Selesai!"
+                        MatchStatus.CANCELLED -> "Match Dibatalkan"
+                        MatchStatus.ACTIVE -> "Kalian saling tertarik!"
+                    }
+                    val subtitleText = when (detail.status) {
+                        MatchStatus.COMPLETED -> "Pertukaran pakaian antara Anda dan ${detail.partnerName} telah selesai diselesaikan."
+                        MatchStatus.CANCELLED -> "Match dengan ${detail.partnerName} ini telah dibatalkan. Anda dapat melihat riwayat obrolan atau menjelajahi pakaian lainnya."
+                        MatchStatus.ACTIVE -> "Anda dan ${detail.partnerName} telah menyetujui pertukaran pakaian. Buka obrolan untuk mengatur lokasi dan waktu serah terima fisik."
+                    }
+
+                    Text(
+                        text = headlineText,
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        color = CloBleColors.TextPrimary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("matched_title")
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CloBleColors.TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -167,9 +220,9 @@ fun MatchedScreen(
                                 Spacer(modifier = Modifier.height(6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.myItem.name,
-                                    imageModel = detail.myItem.mainPhotoUri,
+                                    imageModel = myItemPhoto,
                                     height = 136.dp,
-                                    onClick = if (pairPhotos.isNotEmpty() && !detail.myItem.mainPhotoUri.isNullOrBlank()) {
+                                    onClick = if (pairPhotos.isNotEmpty() && myItemPhoto != null) {
                                         {
                                             viewerStartIndex = 0
                                             viewerPhotos = pairPhotos
@@ -217,9 +270,9 @@ fun MatchedScreen(
                                 Spacer(modifier = Modifier.height(6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.partnerItem.name,
-                                    imageModel = detail.partnerItem.mainPhotoUri,
+                                    imageModel = partnerItemPhoto,
                                     height = 136.dp,
-                                    onClick = if (pairPhotos.isNotEmpty() && !detail.partnerItem.mainPhotoUri.isNullOrBlank()) {
+                                    onClick = if (pairPhotos.isNotEmpty() && partnerItemPhoto != null) {
                                         {
                                             viewerStartIndex = (pairPhotos.size - 1).coerceAtLeast(0)
                                             viewerPhotos = pairPhotos
@@ -274,27 +327,27 @@ fun MatchedScreen(
                             color = CloBleColors.TextPrimary
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    CloBlePrimaryButton(
+                        text = if (detail.status == MatchStatus.ACTIVE) "Buka Obrolan" else "Lihat Riwayat Obrolan",
+                        onClick = { onNavigateToConversation(uiState.matchId) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_open_chat_from_matched")
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    CloBleOutlinedButton(
+                        text = "Kembali ke Jelajah",
+                        onClick = onNavigateToDiscover,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_back_to_discover_from_matched")
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                CloBlePrimaryButton(
-                    text = if (detail?.status == MatchStatus.ACTIVE || detail == null) "Buka Obrolan" else "Lihat Riwayat Obrolan",
-                    onClick = { onNavigateToConversation(uiState.matchId) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("btn_open_chat_from_matched")
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                CloBleOutlinedButton(
-                    text = "Kembali ke Jelajah",
-                    onClick = onNavigateToDiscover,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("btn_back_to_discover_from_matched")
-                )
             }
         }
 
@@ -307,3 +360,8 @@ fun MatchedScreen(
         }
     }
 }
+
+private fun ClothingItem.primaryPhotoUri(): String? =
+    mainPhotoUri?.takeIf { it.isNotBlank() }
+        ?: detailPhotoUri?.takeIf { it.isNotBlank() }
+        ?: extraPhotoUri?.takeIf { it.isNotBlank() }

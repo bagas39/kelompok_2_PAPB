@@ -26,7 +26,8 @@ object OfflineChatCacheMappers {
             lastMessageText = summary.lastMessageText,
             lastMessageSentAt = summary.lastMessageSentAt,
             unreadCount = summary.unreadCount,
-            updatedAt = summary.updatedAt
+            updatedAt = summary.updatedAt,
+            totalMatchesWithPartner = summary.totalMatchesWithPartner.coerceAtLeast(1)
         )
     }
 
@@ -44,12 +45,14 @@ object OfflineChatCacheMappers {
             lastMessageText = entity.lastMessageText,
             lastMessageSentAt = entity.lastMessageSentAt,
             unreadCount = entity.unreadCount,
-            updatedAt = entity.updatedAt
+            updatedAt = entity.updatedAt,
+            totalMatchesWithPartner = entity.totalMatchesWithPartner.coerceAtLeast(1)
         )
     }
 
-    fun toEntity(message: ChatMessage): CachedChatMessageEntity {
+    fun toEntity(viewerUserId: Long, message: ChatMessage): CachedChatMessageEntity {
         return CachedChatMessageEntity(
+            viewerUserId = viewerUserId,
             id = message.id,
             matchId = message.matchId,
             senderId = message.senderId,
