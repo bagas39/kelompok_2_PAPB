@@ -20,6 +20,11 @@ import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cloble_session_prefs")
 
+data class StoredSession(
+    val userId: Long?,
+    val sessionToken: String?
+)
+
 class SessionPreferencesDataSource(
     private val context: Context,
     private val tokenCipher: SessionTokenCipher = SessionTokenCipher()
@@ -57,6 +62,26 @@ class SessionPreferencesDataSource(
         .distinctUntilChanged()
         .map { encrypted ->
             tokenCipher.decrypt(encrypted)
+        }
+        .flowOn(Dispatchers.IO)
+
+    val sessionFlow: Flow<StoredSession> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { preferences ->
+            preferences[PreferencesKeys.KEY_LOGGED_IN_USER_ID] to preferences[PreferencesKeys.KEY_SESSION_TOKEN]
+        }
+        .distinctUntilChanged()
+        .map { (userId, encrypted) ->
+            StoredSession(
+                userId = userId,
+                sessionToken = if (userId != null) tokenCipher.decrypt(encrypted) else null
+            )
         }
         .flowOn(Dispatchers.IO)
 

@@ -1,5 +1,6 @@
 package com.example.cloble.data.remote
 
+import com.example.cloble.data.local.session.StoredSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -203,5 +204,41 @@ class SupabaseAuthSessionValidationUnitTest {
         )
         assertTrue(cleared)
         assertNull(clientToken)
+    }
+
+    @Test
+    fun resolveAuthenticatedSessionUserId_setsTokenAndReturnsUserId_whenSessionComplete() {
+        var appliedToken: String? = null
+
+        val userId = resolveAuthenticatedSessionUserId(
+            session = StoredSession(userId = 7L, sessionToken = "tok-atomic")
+        ) { appliedToken = it }
+
+        assertEquals(7L, userId)
+        assertEquals("tok-atomic", appliedToken)
+    }
+
+    @Test
+    fun resolveAuthenticatedSessionUserId_clearsStaleToken_whenUserIdIsNull() {
+        var appliedToken: String? = "old-token"
+
+        val userId = resolveAuthenticatedSessionUserId(
+            session = StoredSession(userId = null, sessionToken = "stale-token")
+        ) { appliedToken = it }
+
+        assertNull(userId)
+        assertNull(appliedToken)
+    }
+
+    @Test
+    fun resolveAuthenticatedSessionUserId_clearsTokenAndReturnsNull_whenTokenBlank() {
+        var appliedToken: String? = "old-token"
+
+        val userId = resolveAuthenticatedSessionUserId(
+            session = StoredSession(userId = 7L, sessionToken = "   ")
+        ) { appliedToken = it }
+
+        assertNull(userId)
+        assertNull(appliedToken)
     }
 }

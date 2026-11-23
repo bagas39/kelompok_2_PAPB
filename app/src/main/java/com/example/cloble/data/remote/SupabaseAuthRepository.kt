@@ -2,6 +2,7 @@ package com.example.cloble.data.remote
 
 import com.example.cloble.data.local.dao.OfflineChatCacheDao
 import com.example.cloble.data.local.session.SessionPreferencesDataSource
+import com.example.cloble.data.local.session.StoredSession
 import com.example.cloble.domain.model.UserProfile
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.result.AuthResult
@@ -16,7 +17,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -49,13 +49,13 @@ class SupabaseAuthRepository(
     }
 
     override fun observeLoggedInUserId(): Flow<Long?> =
-        combine(
-            sessionPrefs.loggedInUserIdFlow,
-            sessionPrefs.sessionTokenFlow
-        ) { userId, token ->
-            client.setSessionToken(token)
-            if (userId != null && !token.isNullOrBlank()) userId else null
-        }.distinctUntilChanged()
+        sessionPrefs.sessionFlow
+            .map { session ->
+                resolveAuthenticatedSessionUserId(session) { token ->
+                    client.setSessionToken(token)
+                }
+            }
+            .distinctUntilChanged()
 
     override fun observeCurrentUser(): Flow<UserProfile?> =
         observeLoggedInUserId().flatMapLatest { userId ->
@@ -344,6 +344,19 @@ class SupabaseAuthRepository(
     private companion object {
         const val CONNECTION_ERROR_MESSAGE = "Terjadi gangguan koneksi ke server. Silakan coba lagi."
     }
+}
+
+internal fun resolveAuthenticatedSessionUserId(
+    session: StoredSession,
+    setClientToken: (String?) -> Unit
+): Long? {
+    val activeToken = if (session.userId != null && !session.sessionToken.isNullOrBlank()) {
+        session.sessionToken
+    } else {
+        null
+    }
+    setClientToken(activeToken)
+    return if (activeToken != null) session.userId else null
 }
 
 internal suspend fun logoutWithDeps(
