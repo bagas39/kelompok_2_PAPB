@@ -39,6 +39,7 @@ interface AppContainer {
     val fcmRepository: FcmRepository
     val dataInvalidator: SupabaseDataInvalidator
     val discoverFilterFlow: MutableStateFlow<DiscoverFilter>
+    val cleanupScope: CoroutineScope
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -75,12 +76,17 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    override val cleanupScope: CoroutineScope by lazy {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+
     override val authRepository: AuthRepository by lazy {
         SupabaseAuthRepository(
             client = supabaseClient,
             sessionPrefs = sessionPrefs,
             invalidator = dataInvalidator,
-            offlineChatCacheDao = database.offlineChatCacheDao()
+            offlineChatCacheDao = database.offlineChatCacheDao(),
+            realtimeClient = supabaseRealtimeClient
         ).also { repository ->
             applicationScope.launch {
                 resetDiscoverFilterOnAccountChange(repository.observeLoggedInUserId(), discoverFilterFlow)
@@ -89,7 +95,12 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val wardrobeRepository: WardrobeRepository by lazy {
-        SupabaseWardrobeRepository(supabaseClient, context, dataInvalidator)
+        SupabaseWardrobeRepository(
+            client = supabaseClient,
+            context = context,
+            invalidator = dataInvalidator,
+            cleanupScope = cleanupScope
+        )
     }
 
     override val discoveryMatchRepository: DiscoveryMatchRepository by lazy {
@@ -111,7 +122,12 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val profileReviewRepository: ProfileReviewRepository by lazy {
-        SupabaseProfileReviewRepository(supabaseClient, context, dataInvalidator)
+        SupabaseProfileReviewRepository(
+            client = supabaseClient,
+            context = context,
+            invalidator = dataInvalidator,
+            cleanupScope = cleanupScope
+        )
     }
 
     override val fcmRepository: FcmRepository by lazy {

@@ -93,32 +93,9 @@ class SupabaseAuthSessionValidationUnitTest {
     }
 
     @Test
-    fun validateSession_fallsBackToChallengeRpcOn404_andClearsInvalidSession() = runBlocking {
+    fun validateSession_preservesSessionWithoutFallbackChallengeRpcOn404() = runBlocking {
         var cleared = false
         val calledFunctions = mutableListOf<String>()
-
-        val valid = validateSessionWithDeps(
-            getLocalUserId = { 7L },
-            getLocalToken = { "tok-revoked" },
-            setClientToken = {},
-            clearLocalSession = { cleared = true },
-            callRpc = { fn, _ ->
-                calledFunctions.add(fn)
-                if (fn == "rpc_validate_session") {
-                    throw IOException("Supabase HTTP 404: {\"code\":\"PGRST202\"}")
-                }
-                JSONObject().put("code", "UNAUTHORIZED")
-            }
-        )
-
-        assertFalse(valid)
-        assertTrue(cleared)
-        assertEquals(listOf("rpc_validate_session", "rpc_get_current_password_challenge"), calledFunctions)
-    }
-
-    @Test
-    fun validateSession_fallsBackToChallengeRpcOn404_andPreservesValidSession() = runBlocking {
-        var cleared = false
 
         val valid = validateSessionWithDeps(
             getLocalUserId = { 7L },
@@ -126,15 +103,14 @@ class SupabaseAuthSessionValidationUnitTest {
             setClientToken = {},
             clearLocalSession = { cleared = true },
             callRpc = { fn, _ ->
-                if (fn == "rpc_validate_session") {
-                    throw IOException("Supabase HTTP 404: {\"code\":\"PGRST202\"}")
-                }
-                JSONObject().put("code", "SUCCESS").put("userId", 7L)
+                calledFunctions.add(fn)
+                throw IOException("Supabase HTTP 404: {\"code\":\"PGRST202\"}")
             }
         )
 
         assertTrue(valid)
         assertFalse(cleared)
+        assertEquals(listOf("rpc_validate_session"), calledFunctions)
     }
 
     @Test
@@ -175,10 +151,11 @@ class SupabaseAuthSessionValidationUnitTest {
     }
 
     @Test
-    fun logoutWithDeps_loadsStoredTokenIntoClientBeforeServerRpcs() = runBlocking {
+    fun logoutWithDeps_loadsStoredTokenIntoClientBeforeServerRpcs_andDisconnectsRealtime() = runBlocking {
         var clientToken: String? = null
         var cleared = false
-        val recordedCalls = mutableListOf<Pair<String, String?>>()
+        var realtimeDisconnected = false
+        val recordedCalls = mutableListOf<String>()
 
         logoutWithDeps(
             getClientToken = { clientToken },
@@ -186,22 +163,30 @@ class SupabaseAuthSessionValidationUnitTest {
             setClientToken = { clientToken = it },
             getFcmToken = { "fcm-token-123" },
             callRpc = { fn, _ ->
-                recordedCalls.add(fn to clientToken)
+                recordedCalls.add("$fn:$clientToken")
                 JSONObject().put("code", "SUCCESS")
             },
             clearLocalSession = {
+                recordedCalls.add("clear_local_session")
                 cleared = true
                 clientToken = null
+            },
+            onDisconnectRealtime = {
+                recordedCalls.add("disconnect_realtime")
+                realtimeDisconnected = true
             }
         )
 
         assertEquals(
             listOf(
-                "rpc_unregister_fcm_token" to "stored-session-token",
-                "rpc_logout_session" to "stored-session-token"
+                "rpc_unregister_fcm_token:stored-session-token",
+                "rpc_logout_session:stored-session-token",
+                "disconnect_realtime",
+                "clear_local_session"
             ),
             recordedCalls
         )
+        assertTrue(realtimeDisconnected)
         assertTrue(cleared)
         assertNull(clientToken)
     }

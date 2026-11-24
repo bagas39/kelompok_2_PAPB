@@ -18,5 +18,6 @@ interface WardrobeRepository {
     suspend fun setBarterAllowed(actorUserId: Long, itemId: Long, allowed: Boolean): WardrobeMutationResult
     suspend fun softDeleteClothingItem(actorUserId: Long, itemId: Long): WardrobeMutationResult
     suspend fun persistLocalPhoto(sourceUriString: String): String?
+    suspend fun deleteUploadedPhotos(photoUris: List<String>) {}
     suspend fun countEligibleBarterItems(ownerId: Long): Int
 }

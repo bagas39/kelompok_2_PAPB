@@ -12,6 +12,9 @@ import com.example.cloble.domain.model.ClothingDraft
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.WardrobeMutationResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,11 +51,13 @@ data class AddEditClothingUiState(
 class AddEditClothingViewModel(
     savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
-    private val wardrobeRepository: WardrobeRepository
+    private val wardrobeRepository: WardrobeRepository,
+    private val cleanupScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : ViewModel() {
 
     private val rawItemId: Long = savedStateHandle.get<Long>("itemId") ?: -1L
     private val isEdit: Boolean = rawItemId > 0L
+    private val uploadedDraftPhotoUris = LinkedHashSet<String>()
 
     private val _uiState = MutableStateFlow(
         AddEditClothingUiState(
@@ -149,8 +154,14 @@ class AddEditClothingViewModel(
         if (current.isLockedInActiveMatch || current.isItemLoadFailed || current.isUploadingPhoto || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingPhoto = true, errorMessage = null) }
+            val isRemoteInput = photoUri.startsWith("http://") || photoUri.startsWith("https://")
             val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri)
             if (persistedUri != null) {
+                if (!isRemoteInput) {
+                    synchronized(uploadedDraftPhotoUris) {
+                        uploadedDraftPhotoUris.add(persistedUri)
+                    }
+                }
                 _uiState.update {
                     when (slotIndex) {
                         0 -> it.copy(mainPhotoUri = persistedUri, isUploadingPhoto = false)
@@ -423,6 +434,17 @@ class AddEditClothingViewModel(
 
             when (result) {
                 is WardrobeMutationResult.Success -> {
+                    val keptUris = setOfNotNull(normalizedMain, normalizedDetail, normalizedExtra)
+                    val unusedDrafts = synchronized(uploadedDraftPhotoUris) {
+                        val stale = uploadedDraftPhotoUris.filter { it !in keptUris }
+                        uploadedDraftPhotoUris.clear()
+                        stale
+                    }
+                    if (unusedDrafts.isNotEmpty()) {
+                        cleanupScope.launch {
+                            wardrobeRepository.deleteUploadedPhotos(unusedDrafts)
+                        }
+                    }
                     _uiState.update { it.copy(isSaving = false) }
                     onSuccess()
                 }
@@ -475,6 +497,20 @@ class AddEditClothingViewModel(
         }
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        val staleDrafts = synchronized(uploadedDraftPhotoUris) {
+            val copy = uploadedDraftPhotoUris.toList()
+            uploadedDraftPhotoUris.clear()
+            copy
+        }
+        if (staleDrafts.isNotEmpty()) {
+            cleanupScope.launch {
+                wardrobeRepository.deleteUploadedPhotos(staleDrafts)
+            }
+        }
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -483,7 +519,8 @@ class AddEditClothingViewModel(
                 AddEditClothingViewModel(
                     savedStateHandle = savedStateHandle,
                     authRepository = app.container.authRepository,
-                    wardrobeRepository = app.container.wardrobeRepository
+                    wardrobeRepository = app.container.wardrobeRepository,
+                    cleanupScope = app.container.cleanupScope
                 )
             }
         }

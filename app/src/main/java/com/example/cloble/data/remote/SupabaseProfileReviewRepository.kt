@@ -11,19 +11,22 @@ import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.ReviewSubmitResult
 import com.example.cloble.domain.util.DistanceCalculator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.util.UUID
 
 class SupabaseProfileReviewRepository(
     private val client: SupabaseClient,
     private val context: Context,
-    private val invalidator: SupabaseDataInvalidator
+    private val invalidator: SupabaseDataInvalidator,
+    private val cleanupScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : ProfileReviewRepository {
 
     @Volatile
@@ -169,6 +172,10 @@ class SupabaseProfileReviewRepository(
             }
             val resp = client.rpc("rpc_update_profile", body)
             if (resp.optString("code") == "SUCCESS") {
+                val cleanupUris = resp.extractCleanupPhotoUris()
+                if (cleanupUris.isNotEmpty()) {
+                    cleanupScope.launch { client.deletePhotos(cleanupUris) }
+                }
                 invalidator.invalidateUser()
                 invalidator.invalidateDiscovery()
                 true
@@ -199,13 +206,18 @@ class SupabaseProfileReviewRepository(
                 maxDimensionPx = MAX_AVATAR_PHOTO_DIMENSION_PX,
                 maxBytes = MAX_PHOTO_BYTES
             ) ?: return@withContext null
-            val filename = "avatar_${UUID.randomUUID()}.jpg"
-            client.uploadPhoto(bytes, filename, "image/jpeg")
+            val uploadedUrl = client.uploadPhoto(bytes, kind = "avatar", mimeType = "image/jpeg")
+            deleteCameraTempFileForUri(context, sourceUriString)
+            uploadedUrl
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         }
+    }
+
+    override suspend fun deleteUploadedPhotos(photoUris: List<String>) {
+        client.deletePhotos(photoUris)
     }
 
     override suspend fun submitReview(

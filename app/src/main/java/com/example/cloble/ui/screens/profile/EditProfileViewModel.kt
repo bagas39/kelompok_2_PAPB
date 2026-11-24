@@ -11,7 +11,10 @@ import com.example.cloble.domain.model.CityPreset
 import com.example.cloble.domain.model.UserProfileUpdate
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.ProfileReviewRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +47,8 @@ data class EditProfileUiState(
 
 class EditProfileViewModel(
     private val authRepository: AuthRepository,
-    private val profileReviewRepository: ProfileReviewRepository
+    private val profileReviewRepository: ProfileReviewRepository,
+    private val cleanupScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EditProfileUiState())
@@ -52,6 +56,7 @@ class EditProfileViewModel(
 
     private var hasInitialized = false
     private var loadJob: Job? = null
+    private val uploadedDraftAvatarUris = LinkedHashSet<String>()
 
     init {
         loadProfile()
@@ -113,8 +118,14 @@ class EditProfileViewModel(
         if (current.isUploadingAvatar || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingAvatar = true, errorMessage = null) }
+            val isRemoteInput = sourceUriString.startsWith("http://") || sourceUriString.startsWith("https://")
             val persisted = profileReviewRepository.persistAvatarPhoto(sourceUriString)
             if (persisted != null) {
+                if (!isRemoteInput) {
+                    synchronized(uploadedDraftAvatarUris) {
+                        uploadedDraftAvatarUris.add(persisted)
+                    }
+                }
                 _uiState.update { it.copy(avatarUri = persisted, isUploadingAvatar = false) }
             } else {
                 _uiState.update {
@@ -301,6 +312,10 @@ class EditProfileViewModel(
                     }
                     return@launch
                 }
+                synchronized(uploadedDraftAvatarUris) {
+                    uploadedDraftAvatarUris.add(uploadedAvatar)
+                }
+                _uiState.update { it.copy(avatarUri = uploadedAvatar) }
                 uploadedAvatar
             }
             val success = profileReviewRepository.updateProfile(
@@ -318,6 +333,16 @@ class EditProfileViewModel(
                 )
             )
             if (success) {
+                val unusedDrafts = synchronized(uploadedDraftAvatarUris) {
+                    val stale = uploadedDraftAvatarUris.filter { it != finalAvatar }
+                    uploadedDraftAvatarUris.clear()
+                    stale
+                }
+                if (unusedDrafts.isNotEmpty()) {
+                    cleanupScope.launch {
+                        profileReviewRepository.deleteUploadedPhotos(unusedDrafts)
+                    }
+                }
                 _uiState.update { it.copy(isSaving = false) }
                 onSuccess()
             } else {
@@ -335,13 +360,28 @@ class EditProfileViewModel(
         }
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        val staleDrafts = synchronized(uploadedDraftAvatarUris) {
+            val copy = uploadedDraftAvatarUris.toList()
+            uploadedDraftAvatarUris.clear()
+            copy
+        }
+        if (staleDrafts.isNotEmpty()) {
+            cleanupScope.launch {
+                profileReviewRepository.deleteUploadedPhotos(staleDrafts)
+            }
+        }
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as CloBleApplication
                 EditProfileViewModel(
                     authRepository = app.container.authRepository,
-                    profileReviewRepository = app.container.profileReviewRepository
+                    profileReviewRepository = app.container.profileReviewRepository,
+                    cleanupScope = app.container.cleanupScope
                 )
             }
         }

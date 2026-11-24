@@ -1,5 +1,6 @@
 package com.example.cloble.data.remote
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -23,7 +24,7 @@ class SupabaseClient(
 
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
@@ -88,10 +89,11 @@ class SupabaseClient(
 
     suspend fun uploadPhoto(
         bytes: ByteArray,
-        filename: String,
+        kind: String = "clothing",
         mimeType: String = "image/jpeg"
     ): String = withContext(Dispatchers.IO) {
-        val uploadUrl = "${config.storageUrl}/object/${config.PHOTO_BUCKET}/$filename"
+        val cleanKind = if (kind == "avatar") "avatar" else "clothing"
+        val uploadUrl = "${config.baseUrl}/functions/v1/manage-photo?action=upload&kind=$cleanKind"
         val mediaType = mimeType.toMediaType()
         val builder = Request.Builder()
             .url(uploadUrl)
@@ -99,8 +101,42 @@ class SupabaseClient(
             .post(bytes.toRequestBody(mediaType))
 
         applyHeaders(builder)
-        executeRequest(builder.build())
-        "${config.storageUrl}/object/public/${config.PHOTO_BUCKET}/$filename"
+        val responseBody = executeRequest(builder.build())
+        val json = try {
+            JSONObject(responseBody)
+        } catch (e: Exception) {
+            throw IOException("Respon upload foto tidak valid: $responseBody", e)
+        }
+        if (json.optString("code") != "SUCCESS") {
+            throw IOException(
+                json.optString("message", "Gagal mengunggah foto (${json.optString("code")})")
+            )
+        }
+        val publicUrl = json.optString("publicUrl", "").trim()
+        if (publicUrl.isBlank()) {
+            throw IOException("URL foto publik kosong dari server")
+        }
+        publicUrl
+    }
+
+    suspend fun deletePhotos(photoUris: List<String>) {
+        val cleanUris = photoUris
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("http://") || it.startsWith("https://") }
+            .distinct()
+            .toList()
+        if (cleanUris.isEmpty() || sessionToken.isNullOrBlank()) return
+
+        try {
+            val body = JSONObject()
+                .put("action", "delete")
+                .put("photoUris", JSONArray(cleanUris))
+            invokeEdgeFunction("manage-photo", body)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun executeRequest(request: Request): String =

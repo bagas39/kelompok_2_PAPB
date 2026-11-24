@@ -11,7 +11,6 @@ import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.RequestPasswordResetOtpResult
 import com.example.cloble.domain.result.ResetPasswordResult
 import com.example.cloble.domain.util.DistanceCalculator
-import com.example.cloble.domain.util.PasswordHasher
 import com.example.cloble.domain.util.PasswordPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -26,14 +25,14 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import org.json.JSONObject
-import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SupabaseAuthRepository(
     private val client: SupabaseClient,
     private val sessionPrefs: SessionPreferencesDataSource,
     private val invalidator: SupabaseDataInvalidator,
-    private val offlineChatCacheDao: OfflineChatCacheDao? = null
+    private val offlineChatCacheDao: OfflineChatCacheDao? = null,
+    private val realtimeClient: SupabaseRealtimeClient? = null
 ) : AuthRepository {
 
     private suspend fun clearOfflineCacheIfAccountChanged(newUserId: Long) {
@@ -73,30 +72,18 @@ class SupabaseAuthRepository(
         fetchUserProfileViaRpc(client, userId)
 
     override suspend fun login(email: String, rawPassword: String): AuthResult {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isEmpty() || rawPassword.isEmpty()) {
+            return AuthResult.InvalidCredentials
+        }
+
         return try {
-            val trimmedEmail = email.trim().lowercase()
-            val challengeParams = JSONObject().apply {
-                put("p_email", trimmedEmail)
+            val payload = JSONObject().apply {
+                put("action", "login")
+                put("email", trimmedEmail)
+                put("password", rawPassword)
             }
-            val challengeResp = client.rpc("rpc_get_login_challenge", challengeParams)
-            if (challengeResp.optString("code") != "SUCCESS") {
-                return AuthResult.InvalidCredentials
-            }
-
-            val iterations = challengeResp.optInt("iterations", PasswordHasher.DEFAULT_ITERATIONS)
-            val saltHex = challengeResp.optString("saltHex")
-            if (saltHex.isBlank()) {
-                return AuthResult.InvalidCredentials
-            }
-
-            val computedHash = PasswordHasher.hashWithSaltHex(rawPassword, saltHex, iterations)
-                ?: return AuthResult.InvalidCredentials
-
-            val sessionParams = JSONObject().apply {
-                put("p_email", trimmedEmail)
-                put("p_password_hash", computedHash)
-            }
-            val sessionResp = client.rpc("rpc_create_session", sessionParams)
+            val sessionResp = client.invokeEdgeFunction("auth-service", payload)
             when (sessionResp.optString("code")) {
                 "SUCCESS" -> {
                     val userId = sessionResp.optLong("userId", 0L)
@@ -112,6 +99,9 @@ class SupabaseAuthRepository(
                 }
                 "RATE_LIMITED" -> AuthResult.RateLimited(
                     sessionResp.optString("message", "Terlalu banyak percobaan login gagal. Coba lagi nanti.")
+                )
+                "ERROR", "SERVER_MISCONFIGURED" -> AuthResult.DatabaseError(
+                    DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE)
                 )
                 else -> AuthResult.InvalidCredentials
             }
@@ -173,13 +163,13 @@ class SupabaseAuthRepository(
         }
 
         return try {
-            val newHash = PasswordHasher.hash(newRawPassword)
-            val params = JSONObject().apply {
-                put("p_email", trimmedEmail)
-                put("p_otp_code", cleanOtp)
-                put("p_new_password_hash", newHash)
+            val payload = JSONObject().apply {
+                put("action", "verify-reset-otp")
+                put("email", trimmedEmail)
+                put("otpCode", cleanOtp)
+                put("newPassword", newRawPassword)
             }
-            val resp = client.rpc("rpc_verify_otp_and_reset_password", params)
+            val resp = client.invokeEdgeFunction("auth-service", payload)
             when (resp.optString("code")) {
                 "SUCCESS" -> ResetPasswordResult.Success
                 "OTP_INVALID" -> ResetPasswordResult.InvalidOtp(resp.optInt("remainingAttempts", 0))
@@ -214,25 +204,12 @@ class SupabaseAuthRepository(
         }
 
         return try {
-            val challengeResp = client.rpc("rpc_get_current_password_challenge", JSONObject())
-            if (challengeResp.optString("code") != "SUCCESS") {
-                return ChangePasswordResult.Unauthorized
+            val payload = JSONObject().apply {
+                put("action", "change-password")
+                put("currentPassword", currentRawPassword)
+                put("newPassword", newRawPassword)
             }
-            val iterations = challengeResp.optInt("iterations", PasswordHasher.DEFAULT_ITERATIONS)
-            val saltHex = challengeResp.optString("saltHex")
-            if (saltHex.isBlank()) {
-                return ChangePasswordResult.Unauthorized
-            }
-
-            val currentHash = PasswordHasher.hashWithSaltHex(currentRawPassword, saltHex, iterations)
-                ?: return ChangePasswordResult.InvalidCurrentPassword
-            val newHash = PasswordHasher.hash(newRawPassword)
-
-            val params = JSONObject().apply {
-                put("p_current_password_hash", currentHash)
-                put("p_new_password_hash", newHash)
-            }
-            val resp = client.rpc("rpc_change_password_authenticated", params)
+            val resp = client.invokeEdgeFunction("auth-service", payload)
             when (resp.optString("code")) {
                 "SUCCESS" -> ChangePasswordResult.Success
                 "INVALID_CURRENT_PASSWORD" -> ChangePasswordResult.InvalidCurrentPassword
@@ -274,18 +251,17 @@ class SupabaseAuthRepository(
 
         return try {
             val effective = DistanceCalculator.resolveEffectiveCoordinates(trimmedCity, latitude, longitude)
-            val hash = PasswordHasher.hash(rawPassword)
-
-            val regParams = JSONObject().apply {
-                put("p_name", trimmedName)
-                put("p_email", trimmedEmail)
-                put("p_password_hash", hash)
-                put("p_city", trimmedCity)
-                put("p_latitude", effective.first)
-                put("p_longitude", effective.second)
+            val payload = JSONObject().apply {
+                put("action", "register")
+                put("name", trimmedName)
+                put("email", trimmedEmail)
+                put("password", rawPassword)
+                put("city", trimmedCity)
+                put("latitude", effective.first)
+                put("longitude", effective.second)
             }
 
-            val regResp = client.rpc("rpc_register_user", regParams)
+            val regResp = client.invokeEdgeFunction("auth-service", payload)
             when (regResp.optString("code")) {
                 "SUCCESS" -> {
                     val newUserId = regResp.optLong("userId", 0L)
@@ -311,6 +287,7 @@ class SupabaseAuthRepository(
     }
 
     private suspend fun clearInvalidLocalSession() {
+        realtimeClient?.disconnect()
         client.setSessionToken(null)
         sessionPrefs.clearSession()
         try {
@@ -337,7 +314,8 @@ class SupabaseAuthRepository(
             setClientToken = { token -> client.setSessionToken(token) },
             getFcmToken = { sessionPrefs.getFcmTokenOnce() },
             callRpc = { functionName, params -> client.rpc(functionName, params) },
-            clearLocalSession = { clearInvalidLocalSession() }
+            clearLocalSession = { clearInvalidLocalSession() },
+            onDisconnectRealtime = { realtimeClient?.disconnect() }
         )
     }
 
@@ -365,7 +343,8 @@ internal suspend fun logoutWithDeps(
     setClientToken: (String?) -> Unit,
     getFcmToken: suspend () -> String?,
     callRpc: suspend (String, JSONObject) -> JSONObject,
-    clearLocalSession: suspend () -> Unit
+    clearLocalSession: suspend () -> Unit,
+    onDisconnectRealtime: () -> Unit = {}
 ) {
     if (getClientToken().isNullOrBlank()) {
         val storedToken = try {
@@ -398,6 +377,7 @@ internal suspend fun logoutWithDeps(
         }
     }
 
+    onDisconnectRealtime()
     clearLocalSession()
 }
 
@@ -429,47 +409,6 @@ internal suspend fun validateSessionWithDeps(
                 }
             }
             "INVALID_SESSION", "UNAUTHORIZED" -> {
-                clearLocalSession()
-                false
-            }
-            else -> true
-        }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: IOException) {
-        val message = e.message.orEmpty()
-        if (message.contains("Supabase HTTP 404") || message.contains("PGRST202")) {
-            validateViaFallbackChallengeRpc(
-                localUserId = localUserId,
-                clearLocalSession = clearLocalSession,
-                callRpc = callRpc
-            )
-        } else {
-            true
-        }
-    } catch (_: Exception) {
-        true
-    }
-}
-
-private suspend fun validateViaFallbackChallengeRpc(
-    localUserId: Long,
-    clearLocalSession: suspend () -> Unit,
-    callRpc: suspend (String, JSONObject) -> JSONObject
-): Boolean {
-    return try {
-        val resp = callRpc("rpc_get_current_password_challenge", JSONObject())
-        when (resp.optString("code")) {
-            "SUCCESS" -> {
-                val serverUserId = resp.optLong("userId", -1L)
-                if (serverUserId == localUserId) {
-                    true
-                } else {
-                    clearLocalSession()
-                    false
-                }
-            }
-            "UNAUTHORIZED", "INVALID_SESSION" -> {
                 clearLocalSession()
                 false
             }

@@ -15,21 +15,24 @@ import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.DbFailure
 import com.example.cloble.domain.result.WardrobeMutationResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.UUID
 
 class SupabaseWardrobeRepository(
     private val client: SupabaseClient,
     private val context: Context,
-    private val invalidator: SupabaseDataInvalidator
+    private val invalidator: SupabaseDataInvalidator,
+    private val cleanupScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : WardrobeRepository {
 
     @Volatile
@@ -233,6 +236,10 @@ class SupabaseWardrobeRepository(
             val res = client.rpc("rpc_update_clothing_protected", params)
             when (res.optString("code")) {
                 "SUCCESS" -> {
+                    val cleanupUris = res.extractCleanupPhotoUris()
+                    if (cleanupUris.isNotEmpty()) {
+                        cleanupScope.launch { client.deletePhotos(cleanupUris) }
+                    }
                     invalidator.invalidateWardrobe()
                     invalidator.invalidateDiscovery()
                     invalidator.invalidateNotifications()
@@ -304,6 +311,10 @@ class SupabaseWardrobeRepository(
             val res = client.rpc("rpc_soft_delete_clothing_protected", params)
             val result = mapSoftDeleteCode(res.optString("code"), itemId)
             if (result is WardrobeMutationResult.Success) {
+                val cleanupUris = res.extractCleanupPhotoUris()
+                if (cleanupUris.isNotEmpty()) {
+                    cleanupScope.launch { client.deletePhotos(cleanupUris) }
+                }
                 invalidator.invalidateWardrobe()
                 invalidator.invalidateDiscovery()
                 invalidator.invalidateNotifications()
@@ -332,8 +343,7 @@ class SupabaseWardrobeRepository(
                 maxBytes = MAX_PHOTO_BYTES
             ) ?: return@withContext null
 
-            val filename = "photo_${UUID.randomUUID()}.jpg"
-            val uploadedUrl = client.uploadPhoto(bytes, filename, "image/jpeg")
+            val uploadedUrl = client.uploadPhoto(bytes, kind = "clothing", mimeType = "image/jpeg")
             deleteCameraTempFileForUri(context, sourceUriString)
             uploadedUrl
         } catch (e: CancellationException) {
@@ -341,6 +351,10 @@ class SupabaseWardrobeRepository(
         } catch (_: Exception) {
             null
         }
+    }
+
+    override suspend fun deleteUploadedPhotos(photoUris: List<String>) {
+        client.deletePhotos(photoUris)
     }
 
     override suspend fun countEligibleBarterItems(ownerId: Long): Int {
@@ -361,6 +375,18 @@ class SupabaseWardrobeRepository(
         const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
         const val MAX_CLOTHING_PHOTO_DIMENSION_PX = 1600
     }
+}
+
+internal fun JSONObject.extractCleanupPhotoUris(): List<String> {
+    val arr = optJSONArray("cleanupPhotoUris") ?: return emptyList()
+    val result = mutableListOf<String>()
+    for (i in 0 until arr.length()) {
+        val uri = arr.optString(i).trim()
+        if (uri.isNotEmpty() && !uri.equals("null", ignoreCase = true)) {
+            result.add(uri)
+        }
+    }
+    return result.distinct()
 }
 
 internal fun mapSoftDeleteCode(code: String, itemId: Long): WardrobeMutationResult = when (code) {

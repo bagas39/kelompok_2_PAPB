@@ -16,6 +16,7 @@ interface ProfileReviewRepository {
     suspend fun updateBio(userId: Long, bio: String)
     suspend fun updateProfile(userId: Long, update: UserProfileUpdate): Boolean
     suspend fun persistAvatarPhoto(sourceUriString: String): String?
+    suspend fun deleteUploadedPhotos(photoUris: List<String>) {}
     suspend fun submitReview(
         matchId: Long,
         reviewerId: Long,
