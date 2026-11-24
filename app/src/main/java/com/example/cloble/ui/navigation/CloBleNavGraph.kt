@@ -172,6 +172,21 @@ fun CloBleNavGraph(
         }
     }
 
+    fun navigateToLoginClearingAllTabs() {
+        navController.navigate(CloBleDestinations.LOGIN) {
+            popUpTo(navController.graph.id) { inclusive = true }
+            launchSingleTop = true
+        }
+        listOf(
+            CloBleDestinations.DISCOVER,
+            CloBleDestinations.WARDROBE,
+            CloBleDestinations.CHAT_LIST,
+            CloBleDestinations.MY_PROFILE
+        ).forEach { tabRoute ->
+            navController.clearBackStack(tabRoute)
+        }
+    }
+
     LaunchedEffect(sessionGateState, effectiveStartDestination, hadAuthenticatedSession, startDestination) {
         if (startDestination == null &&
             effectiveStartDestination != null &&
@@ -185,10 +200,7 @@ fun CloBleNavGraph(
                 currentRoute != CloBleDestinations.LOGIN &&
                 currentRoute != CloBleDestinations.REGISTER
             ) {
-                navController.navigate(CloBleDestinations.LOGIN) {
-                    popUpTo(navController.graph.id) { inclusive = true }
-                    launchSingleTop = true
-                }
+                navigateToLoginClearingAllTabs()
             }
         }
     }
@@ -312,10 +324,7 @@ fun CloBleNavGraph(
                         navigateSingle(CloBleDestinations.ACTIVITY_HISTORY)
                     },
                     onLogoutSuccess = {
-                        navController.navigate(CloBleDestinations.LOGIN) {
-                            popUpTo(navController.graph.id) { inclusive = true }
-                            launchSingleTop = true
-                        }
+                        navigateToLoginClearingAllTabs()
                     }
                 )
             }
@@ -396,6 +405,9 @@ fun CloBleNavGraph(
                 onNavigateToFilter = {
                     navigateSingle(CloBleDestinations.FILTER)
                 },
+                onNavigateToPreferences = {
+                    navigateSingle(CloBleDestinations.preferencesRoute(isOnboarding = false))
+                },
                 onNavigateToNotifications = {
                     navigateSingle(CloBleDestinations.NOTIFICATIONS)
                 },
@@ -466,7 +478,7 @@ fun CloBleNavGraph(
                 onNavigateToWardrobe = {
                     navController.navigate(CloBleDestinations.WARDROBE) {
                         popUpTo(CloBleDestinations.DISCOVER) {
-                            saveState = true
+                            saveState = false
                         }
                         launchSingleTop = true
                         restoreState = true

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.MatchStatus
+import com.example.cloble.domain.model.NotificationFeedItem
 import com.example.cloble.domain.model.NotificationType
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleOutlinedButton
@@ -45,6 +46,31 @@ import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+internal enum class NotificationCardAction {
+    NONE,
+    REPLY_INTEREST,
+    OPEN_CONVERSATION,
+    RATE_USER
+}
+
+internal fun resolveNotificationCardAction(item: NotificationFeedItem): NotificationCardAction = when {
+    item.type == NotificationType.INCOMING_INTEREST &&
+        item.canReplyToInterest &&
+        item.counterpartUserId != null &&
+        item.relatedInterestId != null -> NotificationCardAction.REPLY_INTEREST
+    item.type == NotificationType.MATCH_VERIFIED &&
+        item.relatedMatchId != null &&
+        item.matchStatus == MatchStatus.COMPLETED ->
+        if (!item.hasReviewedMatch) NotificationCardAction.RATE_USER else NotificationCardAction.NONE
+    item.type == NotificationType.MATCH_VERIFIED &&
+        item.relatedMatchId != null &&
+        item.matchStatus != MatchStatus.CANCELLED -> NotificationCardAction.OPEN_CONVERSATION
+    item.type == NotificationType.EXCHANGE_COMPLETED &&
+        !item.hasReviewedMatch &&
+        item.relatedMatchId != null -> NotificationCardAction.RATE_USER
+    else -> NotificationCardAction.NONE
+}
 
 @Composable
 fun NotificationsScreen(
@@ -117,30 +143,24 @@ fun NotificationsScreen(
                     val bgColor = if (!item.isRead) CloBleColors.PrimaryContainer else CloBleColors.Surface
                     val borderColor = if (!item.isRead) CloBleColors.PrimarySoft else CloBleColors.Outline
 
-                    val cardClickModifier = when {
-                        item.type == NotificationType.INCOMING_INTEREST &&
-                            item.canReplyToInterest &&
-                            item.counterpartUserId != null &&
-                            item.relatedInterestId != null -> {
+                    val cardClickModifier = when (resolveNotificationCardAction(item)) {
+                        NotificationCardAction.REPLY_INTEREST -> {
                             Modifier.clickable {
                                 viewModel.markNotificationRead(item.id)
-                                onNavigateToReplyInterest(item.counterpartUserId, item.relatedInterestId)
+                                onNavigateToReplyInterest(item.counterpartUserId!!, item.relatedInterestId!!)
                             }
                         }
-                        item.type == NotificationType.MATCH_VERIFIED &&
-                            item.relatedMatchId != null -> {
+                        NotificationCardAction.OPEN_CONVERSATION -> {
                             Modifier.clickable {
-                                onNavigateToConversation(item.relatedMatchId)
+                                onNavigateToConversation(item.relatedMatchId!!)
                             }
                         }
-                        item.type == NotificationType.EXCHANGE_COMPLETED &&
-                            !item.hasReviewedMatch &&
-                            item.relatedMatchId != null -> {
+                        NotificationCardAction.RATE_USER -> {
                             Modifier.clickable {
-                                onNavigateToRateUser(item.relatedMatchId, item.counterpartUserId ?: -1L)
+                                onNavigateToRateUser(item.relatedMatchId!!, item.counterpartUserId ?: -1L)
                             }
                         }
-                        else -> Modifier
+                        NotificationCardAction.NONE -> Modifier
                     }
 
                     Surface(

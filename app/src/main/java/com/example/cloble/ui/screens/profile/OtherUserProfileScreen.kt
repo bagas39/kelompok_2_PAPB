@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.LabeledPhoto
+import com.example.cloble.ui.components.LabeledPhotoListSaver
 import com.example.cloble.ui.components.UserSummaryHeader
 import com.example.cloble.ui.components.WardrobeBarterBadge
 import com.example.cloble.ui.components.WardrobeItemCard
@@ -62,7 +64,9 @@ fun OtherUserProfileScreen(
     viewModel: OtherUserProfileViewModel = viewModel(factory = OtherUserProfileViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
+    var viewerPhotos by rememberSaveable(stateSaver = LabeledPhotoListSaver) {
+        mutableStateOf<List<LabeledPhoto>>(emptyList())
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->

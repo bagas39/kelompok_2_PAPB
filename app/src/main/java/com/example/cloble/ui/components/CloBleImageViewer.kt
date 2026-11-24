@@ -37,6 +37,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +66,25 @@ import kotlin.math.abs
 data class LabeledPhoto(
     val uri: String,
     val label: String = ""
+)
+
+val LabeledPhotoListSaver: Saver<List<LabeledPhoto>, Any> = listSaver(
+    save = { photos -> photos.flatMap { listOf(it.uri, it.label) } },
+    restore = { flat ->
+        flat.chunked(2).mapNotNull { pair ->
+            val uri = pair.getOrNull(0) ?: return@mapNotNull null
+            LabeledPhoto(uri = uri, label = pair.getOrElse(1) { "" })
+        }
+    }
+)
+
+val NullableLabeledPhotoSaver: Saver<LabeledPhoto?, Any> = listSaver(
+    save = { photo ->
+        if (photo == null) emptyList() else listOf(photo.uri, photo.label)
+    },
+    restore = { saved ->
+        if (saved.size < 2) null else LabeledPhoto(uri = saved[0], label = saved[1])
+    }
 )
 
 @Composable

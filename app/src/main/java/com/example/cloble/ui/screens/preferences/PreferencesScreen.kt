@@ -27,8 +27,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,11 +63,13 @@ fun PreferencesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val radiusOptions = listOf("5 km", "10 km", "25 km", "50 km", "100 km", "Kustom")
-    var showLocationPicker by remember { mutableStateOf(false) }
+    var showLocationPicker by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+    var lastScrolledErrorTrigger by rememberSaveable { mutableIntStateOf(0) }
 
-    LaunchedEffect(uiState.errorMessage) {
-        if (uiState.errorMessage != null) {
+    LaunchedEffect(uiState.errorMessage, uiState.errorScrollTrigger) {
+        if (uiState.errorMessage != null && uiState.errorScrollTrigger != lastScrolledErrorTrigger) {
+            lastScrolledErrorTrigger = uiState.errorScrollTrigger
             scrollState.animateScrollTo(0)
         }
     }

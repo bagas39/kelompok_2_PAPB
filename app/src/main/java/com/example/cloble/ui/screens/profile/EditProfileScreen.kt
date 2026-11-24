@@ -35,8 +35,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,12 +74,14 @@ fun EditProfileScreen(
     viewModel: EditProfileViewModel = viewModel(factory = EditProfileViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var showLocationPicker by remember { mutableStateOf(false) }
-    var showAvatarFullscreen by remember { mutableStateOf(false) }
+    var showLocationPicker by rememberSaveable { mutableStateOf(false) }
+    var showAvatarFullscreen by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+    var lastScrolledErrorTrigger by rememberSaveable { mutableIntStateOf(0) }
 
-    LaunchedEffect(uiState.errorMessage) {
-        if (uiState.errorMessage != null) {
+    LaunchedEffect(uiState.errorMessage, uiState.errorScrollTrigger) {
+        if (uiState.errorMessage != null && uiState.errorScrollTrigger != lastScrolledErrorTrigger) {
+            lastScrolledErrorTrigger = uiState.errorScrollTrigger
             scrollState.animateScrollTo(0)
         }
     }
@@ -222,11 +225,21 @@ fun EditProfileScreen(
                                         )
                                     }
                                     else -> {
-                                        Text(
-                                            text = computeEditInitials(uiState.name),
-                                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = CloBleColors.OnPrimaryContainer
-                                        )
+                                        val initials = computeEditInitials(uiState.name)
+                                        if (initials != null) {
+                                            Text(
+                                                text = initials,
+                                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = CloBleColors.OnPrimaryContainer
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = CloBleIcons.UserOutline,
+                                                contentDescription = "Avatar default",
+                                                tint = CloBleColors.OnPrimaryContainer,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -519,10 +532,10 @@ fun EditProfileScreen(
     }
 }
 
-private fun computeEditInitials(name: String): String {
+internal fun computeEditInitials(name: String): String? {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
     return when {
-        parts.isEmpty() -> "CB"
+        parts.isEmpty() -> null
         parts.size == 1 -> parts[0].take(2).uppercase()
         else -> "${parts[0].first()}${parts[1].first()}".uppercase()
     }

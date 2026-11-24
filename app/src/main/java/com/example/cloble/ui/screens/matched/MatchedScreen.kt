@@ -24,12 +24,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,6 +48,7 @@ import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.ClothingPhotoSlot
 import com.example.cloble.ui.components.LabeledPhoto
+import com.example.cloble.ui.components.LabeledPhotoListSaver
 import com.example.cloble.ui.theme.CloBleColors
 import java.util.Locale
 
@@ -55,8 +59,11 @@ fun MatchedScreen(
     viewModel: MatchedViewModel = viewModel(factory = MatchedViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
-    var viewerStartIndex by remember { mutableStateOf(0) }
+    var viewerPhotos by rememberSaveable(stateSaver = LabeledPhotoListSaver) {
+        mutableStateOf<List<LabeledPhoto>>(emptyList())
+    }
+    var viewerStartIndex by rememberSaveable { mutableIntStateOf(0) }
+    val isCompactHeight = LocalConfiguration.current.screenHeightDp < 520
 
     Scaffold(
         containerColor = CloBleColors.Background
@@ -145,13 +152,16 @@ fun MatchedScreen(
                         .fillMaxSize()
                         .padding(innerPadding)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                        .padding(
+                            horizontal = if (isCompactHeight) 20.dp else 24.dp,
+                            vertical = if (isCompactHeight) 10.dp else 32.dp
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(80.dp)
+                            .size(if (isCompactHeight) 48.dp else 80.dp)
                             .clip(CircleShape)
                             .background(CloBleColors.PrimaryContainer),
                         contentAlignment = Alignment.Center
@@ -160,11 +170,11 @@ fun MatchedScreen(
                             imageVector = CloBleIcons.HeartFilled,
                             contentDescription = "Match",
                             tint = CloBleColors.Primary,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(if (isCompactHeight) 26.dp else 42.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 20.dp))
 
                     val headlineText = when (detail.status) {
                         MatchStatus.COMPLETED -> "Pertukaran Selesai!"
@@ -172,29 +182,30 @@ fun MatchedScreen(
                         MatchStatus.ACTIVE -> "Kalian saling tertarik!"
                     }
                     val subtitleText = when (detail.status) {
-                        MatchStatus.COMPLETED -> "Pertukaran pakaian antara Anda dan ${detail.partnerName} telah selesai diselesaikan."
+                        MatchStatus.COMPLETED -> "Pertukaran pakaian antara Anda dan ${detail.partnerName} telah selesai."
                         MatchStatus.CANCELLED -> "Match dengan ${detail.partnerName} ini telah dibatalkan. Anda dapat melihat riwayat obrolan atau menjelajahi pakaian lainnya."
                         MatchStatus.ACTIVE -> "Anda dan ${detail.partnerName} telah menyetujui pertukaran pakaian. Buka obrolan untuk mengatur lokasi dan waktu serah terima fisik."
                     }
 
                     Text(
                         text = headlineText,
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        style = (if (isCompactHeight) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium)
+                            .copy(fontWeight = FontWeight.Bold),
                         color = CloBleColors.TextPrimary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("matched_title")
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 8.dp))
 
                     Text(
                         text = subtitleText,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (isCompactHeight) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                         color = CloBleColors.TextSecondary,
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 10.dp else 24.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -209,7 +220,7 @@ fun MatchedScreen(
                                 .testTag("matched_my_item")
                         ) {
                             Column(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(if (isCompactHeight) 8.dp else 10.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
@@ -217,11 +228,11 @@ fun MatchedScreen(
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = CloBleColors.OnPrimaryContainer
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.myItem.name,
                                     imageModel = myItemPhoto,
-                                    height = 136.dp,
+                                    height = if (isCompactHeight) 80.dp else 136.dp,
                                     onClick = if (pairPhotos.isNotEmpty() && myItemPhoto != null) {
                                         {
                                             viewerStartIndex = 0
@@ -232,7 +243,7 @@ fun MatchedScreen(
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 8.dp))
                                 Text(
                                     text = detail.myItem.name,
                                     style = MaterialTheme.typography.labelLarge,
@@ -257,7 +268,7 @@ fun MatchedScreen(
                                 .testTag("matched_partner_item")
                         ) {
                             Column(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(if (isCompactHeight) 8.dp else 10.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
@@ -267,11 +278,11 @@ fun MatchedScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 6.dp))
                                 ClothingPhotoSlot(
                                     label = detail.partnerItem.name,
                                     imageModel = partnerItemPhoto,
-                                    height = 136.dp,
+                                    height = if (isCompactHeight) 80.dp else 136.dp,
                                     onClick = if (pairPhotos.isNotEmpty() && partnerItemPhoto != null) {
                                         {
                                             viewerStartIndex = (pairPhotos.size - 1).coerceAtLeast(0)
@@ -282,7 +293,7 @@ fun MatchedScreen(
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 8.dp))
                                 Text(
                                     text = detail.partnerItem.name,
                                     style = MaterialTheme.typography.labelLarge,
@@ -299,7 +310,7 @@ fun MatchedScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 20.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -307,7 +318,8 @@ fun MatchedScreen(
                     ) {
                         Text(
                             text = "${detail.partnerName} (${detail.partnerCity})",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            style = (if (isCompactHeight) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge)
+                                .copy(fontWeight = FontWeight.Medium),
                             color = CloBleColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.size(6.dp))
@@ -328,25 +340,48 @@ fun MatchedScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 10.dp else 32.dp))
 
-                    CloBlePrimaryButton(
-                        text = if (detail.status == MatchStatus.ACTIVE) "Buka Obrolan" else "Lihat Riwayat Obrolan",
-                        onClick = { onNavigateToConversation(uiState.matchId) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("btn_open_chat_from_matched")
-                    )
+                    val chatButtonText = if (detail.status == MatchStatus.ACTIVE) "Buka Obrolan" else "Lihat Riwayat Obrolan"
+                    if (isCompactHeight) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CloBlePrimaryButton(
+                                text = chatButtonText,
+                                onClick = { onNavigateToConversation(uiState.matchId) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_open_chat_from_matched")
+                            )
+                            CloBleOutlinedButton(
+                                text = "Kembali ke Jelajah",
+                                onClick = onNavigateToDiscover,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_back_to_discover_from_matched")
+                            )
+                        }
+                    } else {
+                        CloBlePrimaryButton(
+                            text = chatButtonText,
+                            onClick = { onNavigateToConversation(uiState.matchId) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_open_chat_from_matched")
+                        )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    CloBleOutlinedButton(
-                        text = "Kembali ke Jelajah",
-                        onClick = onNavigateToDiscover,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("btn_back_to_discover_from_matched")
-                    )
+                        CloBleOutlinedButton(
+                            text = "Kembali ke Jelajah",
+                            onClick = onNavigateToDiscover,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_back_to_discover_from_matched")
+                        )
+                    }
                 }
             }
         }

@@ -14,13 +14,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,10 +49,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -76,6 +82,7 @@ import java.util.Locale
 @Composable
 fun DiscoverScreen(
     onNavigateToFilter: () -> Unit,
+    onNavigateToPreferences: () -> Unit = {},
     onNavigateToNotifications: () -> Unit,
     onNavigateToItemDetail: (Long) -> Unit,
     onNavigateToWardrobe: () -> Unit,
@@ -87,6 +94,7 @@ fun DiscoverScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    val isCompactHeight = LocalConfiguration.current.screenHeightDp < 520
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var animatedOffset by remember { mutableFloatStateOf(0f) }
     var isAnimating by remember { mutableStateOf(false) }
@@ -221,14 +229,17 @@ fun DiscoverScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(
+                    horizontal = if (isCompactHeight) 14.dp else 18.dp,
+                    vertical = if (isCompactHeight) 6.dp else 12.dp
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (uiState.viewerCity.isNotBlank()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        .padding(bottom = if (isCompactHeight) 4.dp else 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -258,7 +269,7 @@ fun DiscoverScreen(
                         color = CloBleColors.Primary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onNavigateToFilter)
+                            .clickable(onClick = onNavigateToPreferences)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -268,7 +279,7 @@ fun DiscoverScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp),
+                        .padding(bottom = if (isCompactHeight) 4.dp else 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -351,194 +362,207 @@ fun DiscoverScreen(
                     CircularProgressIndicator(color = CloBleColors.Primary)
                 }
             } else if (candidate != null) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .onSizeChanged { cardWidthPx = it.width.toFloat() }
-                ) {
-                    if (nextCandidate != null) {
-                        DiscoverCardContent(
-                            candidate = nextCandidate,
+                val actionsEnabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress
+                val onPassClick = {
+                    if (actionsEnabled) {
+                        isSubmitting = true
+                        animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
+                            viewModel.passCurrentCandidate()
+                        }
+                    }
+                }
+                val onLikeClick = {
+                    if (actionsEnabled) {
+                        isSubmitting = true
+                        animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
+                            viewModel.likeCurrentCandidate()
+                        }
+                    }
+                }
+
+                @Composable
+                fun cardDeck(modifier: Modifier) {
+                    Box(
+                        modifier = modifier
+                            .onSizeChanged { cardWidthPx = it.width.toFloat() }
+                    ) {
+                        if (nextCandidate != null) {
+                            DiscoverCardContent(
+                                candidate = nextCandidate,
+                                isHorizontal = isCompactHeight,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        scaleX = 0.95f
+                                        scaleY = 0.95f
+                                        translationY = 18f
+                                        alpha = 0.7f
+                                    }
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .border(1.dp, CloBleColors.Outline, RoundedCornerShape(20.dp))
+                            )
+                        }
+
+                        Surface(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    scaleX = 0.95f
-                                    scaleY = 0.95f
-                                    translationY = 18f
-                                    alpha = 0.7f
+                                    translationX = currentOffset
+                                    rotationZ = (currentOffset / 60f).coerceIn(-15f, 15f)
                                 }
+                                .pointerInput(candidate.item.id) {
+                                    detectHorizontalDragGestures(
+                                        onDragEnd = {
+                                            if (isSubmitting || isAnimating || uiState.isActionInProgress) return@detectHorizontalDragGestures
+                                            val threshold = if (cardWidthPx > 0f) cardWidthPx * 0.35f else 250f
+                                            if (dragOffset > threshold) {
+                                                isSubmitting = true
+                                                animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
+                                                    viewModel.likeCurrentCandidate()
+                                                }
+                                            } else if (dragOffset < -threshold) {
+                                                isSubmitting = true
+                                                animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
+                                                    viewModel.passCurrentCandidate()
+                                                }
+                                            } else {
+                                                springBack()
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            springBack()
+                                        },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
+                                                dragOffset += dragAmount
+                                            }
+                                        }
+                                    )
+                                }
+                                .shadow(6.dp, RoundedCornerShape(20.dp))
                                 .clip(RoundedCornerShape(20.dp))
                                 .border(1.dp, CloBleColors.Outline, RoundedCornerShape(20.dp))
-                        )
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = currentOffset
-                                rotationZ = (currentOffset / 60f).coerceIn(-15f, 15f)
-                            }
-                            .pointerInput(candidate.item.id) {
-                                detectHorizontalDragGestures(
-                                    onDragEnd = {
-                                        if (isSubmitting || isAnimating || uiState.isActionInProgress) return@detectHorizontalDragGestures
-                                        val threshold = if (cardWidthPx > 0f) cardWidthPx * 0.35f else 250f
-                                        if (dragOffset > threshold) {
-                                            isSubmitting = true
-                                            animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
-                                                viewModel.likeCurrentCandidate()
-                                            }
-                                        } else if (dragOffset < -threshold) {
-                                            isSubmitting = true
-                                            animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
-                                                viewModel.passCurrentCandidate()
-                                            }
-                                        } else {
-                                            springBack()
-                                        }
-                                    },
-                                    onDragCancel = {
-                                        springBack()
-                                    },
-                                    onHorizontalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
-                                            dragOffset += dragAmount
-                                        }
-                                    }
-                                )
-                            }
-                            .shadow(6.dp, RoundedCornerShape(20.dp))
-                            .clip(RoundedCornerShape(20.dp))
-                            .border(1.dp, CloBleColors.Outline, RoundedCornerShape(20.dp))
-                            .clickable(enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress) {
-                                onNavigateToItemDetail(candidate.item.id)
-                            }
-                            .testTag("discover_candidate_card"),
-                        color = CloBleColors.Surface
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            DiscoverCardContent(
-                                candidate = candidate,
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            val threshold = if (cardWidthPx > 0f) cardWidthPx * 0.35f else 250f
-                            val likeAlpha = (currentOffset / (threshold * 0.6f)).coerceIn(0f, 1f)
-                            val passAlpha = (-currentOffset / (threshold * 0.6f)).coerceIn(0f, 1f)
-
-                            if (likeAlpha > 0.05f) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(24.dp)
-                                        .graphicsLayer {
-                                            alpha = likeAlpha
-                                            rotationZ = -15f
-                                        }
-                                        .border(3.dp, CloBleColors.SuccessText, RoundedCornerShape(8.dp))
-                                        .background(CloBleColors.SuccessContainer.copy(alpha = 0.94f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        .testTag("badge_tertarik")
-                                ) {
-                                    Text(
-                                        text = "TERTARIK",
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            letterSpacing = 2.sp
-                                        ),
-                                        color = CloBleColors.SuccessText
-                                    )
+                                .clickable(enabled = actionsEnabled) {
+                                    onNavigateToItemDetail(candidate.item.id)
                                 }
-                            }
+                                .testTag("discover_candidate_card"),
+                            color = CloBleColors.Surface
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                DiscoverCardContent(
+                                    candidate = candidate,
+                                    isHorizontal = isCompactHeight,
+                                    modifier = Modifier.fillMaxSize()
+                                )
 
-                            if (passAlpha > 0.05f) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(24.dp)
-                                        .graphicsLayer {
-                                            alpha = passAlpha
-                                            rotationZ = 15f
-                                        }
-                                        .border(3.dp, CloBleColors.DangerText, RoundedCornerShape(8.dp))
-                                        .background(CloBleColors.DangerContainer.copy(alpha = 0.94f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        .testTag("badge_lewati")
-                                ) {
-                                    Text(
-                                        text = "LEWATI",
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            letterSpacing = 2.sp
-                                        ),
-                                        color = CloBleColors.DangerText
-                                    )
+                                val threshold = if (cardWidthPx > 0f) cardWidthPx * 0.35f else 250f
+                                val likeAlpha = (currentOffset / (threshold * 0.6f)).coerceIn(0f, 1f)
+                                val passAlpha = (-currentOffset / (threshold * 0.6f)).coerceIn(0f, 1f)
+
+                                if (likeAlpha > 0.05f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .padding(24.dp)
+                                            .graphicsLayer {
+                                                alpha = likeAlpha
+                                                rotationZ = -15f
+                                            }
+                                            .border(3.dp, CloBleColors.SuccessText, RoundedCornerShape(8.dp))
+                                            .background(CloBleColors.SuccessContainer.copy(alpha = 0.94f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                            .testTag("badge_tertarik")
+                                    ) {
+                                        Text(
+                                            text = "TERTARIK",
+                                            style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                letterSpacing = 2.sp
+                                            ),
+                                            color = CloBleColors.SuccessText
+                                        )
+                                    }
+                                }
+
+                                if (passAlpha > 0.05f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(24.dp)
+                                            .graphicsLayer {
+                                                alpha = passAlpha
+                                                rotationZ = 15f
+                                            }
+                                            .border(3.dp, CloBleColors.DangerText, RoundedCornerShape(8.dp))
+                                            .background(CloBleColors.DangerContainer.copy(alpha = 0.94f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                            .testTag("badge_lewati")
+                                    ) {
+                                        Text(
+                                            text = "LEWATI",
+                                            style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                letterSpacing = 2.sp
+                                            ),
+                                            color = CloBleColors.DangerText
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress,
-                        onClick = {
-                            if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
-                                isSubmitting = true
-                                animateOffsetTo(if (cardWidthPx > 0f) -cardWidthPx * 1.5f else -1000f) {
-                                    viewModel.passCurrentCandidate()
-                                }
-                            }
-                        },
+                if (isCompactHeight) {
+                    Row(
                         modifier = Modifier
-                            .size(64.dp)
-                            .shadow(4.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(CloBleColors.Surface)
-                            .border(1.5.dp, CloBleColors.Outline, CircleShape)
-                            .testTag("btn_swipe_pass")
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = CloBleIcons.XClose,
-                            contentDescription = "Lewati pakaian",
-                            tint = CloBleColors.TextSecondary,
-                            modifier = Modifier.size(28.dp)
+                        DiscoverPassActionButton(
+                            enabled = actionsEnabled,
+                            size = 52.dp,
+                            onClick = onPassClick
+                        )
+                        cardDeck(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        )
+                        DiscoverLikeActionButton(
+                            enabled = actionsEnabled,
+                            size = 52.dp,
+                            onClick = onLikeClick
                         )
                     }
-
-                    IconButton(
-                        enabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress,
-                        onClick = {
-                            if (!isSubmitting && !isAnimating && !uiState.isActionInProgress) {
-                                isSubmitting = true
-                                animateOffsetTo(if (cardWidthPx > 0f) cardWidthPx * 1.5f else 1000f) {
-                                    viewModel.likeCurrentCandidate()
-                                }
-                            }
-                        },
+                } else {
+                    cardDeck(
                         modifier = Modifier
-                            .size(64.dp)
-                            .shadow(6.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(CloBleColors.Primary)
-                            .testTag("btn_swipe_like")
+                            .weight(1f)
+                            .fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = CloBleIcons.HeartFilled,
-                            contentDescription = "Kirim tawaran barter",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
+                        DiscoverPassActionButton(
+                            enabled = actionsEnabled,
+                            size = 64.dp,
+                            onClick = onPassClick
+                        )
+                        DiscoverLikeActionButton(
+                            enabled = actionsEnabled,
+                            size = 64.dp,
+                            onClick = onLikeClick
                         )
                     }
                 }
@@ -547,6 +571,7 @@ fun DiscoverScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(12.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -615,138 +640,258 @@ fun DiscoverScreen(
 }
 
 @Composable
+private fun DiscoverPassActionButton(
+    enabled: Boolean,
+    size: Dp,
+    onClick: () -> Unit
+) {
+    DiscoverCircleActionButton(
+        enabled = enabled,
+        size = size,
+        backgroundColor = CloBleColors.Surface,
+        borderColor = CloBleColors.Outline,
+        icon = CloBleIcons.XClose,
+        iconTint = CloBleColors.TextSecondary,
+        iconSize = if (size < 60.dp) 22.dp else 28.dp,
+        contentDescription = "Lewati pakaian",
+        testTag = "btn_swipe_pass",
+        onClick = onClick
+    )
+}
+
+@Composable
+private fun DiscoverLikeActionButton(
+    enabled: Boolean,
+    size: Dp,
+    onClick: () -> Unit
+) {
+    DiscoverCircleActionButton(
+        enabled = enabled,
+        size = size,
+        backgroundColor = CloBleColors.Primary,
+        borderColor = null,
+        icon = CloBleIcons.HeartFilled,
+        iconTint = Color.White,
+        iconSize = if (size < 60.dp) 24.dp else 30.dp,
+        contentDescription = "Kirim tawaran barter",
+        testTag = "btn_swipe_like",
+        onClick = onClick
+    )
+}
+
+@Composable
+private fun DiscoverCircleActionButton(
+    enabled: Boolean,
+    size: Dp,
+    backgroundColor: Color,
+    borderColor: Color?,
+    icon: ImageVector,
+    iconTint: Color,
+    iconSize: Dp,
+    contentDescription: String,
+    testTag: String,
+    onClick: () -> Unit
+) {
+    val borderMod = if (borderColor != null) {
+        Modifier.border(1.5.dp, borderColor, CircleShape)
+    } else {
+        Modifier
+    }
+    IconButton(
+        enabled = enabled,
+        onClick = onClick,
+        modifier = Modifier
+            .size(size)
+            .shadow(if (borderColor != null) 4.dp else 6.dp, CircleShape)
+            .clip(CircleShape)
+            .background(backgroundColor)
+            .then(borderMod)
+            .testTag(testTag)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = iconTint,
+            modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+@Composable
 private fun DiscoverCardContent(
     candidate: DiscoverCandidate,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isHorizontal: Boolean = false
 ) {
     Surface(
         color = CloBleColors.Surface,
         modifier = modifier
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        if (isHorizontal) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                DiscoverCandidatePhotoBox(
+                    candidate = candidate,
+                    modifier = Modifier
+                        .weight(0.46f)
+                        .fillMaxHeight()
+                )
+                DiscoverCandidateMetaColumn(
+                    candidate = candidate,
+                    compact = true,
+                    modifier = Modifier
+                        .weight(0.54f)
+                        .fillMaxHeight()
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                DiscoverCandidatePhotoBox(
+                    candidate = candidate,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+                DiscoverCandidateMetaColumn(
+                    candidate = candidate,
+                    compact = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoverCandidatePhotoBox(
+    candidate: DiscoverCandidate,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.background(CloBleColors.SecondarySurface),
+        contentAlignment = Alignment.Center
+    ) {
+        val photoUri = listOf(candidate.item.mainPhotoUri, candidate.item.detailPhotoUri, candidate.item.extraPhotoUri)
+            .firstOrNull { !it.isNullOrBlank() }
+        if (photoUri != null) {
+            AsyncImage(
+                model = photoUri,
+                contentDescription = candidate.item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = CloBleIcons.ShirtOutline,
+                contentDescription = null,
+                tint = CloBleColors.Primary,
+                modifier = Modifier.size(64.dp)
+            )
+        }
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(10.dp),
+            shape = RoundedCornerShape(99.dp),
+            color = CloBleColors.DarkScrim.copy(alpha = 0.72f)
+        ) {
+            Text(
+                text = DistanceCalculator.formatDistanceLabel(candidate.distanceKm),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscoverCandidateMetaColumn(
+    candidate: DiscoverCandidate,
+    compact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(if (compact) 14.dp else 16.dp),
+        verticalArrangement = if (compact) Arrangement.SpaceBetween else Arrangement.spacedBy(6.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
+            Text(
+                text = candidate.item.name,
+                style = (if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge)
+                    .copy(fontWeight = FontWeight.Bold),
+                color = CloBleColors.TextPrimary,
+                maxLines = if (compact) 2 else 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = "${candidate.item.category} · Ukuran ${candidate.item.size} · ${candidate.item.gender} · ${candidate.item.condition}",
+                style = MaterialTheme.typography.bodySmall,
+                color = CloBleColors.TextSecondary,
+                maxLines = if (compact) 2 else 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = if (compact) 0.dp else 4.dp)
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(CloBleColors.SecondarySurface),
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(CloBleColors.PrimaryContainer)
+                    .border(1.dp, CloBleColors.Outline, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                val photoUri = listOf(candidate.item.mainPhotoUri, candidate.item.detailPhotoUri, candidate.item.extraPhotoUri)
-                    .firstOrNull { !it.isNullOrBlank() }
-                if (photoUri != null) {
+                if (!candidate.ownerAvatarUri.isNullOrBlank()) {
                     AsyncImage(
-                        model = photoUri,
-                        contentDescription = candidate.item.name,
+                        model = candidate.ownerAvatarUri,
+                        contentDescription = candidate.ownerName,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Icon(
-                        imageVector = CloBleIcons.ShirtOutline,
+                        imageVector = CloBleIcons.UserOutline,
                         contentDescription = null,
-                        tint = CloBleColors.Primary,
-                        modifier = Modifier.size(64.dp)
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(99.dp),
-                    color = CloBleColors.DarkScrim.copy(alpha = 0.72f)
-                ) {
-                    Text(
-                        text = DistanceCalculator.formatDistanceLabel(candidate.distanceKm),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        tint = CloBleColors.OnPrimaryContainer,
+                        modifier = Modifier.size(13.dp)
                     )
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            Text(
+                text = "${candidate.ownerName} · ${candidate.ownerCity}",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                color = CloBleColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = candidate.item.name,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = CloBleColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Icon(
+                    imageVector = CloBleIcons.StarFilled,
+                    contentDescription = null,
+                    tint = CloBleColors.StarRating,
+                    modifier = Modifier.size(14.dp)
                 )
-
                 Text(
-                    text = "${candidate.item.category} · Ukuran ${candidate.item.size} · ${candidate.item.gender} · ${candidate.item.condition}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CloBleColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = if (candidate.ownerReviewCount > 0) {
+                        String.format(Locale.US, "%.1f", candidate.ownerAverageRating)
+                    } else {
+                        "Baru"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = CloBleColors.TextPrimary
                 )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(CloBleColors.PrimaryContainer)
-                            .border(1.dp, CloBleColors.Outline, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!candidate.ownerAvatarUri.isNullOrBlank()) {
-                            AsyncImage(
-                                model = candidate.ownerAvatarUri,
-                                contentDescription = candidate.ownerName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = CloBleIcons.UserOutline,
-                                contentDescription = null,
-                                tint = CloBleColors.OnPrimaryContainer,
-                                modifier = Modifier.size(13.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "${candidate.ownerName} · ${candidate.ownerCity}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = CloBleColors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = CloBleIcons.StarFilled,
-                            contentDescription = null,
-                            tint = CloBleColors.StarRating,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = if (candidate.ownerReviewCount > 0) {
-                                String.format(Locale.US, "%.1f", candidate.ownerAverageRating)
-                            } else {
-                                "Baru"
-                            },
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = CloBleColors.TextPrimary
-                        )
-                    }
-                }
             }
         }
     }

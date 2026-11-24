@@ -38,6 +38,7 @@ data class PreferencesUiState(
     val isSaving: Boolean = false,
     val isSavedSuccess: Boolean = false,
     val errorMessage: String? = null,
+    val errorScrollTrigger: Int = 0,
     val currentUserId: Long? = null
 )
 
@@ -164,18 +165,31 @@ class PreferencesViewModel(
         if (s.isSaving) return
         if (s.isProfileLoadFailed) {
             _uiState.update {
-                it.copy(errorMessage = "Preferensi lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar tidak tertimpa nilai bawaan.")
+                it.copy(
+                    errorMessage = "Preferensi lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar tidak tertimpa nilai bawaan.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
             }
             return
         }
         val cleanCity = s.selectedCity.trim()
 
         if (cleanCity.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Lokasi tidak boleh kosong.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Lokasi tidak boleh kosong.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (cleanCity.length > 120) {
-            _uiState.update { it.copy(errorMessage = "Nama lokasi maksimal 120 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama lokasi maksimal 120 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
 
@@ -186,7 +200,10 @@ class PreferencesViewModel(
         }
         if (rawRadius <= 0) {
             _uiState.update {
-                it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+                it.copy(
+                    errorMessage = "Radius pencarian harus diisi lebih dari 0 km.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
             }
             return
         }
@@ -200,7 +217,8 @@ class PreferencesViewModel(
                     it.copy(
                         isSaving = false,
                         isSavedSuccess = false,
-                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
                 return@launch
@@ -226,7 +244,8 @@ class PreferencesViewModel(
                         isSaving = false,
                         isSavedSuccess = false,
                         errorMessage = serverError
-                            ?: "Gagal menyimpan preferensi. Periksa koneksi internet Anda dan coba lagi."
+                            ?: "Gagal menyimpan preferensi. Periksa koneksi internet Anda dan coba lagi.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
             }

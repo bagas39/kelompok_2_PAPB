@@ -57,11 +57,13 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -178,32 +180,33 @@ fun CloBleLocationPickerDialog(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    val isCompactHeight = LocalConfiguration.current.screenHeightDp < 520
 
     val (normalizedInitLat, normalizedInitLon) = remember(initialCity, initialLatitude, initialLongitude) {
         DistanceCalculator.resolveEffectiveCoordinates(initialCity, initialLatitude, initialLongitude)
     }
 
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<ResolvedLocation>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
-    var searchEmptyMessage by remember { mutableStateOf<String?>(null) }
+    var searchEmptyMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
-    var selectedLat by remember { mutableDoubleStateOf(normalizedInitLat) }
-    var selectedLon by remember { mutableDoubleStateOf(normalizedInitLon) }
-    var cityInput by remember { mutableStateOf(initialCity) }
-    var fullAddressHint by remember { mutableStateOf(initialCity) }
+    var selectedLat by rememberSaveable { mutableDoubleStateOf(normalizedInitLat) }
+    var selectedLon by rememberSaveable { mutableDoubleStateOf(normalizedInitLon) }
+    var cityInput by rememberSaveable { mutableStateOf(initialCity) }
+    var fullAddressHint by rememberSaveable { mutableStateOf(initialCity) }
     var isReverseGeocoding by remember { mutableStateOf(false) }
-    var hasUserEditedCity by remember { mutableStateOf(false) }
-    var hasUserMovedPin by remember { mutableStateOf(false) }
+    var hasUserEditedCity by rememberSaveable { mutableStateOf(false) }
+    var hasUserMovedPin by rememberSaveable { mutableStateOf(false) }
     var isConfirmingLocation by remember { mutableStateOf(false) }
-    var gpsStatusHint by remember { mutableStateOf<String?>(null) }
-    var settingsActionType by remember { mutableStateOf<LocationSettingsPromptType?>(null) }
-    var pendingAutoRetryAfterSettings by remember { mutableStateOf(false) }
+    var gpsStatusHint by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsActionType by rememberSaveable { mutableStateOf<LocationSettingsPromptType?>(null) }
+    var pendingAutoRetryAfterSettings by rememberSaveable { mutableStateOf(false) }
     var isLocatingDevice by remember { mutableStateOf(false) }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    var lastProgrammaticLat by remember { mutableDoubleStateOf(normalizedInitLat) }
-    var lastProgrammaticLon by remember { mutableDoubleStateOf(normalizedInitLon) }
+    var lastProgrammaticLat by remember { mutableDoubleStateOf(selectedLat) }
+    var lastProgrammaticLon by remember { mutableDoubleStateOf(selectedLon) }
     var suppressReverseUntilMs by remember { mutableLongStateOf(System.currentTimeMillis() + 1500L) }
     var reverseGeocodeJob by remember { mutableStateOf<Job?>(null) }
 
@@ -360,7 +363,7 @@ fun CloBleLocationPickerDialog(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 16.dp, vertical = 20.dp),
+                .padding(horizontal = 16.dp, vertical = if (isCompactHeight) 8.dp else 20.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
@@ -377,14 +380,14 @@ fun CloBleLocationPickerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(if (isCompactHeight) 12.dp else 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 8.dp else 12.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .zIndex(2f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 6.dp else 8.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -585,7 +588,7 @@ fun CloBleLocationPickerDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(230.dp)
+                            .height(if (isCompactHeight) 140.dp else 230.dp)
                             .zIndex(1f)
                             .clip(RoundedCornerShape(14.dp))
                             .clipToBounds()
@@ -635,7 +638,7 @@ fun CloBleLocationPickerDialog(
                                     setTileSource(TileSourceFactory.MAPNIK)
                                     setMultiTouchControls(true)
                                     controller.setZoom(13.0)
-                                    controller.setCenter(GeoPoint(normalizedInitLat, normalizedInitLon))
+                                    controller.setCenter(GeoPoint(selectedLat, selectedLon))
                                     addMapListener(
                                         DelayedMapListener(
                                             object : MapListener {

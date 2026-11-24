@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
@@ -24,10 +25,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -37,13 +41,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +72,7 @@ import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.LabeledPhoto
+import com.example.cloble.ui.components.LabeledPhotoListSaver
 import com.example.cloble.ui.components.UserSummaryHeader
 import com.example.cloble.ui.theme.CloBleColors
 import com.example.cloble.ui.theme.CloBleTextStyles
@@ -79,10 +87,13 @@ fun ConversationScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    var viewerPhotos by remember { mutableStateOf<List<LabeledPhoto>>(emptyList()) }
-    var viewerStartIndex by remember { mutableStateOf(0) }
+    var viewerPhotos by rememberSaveable(stateSaver = LabeledPhotoListSaver) {
+        mutableStateOf<List<LabeledPhoto>>(emptyList())
+    }
+    var viewerStartIndex by rememberSaveable { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val isImeVisible = WindowInsets.ime.getBottom(density) > 0
+    val isCompactHeight = LocalConfiguration.current.screenHeightDp < 520
 
     LaunchedEffect(uiState.activeMatchId, uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -196,6 +207,182 @@ fun ConversationScreen(
                                             modifier = Modifier.weight(1f)
                                         )
                                     }
+                                    if (uiState.errorMessage != null) {
+                                        CloBleStatusInfoBox(
+                                            title = "Pemberitahuan",
+                                            message = uiState.errorMessage!!,
+                                            tone = CloBleInfoBoxTone.WARNING,
+                                            modifier = Modifier.testTag("conversation_error_banner")
+                                        )
+                                    }
+                                }
+                            } else if (isCompactHeight) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { onNavigateToOtherUserProfile(detail.partnerUserId) }
+                                                .padding(vertical = 2.dp),
+                                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                                        ) {
+                                            Text(
+                                                text = "${detail.partnerName} · ${detail.partnerCity}",
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = CloBleColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${detail.myItem.name} - ${detail.partnerItem.name}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = CloBleColors.TextSecondary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        when (detail.status) {
+                                            MatchStatus.ACTIVE -> {
+                                                Button(
+                                                    onClick = viewModel::openCompleteDialog,
+                                                    enabled = !uiState.isActionInProgress,
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = CloBleColors.Primary,
+                                                        contentColor = CloBleColors.OnPrimary
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    modifier = Modifier
+                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                        .testTag("complete_match_button")
+                                                ) {
+                                                    Text(
+                                                        text = "Selesaikan",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
+                                                OutlinedButton(
+                                                    onClick = viewModel::openCancelDialog,
+                                                    enabled = !uiState.isActionInProgress,
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    border = BorderStroke(1.dp, CloBleColors.Outline),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    modifier = Modifier
+                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                        .testTag("cancel_match_button")
+                                                ) {
+                                                    Text(
+                                                        text = "Batalkan",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = CloBleColors.TextPrimary
+                                                    )
+                                                }
+                                            }
+                                            MatchStatus.COMPLETED -> {
+                                                if (uiState.canRatePartner) {
+                                                    Button(
+                                                        onClick = { onNavigateToRateUser(detail.matchId) },
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = CloBleColors.Primary,
+                                                            contentColor = CloBleColors.OnPrimary
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier
+                                                            .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                            .testTag("rate_partner_button")
+                                                    ) {
+                                                        Text(
+                                                            text = "Beri Rating",
+                                                            style = MaterialTheme.typography.labelMedium
+                                                        )
+                                                    }
+                                                } else {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = CloBleColors.PrimaryContainer,
+                                                        modifier = Modifier.testTag("completed_status_info_box")
+                                                    ) {
+                                                        Text(
+                                                            text = "Selesai",
+                                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                            color = CloBleColors.OnPrimaryContainer,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            MatchStatus.CANCELLED -> {
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = CloBleColors.SecondarySurface,
+                                                    modifier = Modifier.testTag("cancelled_status_info_box")
+                                                ) {
+                                                    Text(
+                                                        text = "Dibatalkan",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                        color = CloBleColors.TextSecondary,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (uiState.partnerMatches.size > 1) {
+                                        LazyRow(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("conversation_match_history_selector"),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(uiState.partnerMatches, key = { it.matchId }) { item ->
+                                                val isSelected = item.matchId == uiState.activeMatchId
+                                                val prefix = when (item.status) {
+                                                    MatchStatus.ACTIVE -> "Aktif"
+                                                    MatchStatus.COMPLETED -> "Selesai"
+                                                    MatchStatus.CANCELLED -> "Batal"
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(99.dp),
+                                                    color = if (isSelected) CloBleColors.Primary else CloBleColors.SecondarySurface,
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (isSelected) CloBleColors.Primary else CloBleColors.Outline
+                                                    ),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(99.dp))
+                                                        .clickable { viewModel.selectMatch(item.matchId) }
+                                                        .testTag("match_selector_chip_${item.matchId}")
+                                                ) {
+                                                    val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
+                                                        " (${item.unreadCount})"
+                                                    } else {
+                                                        ""
+                                                    }
+                                                    Text(
+                                                        text = "$prefix · ${item.myItemName} - ${item.partnerItemName}$unreadSuffix",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                        color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if (uiState.errorMessage != null) {
                                         CloBleStatusInfoBox(
                                             title = "Pemberitahuan",

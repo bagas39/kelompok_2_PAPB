@@ -49,6 +49,7 @@ class WardrobeViewModel(
     val uiState: StateFlow<WardrobeUiState> = _uiState.asStateFlow()
     private var wardrobeJob: Job? = null
     private var unreadJob: Job? = null
+    private var hasSeenFirstResume: Boolean = false
 
     init {
         startObserving()
@@ -196,6 +197,16 @@ class WardrobeViewModel(
                 _uiState.update { it.copy(isDeleting = false) }
             }
         }
+    }
+
+    fun onScreenResumed() {
+        clearErrorMessage()
+        if (!hasSeenFirstResume) {
+            hasSeenFirstResume = true
+            return
+        }
+        (wardrobeRepository as? SupabaseWardrobeRepository)?.triggerWardrobeRefresh()
+        startObserving()
     }
 
     fun clearErrorMessage() {

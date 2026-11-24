@@ -80,11 +80,13 @@ fun AddEditClothingScreen(
     var pendingCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
     var showPhotoSourceDialog by rememberSaveable { mutableStateOf(false) }
     var permissionDeniedMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var viewerStartIndex by remember { mutableStateOf<Int?>(null) }
+    var viewerStartIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val scrollState = rememberScrollState()
+    var lastScrolledErrorTrigger by rememberSaveable { mutableIntStateOf(0) }
 
-    LaunchedEffect(uiState.errorMessage) {
-        if (uiState.errorMessage != null) {
+    LaunchedEffect(uiState.errorMessage, uiState.errorScrollTrigger) {
+        if (uiState.errorMessage != null && uiState.errorScrollTrigger != lastScrolledErrorTrigger) {
+            lastScrolledErrorTrigger = uiState.errorScrollTrigger
             scrollState.animateScrollTo(0)
         }
     }

@@ -41,7 +41,8 @@ data class AddEditClothingUiState(
     val isSaving: Boolean = false,
     val isDeleting: Boolean = false,
     val showDeleteDialog: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorScrollTrigger: Int = 0
 )
 
 class AddEditClothingViewModel(
@@ -90,7 +91,8 @@ class AddEditClothingViewModel(
                                 "Pakaian ini sedang terikat Match aktif atau sudah ditukar sehingga seluruh datanya terkunci."
                             } else {
                                 null
-                            }
+                            },
+                            errorScrollTrigger = if (locked) it.errorScrollTrigger + 1 else it.errorScrollTrigger
                         )
                     }
                 } else {
@@ -98,7 +100,8 @@ class AddEditClothingViewModel(
                         it.copy(
                             isLoading = false,
                             isItemLoadFailed = true,
-                            errorMessage = "Pakaian tidak ditemukan atau gagal dimuat. Silakan kembali dan coba lagi."
+                            errorMessage = "Pakaian tidak ditemukan atau gagal dimuat. Silakan kembali dan coba lagi.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                 }
@@ -159,7 +162,8 @@ class AddEditClothingViewModel(
                 _uiState.update {
                     it.copy(
                         isUploadingPhoto = false,
-                        errorMessage = "Gagal mengunggah foto pakaian. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB."
+                        errorMessage = "Gagal mengunggah foto pakaian. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
             }
@@ -189,7 +193,12 @@ class AddEditClothingViewModel(
     fun onBarterAllowedChanged(allowed: Boolean) {
         if (_uiState.value.isItemLoadFailed) return
         if (_uiState.value.isLockedInActiveMatch) {
-            _uiState.update { it.copy(errorMessage = "Pakaian sedang terikat Match aktif.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Pakaian sedang terikat Match aktif.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         _uiState.update { it.copy(isBarterAllowed = allowed) }
@@ -197,11 +206,21 @@ class AddEditClothingViewModel(
 
     fun requestDelete() {
         if (_uiState.value.isItemLoadFailed) {
-            _uiState.update { it.copy(errorMessage = "Pakaian gagal dimuat dan tidak dapat dihapus.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Pakaian gagal dimuat dan tidak dapat dihapus.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (_uiState.value.isLockedInActiveMatch) {
-            _uiState.update { it.copy(errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Tidak dapat menghapus pakaian yang sedang terikat Match aktif.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         _uiState.update { it.copy(showDeleteDialog = true) }
@@ -224,7 +243,8 @@ class AddEditClothingViewModel(
                         it.copy(
                             showDeleteDialog = false,
                             isDeleting = false,
-                            errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                            errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                     return@launch
@@ -240,7 +260,8 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dihapus."
+                                errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dihapus.",
+                                errorScrollTrigger = it.errorScrollTrigger + 1
                             )
                         }
                     }
@@ -249,7 +270,8 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = "Anda tidak memiliki izin untuk menghapus pakaian ini."
+                                errorMessage = "Anda tidak memiliki izin untuk menghapus pakaian ini.",
+                                errorScrollTrigger = it.errorScrollTrigger + 1
                             )
                         }
                     }
@@ -258,7 +280,8 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = "Pakaian tidak ditemukan atau sudah dihapus."
+                                errorMessage = "Pakaian tidak ditemukan atau sudah dihapus.",
+                                errorScrollTrigger = it.errorScrollTrigger + 1
                             )
                         }
                     }
@@ -267,7 +290,8 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = result.message
+                                errorMessage = result.message,
+                                errorScrollTrigger = it.errorScrollTrigger + 1
                             )
                         }
                     }
@@ -276,7 +300,8 @@ class AddEditClothingViewModel(
                             it.copy(
                                 showDeleteDialog = false,
                                 isDeleting = false,
-                                errorMessage = result.failure.message ?: "Gagal menghapus pakaian."
+                                errorMessage = result.failure.message ?: "Gagal menghapus pakaian.",
+                                errorScrollTrigger = it.errorScrollTrigger + 1
                             )
                         }
                     }
@@ -291,30 +316,60 @@ class AddEditClothingViewModel(
         val s = _uiState.value
         if (s.isSaving || s.isDeleting) return
         if (s.isItemLoadFailed) {
-            _uiState.update { it.copy(errorMessage = "Data pakaian gagal dimuat. Silakan kembali dan muat ulang.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Data pakaian gagal dimuat. Silakan kembali dan muat ulang.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (s.isLockedInActiveMatch) {
-            _uiState.update { it.copy(errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Pakaian sedang dalam Match aktif dan tidak dapat dimodifikasi.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (s.isUploadingPhoto) {
-            _uiState.update { it.copy(errorMessage = "Tunggu hingga proses unggah foto selesai.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Tunggu hingga proses unggah foto selesai.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         val name = s.name.trim()
         val description = s.description.trim()
 
         if (name.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Nama pakaian wajib diisi") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama pakaian wajib diisi",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (name.length > 120) {
-            _uiState.update { it.copy(errorMessage = "Nama pakaian maksimal 120 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama pakaian maksimal 120 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (description.length > 2000) {
-            _uiState.update { it.copy(errorMessage = "Deskripsi pakaian maksimal 2000 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Deskripsi pakaian maksimal 2000 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
 
@@ -353,7 +408,8 @@ class AddEditClothingViewModel(
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
                 return@launch
@@ -374,7 +430,8 @@ class AddEditClothingViewModel(
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dimodifikasi."
+                            errorMessage = "Pakaian sedang dalam Match aktif atau sudah ditukar dan tidak dapat dimodifikasi.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                 }
@@ -382,7 +439,8 @@ class AddEditClothingViewModel(
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = "Anda tidak memiliki izin untuk mengubah pakaian ini."
+                            errorMessage = "Anda tidak memiliki izin untuk mengubah pakaian ini.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                 }
@@ -390,18 +448,26 @@ class AddEditClothingViewModel(
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = "Pakaian tidak ditemukan atau sudah dihapus."
+                            errorMessage = "Pakaian tidak ditemukan atau sudah dihapus.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                 }
                 is WardrobeMutationResult.ValidationFailed -> {
-                    _uiState.update { it.copy(isSaving = false, errorMessage = result.message) }
+                    _uiState.update {
+                        it.copy(
+                            isSaving = false,
+                            errorMessage = result.message,
+                            errorScrollTrigger = it.errorScrollTrigger + 1
+                        )
+                    }
                 }
                 is WardrobeMutationResult.DatabaseError -> {
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = result.failure.message ?: "Gagal menyimpan pakaian."
+                            errorMessage = result.failure.message ?: "Gagal menyimpan pakaian.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                 }

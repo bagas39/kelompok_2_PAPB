@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.LabeledPhoto
+import com.example.cloble.ui.components.NullableLabeledPhotoSaver
 import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,9 +80,11 @@ fun ActivityHistoryScreen(
     viewModel: ActivityHistoryViewModel = viewModel(factory = ActivityHistoryViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var interestPendingCancel by remember { mutableStateOf<OutgoingInterestSummary?>(null) }
-    var viewerPhoto by remember { mutableStateOf<LabeledPhoto?>(null) }
-    var lockedWarningMessage by remember { mutableStateOf<String?>(null) }
+    var pendingCancelInterestId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var viewerPhoto by rememberSaveable(stateSaver = NullableLabeledPhotoSaver) {
+        mutableStateOf<LabeledPhoto?>(null)
+    }
+    var lockedWarningMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -146,7 +150,7 @@ fun ActivityHistoryScreen(
                 ) {
                     CloBleStatusInfoBox(
                         tone = CloBleInfoBoxTone.WARNING,
-                        title = "Detail Ditutup",
+                        title = "Detail Tidak Tersedia",
                         message = lockedWarningMessage!!,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -226,7 +230,7 @@ fun ActivityHistoryScreen(
                             },
                             onCancelInterestRequest = {
                                 lockedWarningMessage = null
-                                interestPendingCancel = it
+                                pendingCancelInterestId = it.interestId
                             },
                             onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
                             modifier = Modifier
@@ -264,10 +268,12 @@ fun ActivityHistoryScreen(
         }
     }
 
-    val pendingCancel = interestPendingCancel
+    val pendingCancel = pendingCancelInterestId?.let { id ->
+        uiState.outgoingInterests.firstOrNull { it.interestId == id }
+    }
     if (pendingCancel != null) {
         AlertDialog(
-            onDismissRequest = { interestPendingCancel = null },
+            onDismissRequest = { pendingCancelInterestId = null },
             containerColor = CloBleColors.Surface,
             title = {
                 Text(
@@ -287,7 +293,7 @@ fun ActivityHistoryScreen(
                 TextButton(
                     onClick = {
                         viewModel.cancelOutgoingInterest(pendingCancel.interestId)
-                        interestPendingCancel = null
+                        pendingCancelInterestId = null
                     },
                     modifier = Modifier.testTag("btn_confirm_cancel_interest")
                 ) {
@@ -300,7 +306,7 @@ fun ActivityHistoryScreen(
             },
             dismissButton = {
                 TextButton(
-                    onClick = { interestPendingCancel = null },
+                    onClick = { pendingCancelInterestId = null },
                     modifier = Modifier.testTag("btn_dismiss_cancel_interest")
                 ) {
                     Text(
@@ -407,6 +413,8 @@ private fun OutgoingInterestCard(
             .clickable {
                 if (item.isLockedByOtherMatch) {
                     onLockedItemClick("Detail pakaian ditutup karena sudah terikat atau selesai di Match pengguna lain.")
+                } else if (item.interestStatus == InterestStatus.INVALIDATED) {
+                    onLockedItemClick("Detail pakaian tidak tersedia karena pakaian sudah dihapus, ditukar, atau dinonaktifkan untuk barter.")
                 } else {
                     onItemClick(item.targetItemId)
                 }
@@ -532,7 +540,7 @@ private fun OutgoingInterestCard(
                             when (item.matchStatus) {
                                 MatchStatus.COMPLETED -> Triple("Pertukaran Selesai", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
                                 MatchStatus.CANCELLED -> Triple("Match Dibatalkan", CloBleColors.DangerContainer, CloBleColors.DangerText)
-                                else -> Triple("Terhubung di Match", CloBleColors.PrimaryContainer, CloBleColors.OnPrimaryContainer)
+                                else -> Triple("Berhasil Match!", CloBleColors.SuccessContainer, CloBleColors.SuccessText)
                             }
                         } else {
                             Triple("Selesai di Match Lain", CloBleColors.SecondarySurface, CloBleColors.TextSecondary)

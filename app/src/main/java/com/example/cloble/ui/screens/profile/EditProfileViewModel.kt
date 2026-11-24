@@ -38,7 +38,8 @@ data class EditProfileUiState(
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isUploadingAvatar: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorScrollTrigger: Int = 0
 )
 
 class EditProfileViewModel(
@@ -119,7 +120,8 @@ class EditProfileViewModel(
                 _uiState.update {
                     it.copy(
                         isUploadingAvatar = false,
-                        errorMessage = "Gagal memproses foto profil. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB."
+                        errorMessage = "Gagal memproses foto profil. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
             }
@@ -192,7 +194,10 @@ class EditProfileViewModel(
         if (state.isSaving || state.isUploadingAvatar) return
         if (state.isProfileLoadFailed) {
             _uiState.update {
-                it.copy(errorMessage = "Data profil lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar data tidak tertimpa.")
+                it.copy(
+                    errorMessage = "Data profil lama belum termuat. Ketuk Muat Ulang sebelum menyimpan agar data tidak tertimpa.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
             }
             return
         }
@@ -201,23 +206,48 @@ class EditProfileViewModel(
         val cleanCity = state.city.trim()
 
         if (cleanName.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Nama lengkap tidak boleh kosong.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama lengkap tidak boleh kosong.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (cleanName.length > 100) {
-            _uiState.update { it.copy(errorMessage = "Nama lengkap maksimal 100 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama lengkap maksimal 100 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (cleanBio.length > 1000) {
-            _uiState.update { it.copy(errorMessage = "Bio maksimal 1000 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Bio maksimal 1000 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (cleanCity.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Lokasi tidak boleh kosong.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Lokasi tidak boleh kosong.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
         if (cleanCity.length > 120) {
-            _uiState.update { it.copy(errorMessage = "Nama lokasi maksimal 120 karakter.") }
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Nama lokasi maksimal 120 karakter.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
+            }
             return
         }
 
@@ -228,7 +258,10 @@ class EditProfileViewModel(
         }
         if (rawRadius <= 0) {
             _uiState.update {
-                it.copy(errorMessage = "Radius pencarian harus diisi lebih dari 0 km.")
+                it.copy(
+                    errorMessage = "Radius pencarian harus diisi lebih dari 0 km.",
+                    errorScrollTrigger = it.errorScrollTrigger + 1
+                )
             }
             return
         }
@@ -241,7 +274,8 @@ class EditProfileViewModel(
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali."
+                        errorMessage = "Sesi pengguna tidak ditemukan. Silakan masuk kembali.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
                 return@launch
@@ -261,7 +295,8 @@ class EditProfileViewModel(
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            errorMessage = "Gagal mengunggah foto profil. Silakan pilih ulang foto dan coba lagi."
+                            errorMessage = "Gagal mengunggah foto profil. Silakan pilih ulang foto dan coba lagi.",
+                            errorScrollTrigger = it.errorScrollTrigger + 1
                         )
                     }
                     return@launch
@@ -292,7 +327,8 @@ class EditProfileViewModel(
                     it.copy(
                         isSaving = false,
                         errorMessage = serverError
-                            ?: "Gagal menyimpan perubahan profil. Periksa koneksi internet Anda."
+                            ?: "Gagal menyimpan perubahan profil. Periksa koneksi internet Anda.",
+                        errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
             }

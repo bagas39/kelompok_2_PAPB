@@ -472,13 +472,29 @@ class SupabaseDiscoveryMatchRepository(
         } catch (_: Exception) {
                         InterestStatus.PENDING
                     }
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateNotifications()
                     SendInterestResult.AlreadyInterested(status)
                 }
-                "REQUIRES_BARTERABLE_ITEM" -> SendInterestResult.RequiresBarterableItemInWardrobe
-                "TARGET_ITEM_NOT_FOUND" -> SendInterestResult.TargetItemNotFound
+                "REQUIRES_BARTERABLE_ITEM" -> {
+                    invalidator.invalidateWardrobe()
+                    SendInterestResult.RequiresBarterableItemInWardrobe
+                }
+                "TARGET_ITEM_NOT_FOUND" -> {
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateNotifications()
+                    SendInterestResult.TargetItemNotFound
+                }
                 "CANNOT_INTEREST_OWN_ITEM" -> SendInterestResult.CannotInterestOwnItem
-                "TARGET_ITEM_NOT_ELIGIBLE" -> SendInterestResult.TargetItemNotEligible
-                "PAIR_ALREADY_MATCHED" -> SendInterestResult.PairAlreadyMatched
+                "TARGET_ITEM_NOT_ELIGIBLE" -> {
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateNotifications()
+                    SendInterestResult.TargetItemNotEligible
+                }
+                "PAIR_ALREADY_MATCHED" -> {
+                    invalidateAllMatchRelatedData()
+                    SendInterestResult.PairAlreadyMatched
+                }
                 else -> SendInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Aksi gagal"))
             }
         } catch (cancelled: CancellationException) {
@@ -508,7 +524,10 @@ class SupabaseDiscoveryMatchRepository(
                     }
                     CancelInterestResult.Success
                 }
-                "INTEREST_NOT_FOUND" -> CancelInterestResult.InterestNotFound
+                "INTEREST_NOT_FOUND" -> {
+                    invalidateAllMatchRelatedData()
+                    CancelInterestResult.InterestNotFound
+                }
                 "NOT_INTEREST_OWNER" -> CancelInterestResult.NotInterestOwner
                 "INTEREST_ALREADY_PROCESSED" -> {
                     val status = try {
@@ -518,6 +537,7 @@ class SupabaseDiscoveryMatchRepository(
         } catch (_: Exception) {
                         InterestStatus.ACCEPTED_MATCHED
                     }
+                    invalidateAllMatchRelatedData()
                     CancelInterestResult.InterestAlreadyProcessed(status)
                 }
                 else -> CancelInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Gagal membatalkan minat"))
@@ -578,15 +598,49 @@ class SupabaseDiscoveryMatchRepository(
                     )
                     RespondInterestResult.Success(matchId)
                 }
-                "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> RespondInterestResult.InterestAlreadyProcessedOrInvalid
-                "TARGET_ITEM_NOT_FOUND" -> RespondInterestResult.TargetItemNotFound(res.optBoolean("invalidated", false))
+                "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> {
+                    invalidateAllMatchRelatedData()
+                    RespondInterestResult.InterestAlreadyProcessedOrInvalid
+                }
+                "TARGET_ITEM_NOT_FOUND" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
+                    RespondInterestResult.TargetItemNotFound(res.optBoolean("invalidated", false))
+                }
                 "INVALID_ITEM_OWNERSHIP" -> RespondInterestResult.InvalidItemOwnership
-                "TARGET_ITEM_UNAVAILABLE" -> RespondInterestResult.TargetItemUnavailable(res.optBoolean("invalidated", false))
-                "CHOSEN_ITEM_NOT_FOUND" -> RespondInterestResult.ChosenItemNotFound
-                "CHOSEN_ITEM_UNAVAILABLE" -> RespondInterestResult.ChosenItemUnavailable
-                "BARTER_NOT_ALLOWED" -> RespondInterestResult.BarterNotAllowed
-                "ITEM_ALREADY_IN_ACTIVE_MATCH" -> RespondInterestResult.ItemAlreadyInActiveMatch
-                "PAIR_ALREADY_MATCHED" -> RespondInterestResult.PairAlreadyMatched
+                "TARGET_ITEM_UNAVAILABLE" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
+                    RespondInterestResult.TargetItemUnavailable(res.optBoolean("invalidated", false))
+                }
+                "CHOSEN_ITEM_NOT_FOUND" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
+                    RespondInterestResult.ChosenItemNotFound
+                }
+                "CHOSEN_ITEM_UNAVAILABLE" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
+                    RespondInterestResult.ChosenItemUnavailable
+                }
+                "BARTER_NOT_ALLOWED" -> {
+                    invalidator.invalidateNotifications()
+                    invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
+                    RespondInterestResult.BarterNotAllowed
+                }
+                "ITEM_ALREADY_IN_ACTIVE_MATCH" -> {
+                    invalidateAllMatchRelatedData()
+                    RespondInterestResult.ItemAlreadyInActiveMatch
+                }
+                "PAIR_ALREADY_MATCHED" -> {
+                    invalidateAllMatchRelatedData()
+                    RespondInterestResult.PairAlreadyMatched
+                }
                 else -> RespondInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Respon gagal"))
             }
         } catch (cancelled: CancellationException) {
@@ -611,12 +665,16 @@ class SupabaseDiscoveryMatchRepository(
                     val senderUserId = res.optLong("senderUserId", 0L)
                     invalidator.invalidateNotifications()
                     invalidator.invalidateDiscovery()
+                    invalidator.invalidateWardrobe()
                     if (senderUserId > 0L) {
                         notifyUserViaRealtime(senderUserId, "interest_updated")
                     }
                     DeclineInterestResult.Success
                 }
-                "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> DeclineInterestResult.InterestAlreadyProcessedOrInvalid
+                "INTEREST_ALREADY_PROCESSED_OR_INVALID" -> {
+                    invalidateAllMatchRelatedData()
+                    DeclineInterestResult.InterestAlreadyProcessedOrInvalid
+                }
                 else -> DeclineInterestResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Tolak tawaran gagal"))
             }
         } catch (cancelled: CancellationException) {
@@ -635,10 +693,7 @@ class SupabaseDiscoveryMatchRepository(
             val res = client.rpc("rpc_cancel_match", params)
             when (res.optString("code")) {
                 "SUCCESS" -> {
-                    invalidator.invalidateDiscovery()
-                    invalidator.invalidateNotifications()
-                    invalidator.invalidateWardrobe()
-                    invalidator.invalidateChat()
+                    invalidateAllMatchRelatedData()
                     notifyMatchParticipantsViaRealtime(
                         matchId = matchId,
                         user1Id = res.optLong("user1Id", 0L),
@@ -646,7 +701,10 @@ class SupabaseDiscoveryMatchRepository(
                     )
                     CancelMatchResult.Success
                 }
-                "MATCH_NOT_FOUND" -> CancelMatchResult.MatchNotFound
+                "MATCH_NOT_FOUND" -> {
+                    invalidateAllMatchRelatedData()
+                    CancelMatchResult.MatchNotFound
+                }
                 "NOT_MATCH_PARTICIPANT" -> CancelMatchResult.NotMatchParticipant
                 "MATCH_NOT_ACTIVE" -> {
                     val status = try {
@@ -656,6 +714,7 @@ class SupabaseDiscoveryMatchRepository(
         } catch (_: Exception) {
                         MatchStatus.ACTIVE
                     }
+                    invalidateAllMatchRelatedData()
                     CancelMatchResult.MatchNotActive(status)
                 }
                 else -> CancelMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Batal gagal"))
@@ -681,10 +740,7 @@ class SupabaseDiscoveryMatchRepository(
             val res = client.rpc("rpc_complete_match_exchange", params)
             when (res.optString("code")) {
                 "SUCCESS" -> {
-                    invalidator.invalidateDiscovery()
-                    invalidator.invalidateNotifications()
-                    invalidator.invalidateWardrobe()
-                    invalidator.invalidateChat()
+                    invalidateAllMatchRelatedData()
                     notifyMatchParticipantsViaRealtime(
                         matchId = matchId,
                         user1Id = res.optLong("user1Id", 0L),
@@ -692,7 +748,10 @@ class SupabaseDiscoveryMatchRepository(
                     )
                     CompleteMatchResult.Success
                 }
-                "MATCH_NOT_FOUND" -> CompleteMatchResult.MatchNotFound
+                "MATCH_NOT_FOUND" -> {
+                    invalidateAllMatchRelatedData()
+                    CompleteMatchResult.MatchNotFound
+                }
                 "NOT_MATCH_PARTICIPANT" -> CompleteMatchResult.NotMatchParticipant
                 "MATCH_NOT_ACTIVE" -> {
                     val status = try {
@@ -702,9 +761,13 @@ class SupabaseDiscoveryMatchRepository(
         } catch (_: Exception) {
                         MatchStatus.ACTIVE
                     }
+                    invalidateAllMatchRelatedData()
                     CompleteMatchResult.MatchNotActive(status)
                 }
-                "ITEMS_NO_LONGER_AVAILABLE" -> CompleteMatchResult.ItemsNoLongerAvailable
+                "ITEMS_NO_LONGER_AVAILABLE" -> {
+                    invalidateAllMatchRelatedData()
+                    CompleteMatchResult.ItemsNoLongerAvailable
+                }
                 else -> CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError("Selesai barter gagal"))
             }
         } catch (cancelled: CancellationException) {
@@ -712,6 +775,13 @@ class SupabaseDiscoveryMatchRepository(
         } catch (_: Exception) {
             CompleteMatchResult.DatabaseError(DbFailure.UnexpectedDatabaseError(CONNECTION_ERROR_MESSAGE))
         }
+    }
+
+    private fun invalidateAllMatchRelatedData() {
+        invalidator.invalidateDiscovery()
+        invalidator.invalidateNotifications()
+        invalidator.invalidateWardrobe()
+        invalidator.invalidateChat()
     }
 
     private fun notifyUserViaRealtime(targetUserId: Long, event: String) {
