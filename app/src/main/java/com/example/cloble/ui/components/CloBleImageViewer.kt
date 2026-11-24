@@ -300,7 +300,7 @@ fun CloBleFullscreenImageViewer(
                                         border = BorderStroke(if (isActive) 2.dp else 1.dp, borderColor),
                                         shape = RoundedCornerShape(10.dp)
                                     )
-                                    .clickable {
+                                    .clickable(role = Role.Button) {
                                         coroutineScope.launch {
                                             pagerState.animateScrollToPage(index)
                                         }

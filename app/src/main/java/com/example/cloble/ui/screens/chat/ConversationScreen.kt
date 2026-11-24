@@ -53,6 +53,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +70,7 @@ import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -126,15 +130,7 @@ fun ConversationScreen(
         ) {
             when {
                 uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = CloBleColors.Primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                    CloBleLoadingState("Memuat obrolan...")
                 }
 
                 uiState.matchDetail == null -> {
@@ -187,7 +183,7 @@ fun ConversationScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { onNavigateToOtherUserProfile(detail.partnerUserId) },
+                                            .clickable(role = Role.Button) { onNavigateToOtherUserProfile(detail.partnerUserId) },
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
@@ -231,7 +227,7 @@ fun ConversationScreen(
                                         Column(
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .clickable { onNavigateToOtherUserProfile(detail.partnerUserId) }
+                                                .clickable(role = Role.Button) { onNavigateToOtherUserProfile(detail.partnerUserId) }
                                                 .padding(vertical = 2.dp),
                                             verticalArrangement = Arrangement.spacedBy(1.dp)
                                         ) {
@@ -263,7 +259,7 @@ fun ConversationScreen(
                                                     ),
                                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                                     modifier = Modifier
-                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 44.dp)
                                                         .testTag("complete_match_button")
                                                 ) {
                                                     Text(
@@ -278,7 +274,7 @@ fun ConversationScreen(
                                                     border = BorderStroke(1.dp, CloBleColors.Outline),
                                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                                     modifier = Modifier
-                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                        .defaultMinSize(minWidth = 1.dp, minHeight = 44.dp)
                                                         .testTag("cancel_match_button")
                                                 ) {
                                                     Text(
@@ -299,7 +295,7 @@ fun ConversationScreen(
                                                         ),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                                         modifier = Modifier
-                                                            .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                                                            .defaultMinSize(minWidth = 1.dp, minHeight = 44.dp)
                                                             .testTag("rate_partner_button")
                                                     ) {
                                                         Text(
@@ -362,7 +358,7 @@ fun ConversationScreen(
                                                     ),
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(99.dp))
-                                                        .clickable { viewModel.selectMatch(item.matchId) }
+                                                        .clickable(role = Role.Button) { viewModel.selectMatch(item.matchId) }
                                                         .testTag("match_selector_chip_${item.matchId}")
                                                 ) {
                                                     val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
@@ -521,7 +517,7 @@ fun ConversationScreen(
                                                     ),
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(99.dp))
-                                                        .clickable { viewModel.selectMatch(item.matchId) }
+                                                        .clickable(role = Role.Button) { viewModel.selectMatch(item.matchId) }
                                                         .testTag("match_selector_chip_${item.matchId}")
                                                 ) {
                                                     val unreadSuffix = if (!isSelected && item.unreadCount > 0) {
@@ -632,7 +628,7 @@ fun ConversationScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = "Kalian sudah saling match! Mulai obrolan untuk menentukan waktu dan lokasi barter pakaian.",
+                                            text = "Anda dan lawan barter sudah saling cocok! Mulai obrolan untuk menentukan waktu dan lokasi barter pakaian.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = CloBleColors.TextSecondary,
                                             textAlign = TextAlign.Center
@@ -663,7 +659,7 @@ fun ConversationScreen(
                                 border = BorderStroke(1.dp, CloBleColors.Outline)
                             ) {
                                 Text(
-                                    text = "Ruang obrolan read-only karena status pertukaran telah selesai atau dibatalkan.",
+                                    text = "Ruang obrolan hanya-baca karena status pertukaran telah selesai atau dibatalkan.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = CloBleColors.TextSecondary,
                                     textAlign = TextAlign.Center,
@@ -696,6 +692,9 @@ fun ConversationScreen(
                                         shape = RoundedCornerShape(24.dp),
                                         singleLine = true,
                                         colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = CloBleColors.TextPrimary,
+                                            unfocusedTextColor = CloBleColors.TextPrimary,
+                                            cursorColor = CloBleColors.Primary,
                                             focusedContainerColor = CloBleColors.Background,
                                             unfocusedContainerColor = CloBleColors.Background,
                                             focusedBorderColor = CloBleColors.Primary,
@@ -703,6 +702,7 @@ fun ConversationScreen(
                                         ),
                                         modifier = Modifier
                                             .weight(1f)
+                                            .semantics { contentDescription = "Input pesan obrolan" }
                                             .testTag("chat_input_text_field")
                                     )
 
@@ -838,7 +838,7 @@ private fun MiniSwapThumb(
             .background(CloBleColors.Surface)
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(10.dp))
             .let { base ->
-                if (onClick != null) base.clickable(onClick = onClick) else base
+                if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base
             },
         contentAlignment = Alignment.Center
     ) {

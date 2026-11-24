@@ -82,7 +82,7 @@ fun CloBleStatusInfoBox(
     }
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = bgColor,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
@@ -132,13 +132,15 @@ fun BarterEligibilitySwitchCard(
     val badgeBorder = if (isBarterAllowed) CloBleColors.Primary else CloBleColors.Outline
     val badgeTextColor = if (isBarterAllowed) CloBleColors.OnPrimary else CloBleColors.TextSecondary
 
+    val cardShape = MaterialTheme.shapes.medium
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = cardShape,
         color = containerBg,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(cardShape)
+            .cloBleFocusRing(cardShape)
             .toggleable(
                 value = isBarterAllowed,
                 enabled = enabled,
@@ -219,7 +221,7 @@ fun ClothingPhotoSlot(
     onClick: (() -> Unit)? = null,
     onRemoveClick: (() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.medium
     val bgColor = if (isSavedPlaceholder) CloBleColors.PrimaryContainer else CloBleColors.Surface
 
     val clickModifier = if (onClick != null) {
@@ -271,20 +273,31 @@ fun ClothingPhotoSlot(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(24.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(CloBleColors.DarkScrim.copy(alpha = 0.72f))
-                        .clickable(role = Role.Button, onClick = onRemoveClick)
+                        .cloBleFocusRing(CircleShape)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "Hapus foto $label",
+                            onClick = onRemoveClick
+                        )
                         .semantics { contentDescription = "Hapus foto $label" },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = CloBleIcons.XClose,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(CloBleColors.DarkScrim.copy(alpha = 0.72f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CloBleIcons.XClose,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
             }
         } else {

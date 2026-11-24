@@ -54,10 +54,12 @@ import com.example.cloble.data.remote.deleteCameraTempFileForUri
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.BarterEligibilitySwitchCard
 import com.example.cloble.ui.components.CloBleChoiceChipRow
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -198,21 +200,19 @@ fun AddEditClothingScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            }
+            CloBleLoadingState("Memuat detail pakaian...")
         } else {
             val isFormBlocked = uiState.isLockedInActiveMatch || uiState.isItemLoadFailed
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .imePadding()
                     .navigationBarsPadding()
                     .verticalScroll(scrollState)
@@ -374,7 +374,7 @@ fun AddEditClothingScreen(
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = CloBleColors.WarningContainer,
-                                border = BorderStroke(1.dp, CloBleColors.WarningText.copy(alpha = 0.45f)),
+                                border = BorderStroke(1.dp, CloBleColors.WarningText),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("photo_permission_warning_card")
@@ -428,7 +428,7 @@ fun AddEditClothingScreen(
                             label = "Nama Pakaian",
                             value = uiState.name,
                             onValueChange = viewModel::onNameChanged,
-                            placeholder = "Misal: Kemeja Flanel Hijau",
+                            placeholder = "Contoh: Kemeja Flanel Hijau",
                             enabled = !isFormBlocked,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -679,6 +679,7 @@ fun AddEditClothingScreen(
                 initialIndex = activeViewerIndex,
                 onDismiss = { viewerStartIndex = null }
             )
+        }
         }
     }
 }

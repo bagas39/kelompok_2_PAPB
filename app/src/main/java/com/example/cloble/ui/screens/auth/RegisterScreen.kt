@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CityPreset
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
@@ -78,10 +79,15 @@ fun RegisterScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Column(
+        CloBleConstrainedContent(
+            maxWidth = 520.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 20.dp),
@@ -98,12 +104,12 @@ fun RegisterScreen(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Mulai Tukar Pakaianmu",
+                        text = "Mulai Tukar Pakaian Anda",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = CloBleColors.TextPrimary
                     )
                     Text(
-                        text = "Buat akun dan pilih lokasimu secara bebas di peta",
+                        text = "Buat akun dan pilih lokasi Anda secara bebas di peta",
                         style = MaterialTheme.typography.bodySmall,
                         color = CloBleColors.TextSecondary
                     )
@@ -270,7 +276,7 @@ fun RegisterScreen(
                             IconButton(
                                 onClick = viewModel::togglePasswordVisibility,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(44.dp)
                                     .testTag("btn_toggle_register_password")
                             ) {
                                 Icon(
@@ -311,7 +317,7 @@ fun RegisterScreen(
                             IconButton(
                                 onClick = viewModel::toggleConfirmPasswordVisibility,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(44.dp)
                                     .testTag("btn_toggle_register_confirm_password")
                             ) {
                                 Icon(
@@ -377,6 +383,7 @@ fun RegisterScreen(
                     )
                 }
             }
+        }
         }
     }
 

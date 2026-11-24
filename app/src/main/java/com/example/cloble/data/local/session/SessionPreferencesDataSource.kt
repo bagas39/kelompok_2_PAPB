@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.cloble.ui.theme.AppThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -34,6 +35,7 @@ class SessionPreferencesDataSource(
         val KEY_LOGGED_IN_USER_ID = longPreferencesKey("logged_in_user_id")
         val KEY_SESSION_TOKEN = stringPreferencesKey("session_token")
         val KEY_FCM_TOKEN = stringPreferencesKey("fcm_token")
+        val KEY_APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
     }
 
     val loggedInUserIdFlow: Flow<Long?> = context.dataStore.data
@@ -97,6 +99,19 @@ class SessionPreferencesDataSource(
             preferences[PreferencesKeys.KEY_FCM_TOKEN]
         }
 
+    val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { preferences ->
+            AppThemeMode.fromStorageKey(preferences[PreferencesKeys.KEY_APP_THEME_MODE])
+        }
+        .distinctUntilChanged()
+
     suspend fun setLoggedInUserId(userId: Long?) {
         context.dataStore.edit { preferences ->
             if (userId != null) {
@@ -155,5 +170,11 @@ class SessionPreferencesDataSource(
 
     suspend fun getFcmTokenOnce(): String? {
         return fcmTokenFlow.first()
+    }
+
+    suspend fun setThemeMode(mode: AppThemeMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.KEY_APP_THEME_MODE] = mode.storageKey
+        }
     }
 }

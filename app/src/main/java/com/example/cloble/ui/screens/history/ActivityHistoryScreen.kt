@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,9 +59,11 @@ import com.example.cloble.domain.model.ItemStatus
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.OutgoingInterestSummary
 import com.example.cloble.domain.model.PassedClothingSummary
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -203,15 +206,17 @@ fun ActivityHistoryScreen(
             }
 
             if (uiState.isLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = CloBleColors.Primary)
-                }
+                CloBleLoadingState(
+                    message = "Memuat riwayat aktivitas...",
+                    modifier = Modifier.weight(1f)
+                )
             } else {
+                CloBleConstrainedContent(
+                    maxWidth = 680.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
                 when (uiState.selectedTab) {
                     ActivityHistoryTab.TERTARIK -> {
                         OutgoingInterestsList(
@@ -233,9 +238,7 @@ fun ActivityHistoryScreen(
                                 pendingCancelInterestId = it.interestId
                             },
                             onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                     ActivityHistoryTab.DILEWATI -> {
@@ -258,11 +261,10 @@ fun ActivityHistoryScreen(
                                 viewModel.restorePassToDiscover(itemId)
                             },
                             onPhotoClick = { uri, title -> viewerPhoto = LabeledPhoto(uri, title) },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
+                }
                 }
             }
         }
@@ -363,7 +365,7 @@ private fun OutgoingInterestsList(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Pakaian yang kamu tandai tertarik saat menjelajahi feed Jelajah akan tercatat di sini.",
+                text = "Pakaian yang Anda tandai tertarik saat menjelajahi Jelajah akan tercatat di sini.",
                 style = MaterialTheme.typography.bodySmall,
                 color = CloBleColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -410,7 +412,7 @@ private fun OutgoingInterestCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
-            .clickable {
+            .clickable(role = Role.Button) {
                 if (item.isLockedByOtherMatch) {
                     onLockedItemClick("Detail pakaian ditutup karena sudah terikat atau selesai di Match pengguna lain.")
                 } else if (item.interestStatus == InterestStatus.INVALIDATED) {
@@ -440,7 +442,7 @@ private fun OutgoingInterestCard(
                         .let { base ->
                             val photo = item.targetItemPhotoUri
                             if (!photo.isNullOrBlank() && !item.isLockedByOtherMatch) {
-                                base.clickable { onPhotoClick(photo, item.targetItemName) }
+                                base.clickable(role = Role.Button) { onPhotoClick(photo, item.targetItemName) }
                             } else {
                                 base
                             }
@@ -577,7 +579,7 @@ private fun OutgoingInterestCard(
                         ),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         modifier = Modifier
-                            .defaultMinSize(minHeight = 40.dp)
+                            .defaultMinSize(minHeight = 44.dp)
                             .testTag("btn_cancel_interest_${item.interestId}")
                     ) {
                         if (isCancelling) {
@@ -641,7 +643,7 @@ private fun PassedClothingList(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Pakaian yang kamu lewati di feed Jelajah akan tercatat di sini dan dapat dikembalikan ke feed kapan saja.",
+                text = "Pakaian yang Anda lewati di Jelajah akan tercatat di sini dan dapat dikembalikan kapan saja.",
                 style = MaterialTheme.typography.bodySmall,
                 color = CloBleColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -691,7 +693,7 @@ private fun PassedClothingCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, CloBleColors.Outline, RoundedCornerShape(16.dp))
-            .clickable {
+            .clickable(role = Role.Button) {
                 if (isLockedByMatchOrExchanged) {
                     onLockedItemClick("Detail pakaian ditutup karena item sedang dalam Match aktif atau sudah ditukar.")
                 } else {
@@ -719,7 +721,7 @@ private fun PassedClothingCard(
                         .let { base ->
                             val photo = item.clothingPhotoUri
                             if (!photo.isNullOrBlank() && !isLockedByMatchOrExchanged) {
-                                base.clickable { onPhotoClick(photo, item.clothingName) }
+                                base.clickable(role = Role.Button) { onPhotoClick(photo, item.clothingName) }
                             } else {
                                 base
                             }

@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -52,9 +53,15 @@ import com.example.cloble.domain.model.ChatThreadSummary
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
+import com.example.cloble.ui.components.CloBlePrimaryButton
+import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.CloBleTopBarAction
+import com.example.cloble.ui.components.cloBleFocusRing
 import com.example.cloble.ui.theme.CloBleColors
 import com.example.cloble.ui.theme.CloBleTextStyles
 import java.text.SimpleDateFormat
@@ -123,22 +130,51 @@ fun ChatListScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Box(
+        CloBleConstrainedContent(
+            maxWidth = 680.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .background(CloBleColors.Background)
         ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             when {
                 uiState.isLoading -> {
+                    CloBleLoadingState("Memuat percakapan...")
+                }
+
+                uiState.errorMessage != null && uiState.threads.isEmpty() -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(
-                            color = CloBleColors.Primary,
-                            modifier = Modifier.size(36.dp)
-                        )
+                        Surface(
+                            shape = MaterialTheme.shapes.large,
+                            color = CloBleColors.Surface,
+                            border = BorderStroke(1.dp, CloBleColors.Outline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CloBleStatusInfoBox(
+                                    tone = CloBleInfoBoxTone.WARNING,
+                                    title = "Gagal Memuat",
+                                    message = uiState.errorMessage!!,
+                                    modifier = Modifier.testTag("chat_list_error_box")
+                                )
+                                CloBlePrimaryButton(
+                                    text = "Muat Ulang",
+                                    onClick = viewModel::retry,
+                                    modifier = Modifier.testTag("btn_retry_chat_list")
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -207,6 +243,7 @@ fun ChatListScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -238,8 +275,9 @@ private fun ChatThreadCard(
         border = BorderStroke(1.dp, CloBleColors.Outline),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .clip(MaterialTheme.shapes.large)
+            .cloBleFocusRing(MaterialTheme.shapes.large)
+            .clickable(role = Role.Button, onClick = onClick)
             .testTag("chat_item_${thread.matchId}")
             .semantics(mergeDescendants = true) {
                 contentDescription = "Percakapan dengan ${thread.partnerName}, status $statusLabel"
@@ -272,11 +310,21 @@ private fun ChatThreadCard(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        Text(
-                            text = computeChatInitials(thread.partnerName),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = CloBleColors.OnPrimaryContainer
-                        )
+                        val initials = computeChatInitials(thread.partnerName)
+                        if (initials != null) {
+                            Text(
+                                text = initials,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = CloBleColors.OnPrimaryContainer
+                            )
+                        } else {
+                            Icon(
+                                imageVector = CloBleIcons.UserOutline,
+                                contentDescription = "Avatar pengguna",
+                                tint = CloBleColors.OnPrimaryContainer,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
 
@@ -379,7 +427,7 @@ private fun ChatThreadCard(
                     )
                     Text(
                         text = "${thread.myItemName} - ${thread.partnerItemName}",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                         color = CloBleColors.OnPrimaryContainer,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -435,10 +483,10 @@ private fun ChatThreadCard(
     }
 }
 
-private fun computeChatInitials(name: String): String {
+private fun computeChatInitials(name: String): String? {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
     return when {
-        parts.isEmpty() -> "CB"
+        parts.isEmpty() -> null
         parts.size == 1 -> parts[0].take(2).uppercase()
         else -> "${parts[0].first()}${parts[1].first()}".uppercase()
     }

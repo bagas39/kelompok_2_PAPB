@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -359,7 +360,7 @@ fun CloBleLocationPickerDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(CloBleColors.TextPrimary.copy(alpha = 0.45f))
+                .background(CloBleColors.DarkScrim.copy(alpha = 0.60f))
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding()
@@ -417,8 +418,9 @@ fun CloBleLocationPickerDialog(
                                 color = CloBleColors.PrimaryContainer,
                                 border = BorderStroke(1.dp, CloBleColors.PrimarySoft),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable(enabled = !isLocatingDevice) {
+                                    .clip(MaterialTheme.shapes.small)
+                                    .cloBleFocusRing(MaterialTheme.shapes.small)
+                                    .clickable(enabled = !isLocatingDevice, role = Role.Button) {
                                         if (hasLocationPermission(context)) {
                                             applyDeviceLocation()
                                         } else {
@@ -453,7 +455,7 @@ fun CloBleLocationPickerDialog(
                         }
 
                         CloBleLabeledTextField(
-                            label = "",
+                            label = if (isCompactHeight) "" else "Cari Lokasi",
                             value = searchQuery,
                             onValueChange = {
                                 searchQuery = it
@@ -479,7 +481,7 @@ fun CloBleLocationPickerDialog(
                                                 searchResults = emptyList()
                                                 searchEmptyMessage = null
                                             },
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(44.dp)
                                         ) {
                                             Icon(
                                                 imageVector = CloBleIcons.XClose,
@@ -523,7 +525,7 @@ fun CloBleLocationPickerDialog(
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = CloBleColors.WarningContainer,
-                                border = BorderStroke(1.dp, CloBleColors.WarningText.copy(alpha = 0.45f)),
+                                border = BorderStroke(1.dp, CloBleColors.WarningText),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("location_gps_warning_card")
@@ -778,7 +780,7 @@ fun CloBleLocationPickerDialog(
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable {
+                                                .clickable(role = Role.Button) {
                                                     reverseGeocodeJob?.cancel()
                                                     reverseGeocodeJob = null
                                                     isReverseGeocoding = false

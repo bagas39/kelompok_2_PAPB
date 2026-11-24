@@ -45,7 +45,7 @@ data class CloBleTopBarAction(
     val icon: ImageVector,
     val contentDescription: String,
     val onClick: () -> Unit,
-    val tint: Color = CloBleColors.TextPrimary,
+    val tint: Color? = null,
     val showBadgeDot: Boolean = false,
     val testTag: String? = null
 )
@@ -119,6 +119,8 @@ fun CloBleTopAppBar(
                         onClick = action.onClick,
                         modifier = Modifier
                             .size(44.dp)
+                            .clip(CircleShape)
+                            .cloBleFocusRing(CircleShape)
                             .semantics {
                                 contentDescription = action.contentDescription
                             }
@@ -130,7 +132,7 @@ fun CloBleTopAppBar(
                             Icon(
                                 imageVector = action.icon,
                                 contentDescription = null,
-                                tint = action.tint,
+                                tint = action.tint ?: CloBleColors.TextPrimary,
                                 modifier = Modifier.size(22.dp)
                             )
                             if (action.showBadgeDot) {
@@ -226,6 +228,7 @@ fun CloBleBottomNavBar(
                             .weight(1f)
                             .fillMaxHeight()
                             .background(cellBg)
+                            .cloBleFocusRing(MaterialTheme.shapes.extraSmall)
                             .clickable(
                                 role = Role.Tab,
                                 onClick = { onTabSelected(tab) }

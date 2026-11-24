@@ -37,10 +37,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun computeInitials(name: String): String {
+internal fun computeInitials(name: String): String? {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
     return when {
-        parts.isEmpty() -> "CB"
+        parts.isEmpty() -> null
         parts.size == 1 -> parts[0].take(2).uppercase()
         else -> "${parts[0].first()}${parts[1].first()}".uppercase()
     }
@@ -99,11 +99,21 @@ fun UserSummaryHeader(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Text(
-                        text = computeInitials(name),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = CloBleColors.OnPrimaryContainer
-                    )
+                    val initials = computeInitials(name)
+                    if (initials != null) {
+                        Text(
+                            text = initials,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = CloBleColors.OnPrimaryContainer
+                        )
+                    } else {
+                        Icon(
+                            imageVector = CloBleIcons.UserOutline,
+                            contentDescription = "Avatar pengguna",
+                            tint = CloBleColors.OnPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 
@@ -151,7 +161,7 @@ fun UserSummaryHeader(
                         } else {
                             "Pengguna baru · belum ada ulasan"
                         },
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = CloBleColors.TextSecondary
                     )
                 }
@@ -219,7 +229,7 @@ fun ChatBubbleItem(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = formattedTime,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = timeColor,
                     modifier = Modifier.align(Alignment.End)
                 )
@@ -249,6 +259,7 @@ fun StarRatingSelector(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
+                    .cloBleFocusRing(CircleShape)
                     .then(
                         if (enabled) {
                             Modifier

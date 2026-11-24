@@ -2,6 +2,7 @@ package com.example.cloble.ui.theme
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -10,55 +11,57 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
 private val CloBleLightColorScheme = lightColorScheme(
-    primary = CloBleColors.Primary,
-    onPrimary = CloBleColors.OnPrimary,
-    primaryContainer = CloBleColors.PrimaryContainer,
-    onPrimaryContainer = CloBleColors.OnPrimaryContainer,
-    secondary = CloBleColors.Primary,
-    onSecondary = CloBleColors.OnPrimary,
-    secondaryContainer = CloBleColors.SecondarySurface,
-    onSecondaryContainer = CloBleColors.TextPrimary,
-    tertiary = CloBleColors.StarRating,
-    onTertiary = CloBleColors.TextPrimary,
-    background = CloBleColors.Background,
-    onBackground = CloBleColors.TextPrimary,
-    surface = CloBleColors.Surface,
-    onSurface = CloBleColors.TextPrimary,
-    surfaceVariant = CloBleColors.SecondarySurface,
-    onSurfaceVariant = CloBleColors.TextSecondary,
-    outline = CloBleColors.Outline,
-    outlineVariant = CloBleColors.Outline,
-    error = CloBleColors.DangerText,
-    errorContainer = CloBleColors.DangerContainer
+    primary = LightCloBlePalette.primary,
+    onPrimary = LightCloBlePalette.onPrimary,
+    primaryContainer = LightCloBlePalette.primaryContainer,
+    onPrimaryContainer = LightCloBlePalette.onPrimaryContainer,
+    secondary = LightCloBlePalette.primary,
+    onSecondary = LightCloBlePalette.onPrimary,
+    secondaryContainer = LightCloBlePalette.secondarySurface,
+    onSecondaryContainer = LightCloBlePalette.textPrimary,
+    tertiary = LightCloBlePalette.starRating,
+    onTertiary = LightCloBlePalette.textPrimary,
+    background = LightCloBlePalette.background,
+    onBackground = LightCloBlePalette.textPrimary,
+    surface = LightCloBlePalette.surface,
+    onSurface = LightCloBlePalette.textPrimary,
+    surfaceVariant = LightCloBlePalette.secondarySurface,
+    onSurfaceVariant = LightCloBlePalette.textSecondary,
+    outline = LightCloBlePalette.outline,
+    outlineVariant = LightCloBlePalette.outline,
+    error = LightCloBlePalette.dangerText,
+    errorContainer = LightCloBlePalette.dangerContainer
 )
 
 private val CloBleDarkColorScheme = darkColorScheme(
-    primary = CloBleColors.PrimarySoft,
-    onPrimary = Color(0xFF0A1429),
-    primaryContainer = Color(0xFF1E325C),
-    onPrimaryContainer = Color(0xFFEAF4FF),
-    secondary = CloBleColors.PrimarySoft,
-    onSecondary = Color(0xFF0A1429),
-    secondaryContainer = Color(0xFF1A2336),
-    onSecondaryContainer = Color(0xFFEAF4FF),
-    tertiary = CloBleColors.StarRating,
-    onTertiary = CloBleColors.TextPrimary,
-    background = Color(0xFF0F141E),
-    onBackground = Color(0xFFF5F7FA),
-    surface = Color(0xFF151C28),
-    onSurface = Color(0xFFF5F7FA),
-    surfaceVariant = Color(0xFF1E2738),
-    onSurfaceVariant = Color(0xFFB0BAC9),
-    outline = Color(0xFF2E3B52),
-    outlineVariant = Color(0xFF2E3B52)
+    primary = DarkCloBlePalette.primary,
+    onPrimary = DarkCloBlePalette.onPrimary,
+    primaryContainer = DarkCloBlePalette.primaryContainer,
+    onPrimaryContainer = DarkCloBlePalette.onPrimaryContainer,
+    secondary = DarkCloBlePalette.primarySoft,
+    onSecondary = DarkCloBlePalette.onPrimary,
+    secondaryContainer = DarkCloBlePalette.secondarySurface,
+    onSecondaryContainer = DarkCloBlePalette.onPrimaryContainer,
+    tertiary = DarkCloBlePalette.starRating,
+    onTertiary = DarkCloBlePalette.onPrimary,
+    background = DarkCloBlePalette.background,
+    onBackground = DarkCloBlePalette.textPrimary,
+    surface = DarkCloBlePalette.surface,
+    onSurface = DarkCloBlePalette.textPrimary,
+    surfaceVariant = DarkCloBlePalette.secondarySurface,
+    onSurfaceVariant = DarkCloBlePalette.textSecondary,
+    outline = DarkCloBlePalette.outline,
+    outlineVariant = DarkCloBlePalette.outline,
+    error = DarkCloBlePalette.dangerText,
+    errorContainer = DarkCloBlePalette.dangerContainer
 )
 
 val CloBleShapes = Shapes(
@@ -71,10 +74,11 @@ val CloBleShapes = Shapes(
 
 @Composable
 fun CloBleTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val palette = if (darkTheme) DarkCloBlePalette else LightCloBlePalette
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
@@ -94,10 +98,12 @@ fun CloBleTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = CloBleTypography,
-        shapes = CloBleShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalCloBlePalette provides palette) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = CloBleTypography,
+            shapes = CloBleShapes,
+            content = content
+        )
+    }
 }

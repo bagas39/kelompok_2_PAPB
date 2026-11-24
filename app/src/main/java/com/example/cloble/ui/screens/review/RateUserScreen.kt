@@ -34,8 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -66,23 +68,17 @@ fun RateUserScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Box(
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .background(CloBleColors.Background)
         ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             when {
                 uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = CloBleColors.Primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                    CloBleLoadingState("Memuat data pertukaran...")
                 }
 
                 uiState.matchDetail == null -> {
@@ -304,6 +300,7 @@ fun RateUserScreen(
                     }
                 }
             }
+        }
         }
     }
 }

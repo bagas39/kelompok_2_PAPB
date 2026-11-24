@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.domain.model.DiscoverFilter
 import com.example.cloble.ui.components.CloBleChoiceChipRow
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
 import com.example.cloble.ui.components.CloBleOutlinedButton
@@ -66,10 +67,15 @@ fun FilterScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Column(
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
                 .navigationBarsPadding()
                 .imePadding()
                 .verticalScroll(scrollState)
@@ -207,6 +213,7 @@ fun FilterScreen(
                         .testTag("btn_apply_filter")
                 )
             }
+        }
         }
     }
 }

@@ -9,17 +9,20 @@ import com.example.cloble.CloBleApplication
 import com.example.cloble.data.remote.SupabaseDataInvalidator
 import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.model.DiscoverFilter
+import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.DiscoveryMatchRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.SendInterestResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
@@ -36,6 +39,7 @@ data class DiscoverUiState(
     val unreadNotificationCount: Int = 0,
     val isLoading: Boolean = true,
     val isActionInProgress: Boolean = false,
+    val loadErrorMessage: String? = null,
     val bannerMessage: String? = null,
     val requiresBarterItemCta: Boolean = false,
     val currentUserId: Long? = null
@@ -82,6 +86,7 @@ class DiscoverViewModel(
 
     private val _events = MutableSharedFlow<DiscoverNavigationEvent>()
     val events: SharedFlow<DiscoverNavigationEvent> = _events.asSharedFlow()
+    private var candidatesJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -134,7 +139,12 @@ class DiscoverViewModel(
             }
         }
 
-        viewModelScope.launch {
+        startObservingCandidates()
+    }
+
+    private fun startObservingCandidates() {
+        candidatesJob?.cancel()
+        candidatesJob = viewModelScope.launch {
             var lastCandidatesUserId: Long? = null
             var lastCandidatesFilter: DiscoverFilter? = null
             authRepository.observeLoggedInUserId()
@@ -155,6 +165,14 @@ class DiscoverViewModel(
                         }
                     }
                 }
+                .catch {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            loadErrorMessage = "Gagal memuat rekomendasi pakaian. Periksa koneksi internet Anda lalu coba lagi."
+                        )
+                    }
+                }
                 .collect { (emittedUserId, emittedFilter, candidates) ->
                     val resetToHead = lastCandidatesUserId != emittedUserId ||
                         (lastCandidatesFilter != null && lastCandidatesFilter != emittedFilter)
@@ -173,11 +191,18 @@ class DiscoverViewModel(
                         current.copy(
                             candidates = candidates,
                             currentIndex = newIndex,
-                            isLoading = false
+                            isLoading = false,
+                            loadErrorMessage = null
                         )
                     }
                 }
         }
+    }
+
+    fun retryLoadCandidates() {
+        _uiState.update { it.copy(isLoading = true, loadErrorMessage = null) }
+        dataInvalidator?.invalidateDiscovery()
+        startObservingCandidates()
     }
 
     fun refreshDiscover() {
@@ -246,7 +271,7 @@ class DiscoverViewModel(
                         val message = if (result.matchId != null) {
                             "Match terverifikasi! Anda dan ${candidate.ownerName} saling menyukai pakaian barter!"
                         } else {
-                            "Tawaran interest untuk \"${candidate.item.name}\" berhasil dikirim!"
+                            "Minat barter untuk \"${candidate.item.name}\" berhasil dikirim!"
                         }
                         _uiState.update { current ->
                             val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
@@ -271,13 +296,20 @@ class DiscoverViewModel(
                         }
                     }
                     is SendInterestResult.AlreadyInterested -> {
+                        val statusLabel = when (result.existingStatus) {
+                            InterestStatus.PENDING -> "Menunggu"
+                            InterestStatus.ACCEPTED_MATCHED -> "Diterima"
+                            InterestStatus.DECLINED -> "Ditolak"
+                            InterestStatus.RESOLVED_BY_MATCH -> "Sudah Match"
+                            InterestStatus.INVALIDATED -> "Tidak Berlaku"
+                        }
                         _uiState.update { current ->
                             val remaining = current.candidates.filterNot { it.item.id == candidate.item.id }
                             val nextIdx = if (remaining.isEmpty()) 0 else current.currentIndex.coerceIn(0, remaining.lastIndex)
                             current.copy(
                                 candidates = remaining,
                                 currentIndex = nextIdx,
-                                bannerMessage = "Anda sudah pernah mengirim ketertarikan untuk pakaian ini (${result.existingStatus.name}).",
+                                bannerMessage = "Anda sudah pernah mengirim ketertarikan untuk pakaian ini ($statusLabel).",
                                 requiresBarterItemCta = false
                             )
                         }
@@ -317,7 +349,7 @@ class DiscoverViewModel(
                     else -> {
                         _uiState.update {
                             it.copy(
-                                bannerMessage = "Gagal mengirim interest. Silakan coba lagi.",
+                                bannerMessage = "Gagal mengirim minat barter. Silakan coba lagi.",
                                 requiresBarterItemCta = false
                             )
                         }

@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,10 +39,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.MatchStatus
 import com.example.cloble.domain.model.NotificationFeedItem
 import com.example.cloble.domain.model.NotificationType
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
+import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
+import com.example.cloble.ui.components.cloBleFocusRing
 import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,20 +98,51 @@ fun NotificationsScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 680.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
+            CloBleLoadingState("Memuat notifikasi...")
+        } else if (uiState.errorMessage != null && uiState.notifications.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = CloBleColors.Surface,
+                    border = BorderStroke(1.dp, CloBleColors.Outline),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CloBleStatusInfoBox(
+                            tone = CloBleInfoBoxTone.WARNING,
+                            title = "Gagal Memuat",
+                            message = uiState.errorMessage!!,
+                            modifier = Modifier.testTag("notifications_error_box")
+                        )
+                        CloBlePrimaryButton(
+                            text = "Muat Ulang",
+                            onClick = viewModel::retry,
+                            modifier = Modifier.testTag("btn_retry_notifications")
+                        )
+                    }
+                }
             }
         } else if (uiState.notifications.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -134,7 +171,6 @@ fun NotificationsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .testTag("list_notifications"),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -145,18 +181,18 @@ fun NotificationsScreen(
 
                     val cardClickModifier = when (resolveNotificationCardAction(item)) {
                         NotificationCardAction.REPLY_INTEREST -> {
-                            Modifier.clickable {
+                            Modifier.clickable(role = Role.Button) {
                                 viewModel.markNotificationRead(item.id)
                                 onNavigateToReplyInterest(item.counterpartUserId!!, item.relatedInterestId!!)
                             }
                         }
                         NotificationCardAction.OPEN_CONVERSATION -> {
-                            Modifier.clickable {
+                            Modifier.clickable(role = Role.Button) {
                                 onNavigateToConversation(item.relatedMatchId!!)
                             }
                         }
                         NotificationCardAction.RATE_USER -> {
-                            Modifier.clickable {
+                            Modifier.clickable(role = Role.Button) {
                                 onNavigateToRateUser(item.relatedMatchId!!, item.counterpartUserId ?: -1L)
                             }
                         }
@@ -164,12 +200,13 @@ fun NotificationsScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = MaterialTheme.shapes.large,
                         color = bgColor,
                         border = BorderStroke(1.dp, borderColor),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(MaterialTheme.shapes.large)
+                            .cloBleFocusRing(MaterialTheme.shapes.large)
                             .then(cardClickModifier)
                             .testTag("notification_item_${item.id}")
                     ) {
@@ -222,7 +259,7 @@ fun NotificationsScreen(
                                     } else if (!item.disabledReasonText.isNullOrEmpty()) {
                                         Text(
                                             text = item.disabledReasonText,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                             color = CloBleColors.TextSecondary
                                         )
                                     }
@@ -232,14 +269,14 @@ fun NotificationsScreen(
                                         MatchStatus.CANCELLED -> {
                                             Text(
                                                 text = "Match telah dibatalkan",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                                 color = CloBleColors.DangerText
                                             )
                                         }
                                         MatchStatus.COMPLETED -> {
                                             Text(
                                                 text = "Pertukaran telah selesai",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                                 color = CloBleColors.SuccessText
                                             )
                                             if (!item.hasReviewedMatch && item.relatedMatchId != null) {
@@ -275,7 +312,7 @@ fun NotificationsScreen(
                                     if (item.hasReviewedMatch) {
                                         Text(
                                             text = "Ulasan sudah dikirim",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                             color = CloBleColors.SuccessText
                                         )
                                     } else if (item.relatedMatchId != null) {
@@ -297,6 +334,7 @@ fun NotificationsScreen(
                     }
                 }
             }
+        }
         }
     }
 }

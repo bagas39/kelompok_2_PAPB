@@ -20,6 +20,7 @@ fun DeleteClothingConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = CloBleColors.Surface,
         title = {
             Text(
                 text = "Hapus Pakaian?",
@@ -42,7 +43,7 @@ fun DeleteClothingConfirmDialog(
                 Text(
                     text = "Hapus",
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFFDC2626)
+                    color = CloBleColors.DangerText
                 )
             }
         },

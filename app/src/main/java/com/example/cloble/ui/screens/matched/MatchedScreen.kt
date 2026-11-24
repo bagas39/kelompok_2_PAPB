@@ -42,8 +42,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.MatchStatus
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.ClothingPhotoSlot
@@ -68,22 +70,20 @@ fun MatchedScreen(
     Scaffold(
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            }
+            CloBleLoadingState("Memuat detail match...")
         } else {
             val detail = uiState.matchDetail
             if (detail == null) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 24.dp, vertical = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -117,13 +117,24 @@ fun MatchedScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Detail pertukaran tidak ditemukan atau Anda tidak memiliki akses ke Match ini.",
+                        text = uiState.errorMessage
+                            ?: "Detail pertukaran tidak ditemukan atau Anda tidak memiliki akses ke Match ini.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = CloBleColors.TextSecondary,
                         textAlign = TextAlign.Center
                     )
 
                     Spacer(modifier = Modifier.height(28.dp))
+
+                    CloBleOutlinedButton(
+                        text = "Muat Ulang",
+                        onClick = viewModel::retry,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_retry_matched")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     CloBlePrimaryButton(
                         text = "Kembali ke Jelajah",
@@ -150,7 +161,6 @@ fun MatchedScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
                         .verticalScroll(rememberScrollState())
                         .padding(
                             horizontal = if (isCompactHeight) 20.dp else 24.dp,
@@ -319,7 +329,7 @@ fun MatchedScreen(
                         Text(
                             text = "${detail.partnerName} (${detail.partnerCity})",
                             style = (if (isCompactHeight) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge)
-                                .copy(fontWeight = FontWeight.Medium),
+                                .copy(fontWeight = FontWeight.SemiBold),
                             color = CloBleColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.size(6.dp))
@@ -384,6 +394,7 @@ fun MatchedScreen(
                     }
                 }
             }
+        }
         }
 
         if (viewerPhotos.isNotEmpty()) {

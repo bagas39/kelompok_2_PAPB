@@ -15,8 +15,10 @@ import com.example.cloble.domain.repository.ProfileReviewRepository
 import com.example.cloble.domain.repository.WardrobeRepository
 import com.example.cloble.domain.result.ChangePasswordResult
 import com.example.cloble.domain.util.PasswordPolicy
+import com.example.cloble.ui.theme.AppThemeMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,7 +44,8 @@ data class MyProfileUiState(
     val isUpdatingPassword: Boolean = false,
     val passwordErrorMessage: String? = null,
     val passwordSuccessMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -50,7 +53,9 @@ class MyProfileViewModel(
     private val authRepository: AuthRepository,
     private val profileReviewRepository: ProfileReviewRepository,
     private val wardrobeRepository: WardrobeRepository,
-    private val discoveryMatchRepository: DiscoveryMatchRepository
+    private val discoveryMatchRepository: DiscoveryMatchRepository,
+    private val themeModeFlow: Flow<AppThemeMode> = flowOf(AppThemeMode.SYSTEM),
+    private val onSetThemeMode: suspend (AppThemeMode) -> Unit = {}
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MyProfileUiState())
@@ -64,6 +69,18 @@ class MyProfileViewModel(
 
     init {
         startObserving()
+        viewModelScope.launch {
+            themeModeFlow.collect { mode ->
+                _uiState.update { it.copy(themeMode = mode) }
+            }
+        }
+    }
+
+    fun setThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(themeMode = mode) }
+            onSetThemeMode(mode)
+        }
     }
 
     private fun startObserving() {
@@ -279,7 +296,9 @@ class MyProfileViewModel(
                     authRepository = app.container.authRepository,
                     profileReviewRepository = app.container.profileReviewRepository,
                     wardrobeRepository = app.container.wardrobeRepository,
-                    discoveryMatchRepository = app.container.discoveryMatchRepository
+                    discoveryMatchRepository = app.container.discoveryMatchRepository,
+                    themeModeFlow = app.container.sessionPrefs.themeModeFlow,
+                    onSetThemeMode = app.container.sessionPrefs::setThemeMode
                 )
             }
         }

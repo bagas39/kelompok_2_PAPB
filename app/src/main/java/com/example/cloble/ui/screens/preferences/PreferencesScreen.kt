@@ -44,9 +44,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cloble.domain.model.CloBleConstants
 import com.example.cloble.ui.components.CloBleChoiceChipRow
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleLocationPickerDialog
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
@@ -83,20 +85,18 @@ fun PreferencesScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            }
+            CloBleLoadingState("Memuat preferensi barter...")
         } else {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .imePadding()
                     .navigationBarsPadding()
                     .verticalScroll(scrollState)
@@ -311,6 +311,7 @@ fun PreferencesScreen(
                 )
             }
             }
+        }
         }
     }
 

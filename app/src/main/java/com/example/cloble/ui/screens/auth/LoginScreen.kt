@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
@@ -63,10 +64,15 @@ fun LoginScreen(
     Scaffold(
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Column(
+        CloBleConstrainedContent(
+            maxWidth = 520.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 28.dp),
@@ -89,7 +95,7 @@ fun LoginScreen(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Tukar pakaian preloved dengan aman di sekitarmu",
+                text = "Tukar pakaian preloved dengan aman di sekitar Anda",
                 style = MaterialTheme.typography.bodyMedium,
                 color = CloBleColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -173,7 +179,7 @@ fun LoginScreen(
                             IconButton(
                                 onClick = viewModel::togglePasswordVisibility,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(44.dp)
                                     .testTag("btn_toggle_login_password")
                             ) {
                                 Icon(
@@ -254,6 +260,7 @@ fun LoginScreen(
                     )
                 }
             }
+        }
         }
     }
 
@@ -369,7 +376,7 @@ fun LoginScreen(
                                     onClick = viewModel::toggleResetNewPasswordVisibility,
                                     enabled = !uiState.isResetSubmitting,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(44.dp)
                                         .testTag("btn_toggle_reset_new_password")
                                 ) {
                                     Icon(
@@ -411,7 +418,7 @@ fun LoginScreen(
                                     onClick = viewModel::toggleResetConfirmPasswordVisibility,
                                     enabled = !uiState.isResetSubmitting,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(44.dp)
                                         .testTag("btn_toggle_reset_confirm_password")
                                 ) {
                                     Icon(

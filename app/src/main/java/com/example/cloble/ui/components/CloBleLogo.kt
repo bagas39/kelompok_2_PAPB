@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.cloble.ui.theme.CloBleBrandColors
 import com.example.cloble.ui.theme.CloBleColors
 
 @Composable
@@ -41,14 +42,14 @@ fun CloBleLogoMark(
             val corner = w * 0.24f
 
             drawRoundRect(
-                color = CloBleColors.Primary,
+                color = CloBleBrandColors.Cobalt,
                 topLeft = Offset.Zero,
                 size = Size(w, h),
                 cornerRadius = CornerRadius(corner, corner)
             )
 
             drawRoundRect(
-                color = CloBleColors.OnPrimaryContainer,
+                color = CloBleBrandColors.CobaltDeep,
                 topLeft = Offset(w * 0.04f, h * 0.04f),
                 size = Size(w * 0.92f, h * 0.92f),
                 cornerRadius = CornerRadius(corner * 0.88f, corner * 0.88f),
@@ -64,7 +65,7 @@ fun CloBleLogoMark(
             val ringSize = Size(ringRadius * 2f, ringRadius * 2f)
 
             drawArc(
-                color = CloBleColors.PrimaryContainer,
+                color = CloBleBrandColors.IceRing,
                 startAngle = -150f,
                 sweepAngle = 120f,
                 useCenter = false,
@@ -80,12 +81,12 @@ fun CloBleLogoMark(
             }
             drawPath(
                 path = topArrow,
-                color = CloBleColors.PrimaryContainer,
+                color = CloBleBrandColors.IceRing,
                 style = Stroke(width = ringStroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
             drawArc(
-                color = CloBleColors.PrimaryContainer,
+                color = CloBleBrandColors.IceRing,
                 startAngle = 30f,
                 sweepAngle = 120f,
                 useCenter = false,
@@ -101,7 +102,7 @@ fun CloBleLogoMark(
             }
             drawPath(
                 path = bottomArrow,
-                color = CloBleColors.PrimaryContainer,
+                color = CloBleBrandColors.IceRing,
                 style = Stroke(width = ringStroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,6 +53,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -69,10 +72,12 @@ import com.example.cloble.BuildConfig
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
 import com.example.cloble.ui.components.CloBleLabeledTextField
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -81,6 +86,8 @@ import com.example.cloble.ui.components.CloBleTopBarAction
 import com.example.cloble.ui.components.LabeledPhoto
 import com.example.cloble.ui.components.LabeledPhotoListSaver
 import com.example.cloble.ui.components.UserSummaryHeader
+import com.example.cloble.ui.components.cloBleFocusRing
+import com.example.cloble.ui.theme.AppThemeMode
 import com.example.cloble.ui.theme.CloBleColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -135,21 +142,19 @@ fun MyProfileScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 680.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            }
+            CloBleLoadingState("Memuat profil...")
         } else {
             val user = uiState.userProfile
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -188,7 +193,7 @@ fun MyProfileScreen(
                             IconButton(
                                 onClick = viewModel::clearPasswordSuccessMessage,
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(44.dp)
                                     .testTag("btn_dismiss_password_success")
                             ) {
                                 Icon(
@@ -504,6 +509,69 @@ fun MyProfileScreen(
                             modifier = Modifier.testTag("btn_go_to_preferences")
                         )
                         HorizontalDivider(color = CloBleColors.Outline)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp)
+                                .testTag("theme_mode_selector"),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Tema Tampilan",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = CloBleColors.TextPrimary
+                                )
+                                Text(
+                                    text = "Pilih mode Terang, Gelap, atau ikuti sistem perangkat",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CloBleColors.TextSecondary
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AppThemeMode.entries.forEach { mode ->
+                                    val isSelected = uiState.themeMode == mode
+                                    val chipShape = MaterialTheme.shapes.medium
+                                    Surface(
+                                        shape = chipShape,
+                                        color = if (isSelected) CloBleColors.Primary else CloBleColors.SecondarySurface,
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (isSelected) CloBleColors.Primary else CloBleColors.Outline
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .defaultMinSize(minHeight = 44.dp)
+                                            .clip(chipShape)
+                                            .cloBleFocusRing(chipShape)
+                                            .clickable(role = Role.RadioButton) {
+                                                viewModel.setThemeMode(mode)
+                                            }
+                                            .semantics(mergeDescendants = true) {
+                                                selected = isSelected
+                                            }
+                                            .testTag("theme_mode_${mode.storageKey}")
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)
+                                        ) {
+                                            Text(
+                                                text = mode.label,
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = if (isSelected) CloBleColors.OnPrimary else CloBleColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = CloBleColors.Outline)
                         ProfileMenuRow(
                             icon = CloBleIcons.EditPencil,
                             title = "Ubah Password",
@@ -562,6 +630,7 @@ fun MyProfileScreen(
                         .testTag("text_app_version")
                 )
             }
+        }
         }
     }
 
@@ -626,7 +695,7 @@ fun MyProfileScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(CloBleColors.TextPrimary.copy(alpha = 0.45f))
+                    .background(CloBleColors.DarkScrim.copy(alpha = 0.60f))
                     .statusBarsPadding()
                     .navigationBarsPadding()
                     .imePadding()
@@ -691,7 +760,7 @@ fun MyProfileScreen(
                                     onClick = viewModel::toggleCurrentPasswordVisibility,
                                     enabled = !uiState.isUpdatingPassword,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(44.dp)
                                         .testTag("btn_toggle_profile_current_password")
                                 ) {
                                     Icon(
@@ -728,7 +797,7 @@ fun MyProfileScreen(
                                     onClick = viewModel::toggleNewPasswordVisibility,
                                     enabled = !uiState.isUpdatingPassword,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(44.dp)
                                         .testTag("btn_toggle_profile_new_password")
                                 ) {
                                     Icon(
@@ -770,7 +839,7 @@ fun MyProfileScreen(
                                     onClick = viewModel::toggleConfirmPasswordVisibility,
                                     enabled = !uiState.isUpdatingPassword,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(44.dp)
                                         .testTag("btn_toggle_profile_confirm_password")
                                 ) {
                                     Icon(

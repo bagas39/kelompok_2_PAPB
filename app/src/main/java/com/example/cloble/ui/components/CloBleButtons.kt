@@ -36,7 +36,7 @@ fun CloBlePrimaryButton(
     leadingSymbol: String? = null,
     accessibilityLabel: String = text
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.medium
     val borderColor = if (enabled) CloBleColors.Primary else CloBleColors.Outline
 
     Button(
@@ -54,6 +54,7 @@ fun CloBlePrimaryButton(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
+            .cloBleFocusRing(shape)
             .semantics {
                 contentDescription = accessibilityLabel
             }
@@ -95,7 +96,7 @@ fun CloBleOutlinedButton(
     leadingIcon: ImageVector? = null,
     accessibilityLabel: String = text
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.medium
     val borderColor = if (enabled) CloBleColors.Primary else CloBleColors.Outline
 
     OutlinedButton(
@@ -113,6 +114,7 @@ fun CloBleOutlinedButton(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
+            .cloBleFocusRing(shape)
             .semantics {
                 contentDescription = accessibilityLabel
             }

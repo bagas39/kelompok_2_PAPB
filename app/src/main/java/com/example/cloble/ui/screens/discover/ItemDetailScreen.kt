@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -51,8 +52,10 @@ import coil.compose.AsyncImage
 import com.example.cloble.domain.model.InterestStatus
 import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleOutlinedButton
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
@@ -98,15 +101,14 @@ fun ItemDetailScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = CloBleColors.Primary)
-            }
+            CloBleLoadingState("Memuat detail pakaian...")
         } else {
             val item = uiState.item
             val owner = uiState.owner
@@ -114,7 +116,6 @@ fun ItemDetailScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -185,7 +186,7 @@ fun ItemDetailScreen(
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clickable {
+                                            .clickable(role = Role.Button) {
                                                 viewerInitialIndex = page
                                                 viewerPhotos = itemPhotos
                                             }
@@ -210,22 +211,29 @@ fun ItemDetailScreen(
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
-                                        .padding(12.dp)
-                                        .size(34.dp)
+                                        .padding(7.dp)
+                                        .size(44.dp)
                                         .clip(CircleShape)
-                                        .background(CloBleColors.DarkScrim.copy(alpha = 0.72f))
-                                        .clickable {
+                                        .clickable(role = Role.Button) {
                                             viewerInitialIndex = pagerState.currentPage
                                             viewerPhotos = itemPhotos
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = CloBleIcons.ZoomIn,
-                                        contentDescription = "Perbesar foto",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(CloBleColors.DarkScrim.copy(alpha = 0.72f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = CloBleIcons.ZoomIn,
+                                            contentDescription = "Perbesar foto",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -561,6 +569,7 @@ fun ItemDetailScreen(
                     )
                 }
             }
+        }
         }
 
         if (viewerPhotos.isNotEmpty()) {

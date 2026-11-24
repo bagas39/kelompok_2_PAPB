@@ -50,6 +50,7 @@ import com.example.cloble.ui.components.CloBleBottomTab
 import com.example.cloble.ui.components.CloBleFullscreenImageViewer
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
@@ -126,7 +127,7 @@ fun WardrobeScreen(
                     onNavigateToAddClothing()
                 },
                 containerColor = CloBleColors.Primary,
-                contentColor = Color.White,
+                contentColor = CloBleColors.OnPrimary,
                 modifier = Modifier.testTag("fab_add_clothing")
             ) {
                 Icon(
@@ -214,7 +215,7 @@ fun WardrobeScreen(
                         IconButton(
                             onClick = viewModel::clearErrorMessage,
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(44.dp)
                                 .testTag("btn_dismiss_wardrobe_error")
                         ) {
                             Icon(
@@ -229,14 +230,7 @@ fun WardrobeScreen(
             }
 
             if (uiState.isLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = CloBleColors.Primary)
-                }
+                CloBleLoadingState("Memuat koleksi lemari...")
             } else if (uiState.items.isEmpty() && uiState.loadErrorMessage != null) {
                 Box(
                     modifier = Modifier
@@ -334,7 +328,7 @@ fun WardrobeScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Adaptive(minSize = 160.dp),
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag("list_wardrobe_items"),

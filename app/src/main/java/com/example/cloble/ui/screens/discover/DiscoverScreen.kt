@@ -1,5 +1,6 @@
 package com.example.cloble.ui.screens.discover
 
+import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,8 +52,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,13 +72,16 @@ import com.example.cloble.domain.model.DiscoverCandidate
 import com.example.cloble.domain.util.DistanceCalculator
 import com.example.cloble.ui.components.CloBleBottomNavBar
 import com.example.cloble.ui.components.CloBleBottomTab
+import com.example.cloble.ui.components.CloBleConstrainedContent
 import com.example.cloble.ui.components.CloBleIcons
 import com.example.cloble.ui.components.CloBleInfoBoxTone
+import com.example.cloble.ui.components.CloBleLoadingState
 import com.example.cloble.ui.components.CloBleLogoMark
 import com.example.cloble.ui.components.CloBlePrimaryButton
 import com.example.cloble.ui.components.CloBleStatusInfoBox
 import com.example.cloble.ui.components.CloBleTopAppBar
 import com.example.cloble.ui.components.CloBleTopBarAction
+import com.example.cloble.ui.components.cloBleFocusRing
 import com.example.cloble.ui.theme.CloBleColors
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -94,6 +101,14 @@ fun DiscoverScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val reduceMotion = remember(context) {
+        try {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        } catch (_: Exception) {
+            false
+        }
+    }
     val isCompactHeight = LocalConfiguration.current.screenHeightDp < 520
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var animatedOffset by remember { mutableFloatStateOf(0f) }
@@ -140,6 +155,17 @@ fun DiscoverScreen(
     val currentOffset = if (isAnimating) animatedOffset else dragOffset
 
     fun animateOffsetTo(target: Float, onEnd: () -> Unit = {}) {
+        if (reduceMotion) {
+            animatedOffset = target
+            onEnd()
+            if (!viewModel.uiState.value.isActionInProgress) {
+                isSubmitting = false
+                dragOffset = 0f
+                animatedOffset = 0f
+                isAnimating = false
+            }
+            return
+        }
         isAnimating = true
         coroutineScope.launch {
             Animatable(dragOffset).animateTo(
@@ -159,6 +185,12 @@ fun DiscoverScreen(
     }
 
     fun springBack() {
+        if (reduceMotion) {
+            dragOffset = 0f
+            animatedOffset = 0f
+            isAnimating = false
+            return
+        }
         isAnimating = true
         coroutineScope.launch {
             Animatable(dragOffset).animateTo(
@@ -225,10 +257,15 @@ fun DiscoverScreen(
         },
         containerColor = CloBleColors.Background
     ) { innerPadding ->
-        Column(
+        CloBleConstrainedContent(
+            maxWidth = 640.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
                 .padding(
                     horizontal = if (isCompactHeight) 14.dp else 18.dp,
                     vertical = if (isCompactHeight) 6.dp else 12.dp
@@ -263,15 +300,25 @@ fun DiscoverScreen(
                             modifier = Modifier.testTag("discover_location_radius_info")
                         )
                     }
-                    Text(
-                        text = "Ubah",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = CloBleColors.Primary,
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onNavigateToPreferences)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .cloBleFocusRing(MaterialTheme.shapes.extraSmall)
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = "Ubah lokasi dan radius",
+                                onClick = onNavigateToPreferences
+                            )
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Text(
+                            text = "Ubah Lokasi",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = CloBleColors.Primary
+                        )
+                    }
                 }
             }
 
@@ -284,13 +331,17 @@ fun DiscoverScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = CloBleColors.PrimaryContainer,
                         border = BorderStroke(1.dp, CloBleColors.PrimarySoft),
-                        modifier = Modifier.clickable(onClick = onNavigateToFilter)
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 44.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .cloBleFocusRing(MaterialTheme.shapes.extraSmall)
+                            .clickable(role = Role.Button, onClick = onNavigateToFilter)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -309,20 +360,26 @@ fun DiscoverScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = CloBleColors.Surface,
                         border = BorderStroke(1.dp, CloBleColors.Outline),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = viewModel::resetFilter)
+                            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .cloBleFocusRing(MaterialTheme.shapes.extraSmall)
+                            .clickable(role = Role.Button, onClick = viewModel::resetFilter)
                             .testTag("btn_quick_reset_filter")
                     ) {
-                        Text(
-                            text = "Reset",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = CloBleColors.TextSecondary,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Reset Filter",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = CloBleColors.TextSecondary
+                            )
+                        }
                     }
                 }
             }
@@ -355,11 +412,40 @@ fun DiscoverScreen(
             }
 
             if (uiState.isLoading) {
+                CloBleLoadingState(
+                    message = "Memuat rekomendasi pakaian...",
+                    modifier = Modifier.weight(1f)
+                )
+            } else if (uiState.loadErrorMessage != null && candidate == null) {
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = CloBleColors.Primary)
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = CloBleColors.Surface,
+                        border = BorderStroke(1.dp, CloBleColors.Outline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CloBleStatusInfoBox(
+                                tone = CloBleInfoBoxTone.WARNING,
+                                title = "Gagal Memuat",
+                                message = uiState.loadErrorMessage!!,
+                                modifier = Modifier.testTag("discover_load_error_box")
+                            )
+                            CloBlePrimaryButton(
+                                text = "Muat Ulang",
+                                onClick = viewModel::retryLoadCandidates,
+                                modifier = Modifier.testTag("btn_retry_discover")
+                            )
+                        }
+                    }
                 }
             } else if (candidate != null) {
                 val actionsEnabled = !isSubmitting && !isAnimating && !uiState.isActionInProgress
@@ -443,7 +529,7 @@ fun DiscoverScreen(
                                 .shadow(6.dp, RoundedCornerShape(20.dp))
                                 .clip(RoundedCornerShape(20.dp))
                                 .border(1.dp, CloBleColors.Outline, RoundedCornerShape(20.dp))
-                                .clickable(enabled = actionsEnabled) {
+                                .clickable(enabled = actionsEnabled, role = Role.Button) {
                                     onNavigateToItemDetail(candidate.item.id)
                                 }
                                 .testTag("discover_candidate_card"),
@@ -609,7 +695,7 @@ fun DiscoverScreen(
                                 textAlign = TextAlign.Center
                             )
                             Text(
-                                text = "Semua pakaian di sekitarmu sudah habis atau belum ada yang cocok dengan filter saat ini.",
+                                text = "Semua pakaian di sekitar Anda sudah habis atau belum ada yang cocok dengan filter saat ini.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = CloBleColors.TextSecondary,
                                 textAlign = TextAlign.Center
@@ -622,19 +708,27 @@ fun DiscoverScreen(
                             )
                             if (uiState.activeFilterCount > 0) {
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Atau reset semua filter",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = CloBleColors.Primary,
+                                Box(
                                     modifier = Modifier
-                                        .clickable(onClick = viewModel::resetFilter)
-                                        .padding(8.dp)
-                                )
+                                        .defaultMinSize(minHeight = 44.dp)
+                                        .clip(MaterialTheme.shapes.extraSmall)
+                                        .cloBleFocusRing(MaterialTheme.shapes.extraSmall)
+                                        .clickable(role = Role.Button, onClick = viewModel::resetFilter)
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Atau reset semua filter",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = CloBleColors.Primary
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -671,7 +765,7 @@ private fun DiscoverLikeActionButton(
         backgroundColor = CloBleColors.Primary,
         borderColor = null,
         icon = CloBleIcons.HeartFilled,
-        iconTint = Color.White,
+        iconTint = CloBleColors.OnPrimary,
         iconSize = if (size < 60.dp) 24.dp else 30.dp,
         contentDescription = "Kirim tawaran barter",
         testTag = "btn_swipe_like",
@@ -866,7 +960,7 @@ private fun DiscoverCandidateMetaColumn(
 
             Text(
                 text = "${candidate.ownerName} · ${candidate.ownerCity}",
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                 color = CloBleColors.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

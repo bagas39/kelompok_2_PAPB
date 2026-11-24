@@ -5,21 +5,30 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.cloble.ui.navigation.CloBleDestinations
 import com.example.cloble.ui.navigation.CloBleNavGraph
+import com.example.cloble.ui.theme.AppThemeMode
 import com.example.cloble.ui.theme.CloBleTheme
 import com.example.cloble.util.SystemNotificationHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -54,7 +63,29 @@ class MainActivity : ComponentActivity() {
         observeIncomingSystemNotifications()
 
         setContent {
-            CloBleTheme {
+            val themeModeFlow = remember {
+                (application as? CloBleApplication)?.container?.sessionPrefs?.themeModeFlow
+                    ?: flowOf(AppThemeMode.SYSTEM)
+            }
+            val themeMode by themeModeFlow.collectAsStateWithLifecycle(initialValue = AppThemeMode.SYSTEM)
+            val systemInDark = isSystemInDarkTheme()
+            val isDarkTheme = when (themeMode) {
+                AppThemeMode.SYSTEM -> systemInDark
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.DARK -> true
+            }
+
+            LaunchedEffect(isDarkTheme) {
+                val transparent = Color.Transparent.toArgb()
+                val darkBarStyle = SystemBarStyle.dark(transparent)
+                val lightBarStyle = SystemBarStyle.light(transparent, transparent)
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDarkTheme) darkBarStyle else lightBarStyle,
+                    navigationBarStyle = if (isDarkTheme) darkBarStyle else lightBarStyle
+                )
+            }
+
+            CloBleTheme(darkTheme = isDarkTheme) {
                 CloBleNavGraph(
                     pendingRoute = pendingRoute,
                     pendingRouteTargetUserId = pendingRouteTargetUserId,

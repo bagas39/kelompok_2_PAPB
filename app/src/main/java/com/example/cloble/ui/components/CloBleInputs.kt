@@ -108,7 +108,12 @@ fun CloBleLabeledTextField(
                         .clip(shape)
                         .background(containerColor)
                         .border(width = if (isFocused) 1.5.dp else 1.dp, color = borderColor, shape = shape)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(
+                            start = 12.dp,
+                            end = if (trailingIcon != null) 4.dp else 12.dp,
+                            top = if (singleLine && trailingIcon != null) 2.dp else 10.dp,
+                            bottom = if (singleLine && trailingIcon != null) 2.dp else 10.dp
+                        ),
                     verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -145,7 +150,7 @@ fun CloBleDropdownField(
     enabled: Boolean = true
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.medium
     val borderColor = if (expanded) CloBleColors.Primary else CloBleColors.Outline
     val displayText = selectedValue.ifBlank { placeholder }
     val displayTextColor = if (selectedValue.isBlank()) {
@@ -170,6 +175,7 @@ fun CloBleDropdownField(
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 48.dp)
                     .clip(shape)
+                    .cloBleFocusRing(shape)
                     .background(if (enabled) CloBleColors.Surface else CloBleColors.SecondarySurface)
                     .border(width = 1.dp, color = borderColor, shape = shape)
                     .clickable(
@@ -267,28 +273,32 @@ fun CloBleChoiceChipRow(
             options.forEach { option ->
                 val isSelected = option in selectedOptions
                 val bgColor = when {
-                    !enabled && isSelected -> CloBleColors.Primary.copy(alpha = 0.6f)
+                    !enabled && isSelected -> CloBleColors.PrimaryContainer
                     !enabled -> CloBleColors.SecondarySurface
                     isSelected -> CloBleColors.Primary
                     else -> CloBleColors.Surface
                 }
                 val borderColor = when {
-                    !enabled && isSelected -> CloBleColors.Primary.copy(alpha = 0.6f)
+                    !enabled && isSelected -> CloBleColors.Outline
                     isSelected -> CloBleColors.Primary
                     else -> CloBleColors.Outline
                 }
                 val textColor = when {
+                    !enabled && isSelected -> CloBleColors.OnPrimaryContainer
                     isSelected -> CloBleColors.OnPrimary
                     !enabled -> CloBleColors.TextSecondary
                     else -> CloBleColors.TextPrimary
                 }
+                val chipShape = MaterialTheme.shapes.medium
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = chipShape,
                     color = bgColor,
                     border = BorderStroke(1.dp, borderColor),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .defaultMinSize(minHeight = 44.dp)
+                        .clip(chipShape)
+                        .cloBleFocusRing(chipShape)
                         .clickable(
                             enabled = enabled,
                             role = Role.Checkbox,
