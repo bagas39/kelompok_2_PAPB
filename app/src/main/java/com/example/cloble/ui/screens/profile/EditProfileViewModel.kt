@@ -118,6 +118,12 @@ class EditProfileViewModel(
         if (current.isUploadingAvatar || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingAvatar = true, errorMessage = null) }
+            if (_uiState.value.userId == null) {
+                val hydratedUserId = authRepository.observeLoggedInUserId().firstOrNull()
+                if (hydratedUserId != null) {
+                    _uiState.update { it.copy(userId = hydratedUserId) }
+                }
+            }
             val isRemoteInput = sourceUriString.startsWith("http://") || sourceUriString.startsWith("https://")
             val persisted = profileReviewRepository.persistAvatarPhoto(sourceUriString)
             if (persisted != null) {
@@ -128,10 +134,13 @@ class EditProfileViewModel(
                 }
                 _uiState.update { it.copy(avatarUri = persisted, isUploadingAvatar = false) }
             } else {
+                val specificError = (profileReviewRepository as? SupabaseProfileReviewRepository)
+                    ?.consumeLastPhotoUploadError()
                 _uiState.update {
                     it.copy(
                         isUploadingAvatar = false,
-                        errorMessage = "Gagal memproses foto profil. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
+                        errorMessage = specificError
+                            ?: "Gagal memproses foto profil. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
                         errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }

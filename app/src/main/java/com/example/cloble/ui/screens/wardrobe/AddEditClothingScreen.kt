@@ -105,13 +105,11 @@ fun AddEditClothingScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        val capturedUri = pendingCameraUriString
+        val localCapturedUri = pendingCameraUriString
         pendingCameraUriString = null
-        if (success && !capturedUri.isNullOrBlank()) {
-            permissionDeniedMessage = null
-            viewModel.onPhotoSelected(capturedUri, activeSlotIndex)
-        } else {
-            deleteCameraTempFileForUri(context, capturedUri)
+        val staleVmUri = viewModel.onCameraCaptureResult(success)
+        if (!success) {
+            deleteCameraTempFileForUri(context, staleVmUri ?: localCapturedUri)
         }
     }
 
@@ -122,10 +120,12 @@ fun AddEditClothingScreen(
             return
         }
         pendingCameraUriString = tempUri.toString()
+        viewModel.onCameraCaptureStarted(tempUri.toString(), activeSlotIndex)
         try {
             cameraLauncher.launch(tempUri)
         } catch (_: Exception) {
             pendingCameraUriString = null
+            viewModel.onCameraCaptureResult(false)
             deleteCameraTempFileForUri(context, tempUri.toString())
             permissionDeniedMessage = "Aplikasi kamera tidak tersedia di perangkat ini."
         }

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.cloble.CloBleApplication
+import com.example.cloble.data.remote.SupabaseWardrobeRepository
 import com.example.cloble.domain.model.ClothingDraft
 import com.example.cloble.domain.repository.AuthRepository
 import com.example.cloble.domain.repository.WardrobeRepository
@@ -49,7 +50,7 @@ data class AddEditClothingUiState(
 )
 
 class AddEditClothingViewModel(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
     private val wardrobeRepository: WardrobeRepository,
     private val cleanupScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -149,11 +150,33 @@ class AddEditClothingViewModel(
         _uiState.update { it.copy(condition = cond) }
     }
 
+    fun onCameraCaptureStarted(tempUriString: String, slotIndex: Int) {
+        savedStateHandle[KEY_PENDING_CAMERA_URI] = tempUriString
+        savedStateHandle[KEY_PENDING_CAMERA_SLOT] = slotIndex
+    }
+
+    fun onCameraCaptureResult(success: Boolean): String? {
+        val uri = savedStateHandle.remove<String>(KEY_PENDING_CAMERA_URI)
+        val slot = savedStateHandle.remove<Int>(KEY_PENDING_CAMERA_SLOT) ?: 0
+        return if (success && !uri.isNullOrBlank()) {
+            onPhotoSelected(uri, slot)
+            null
+        } else {
+            uri
+        }
+    }
+
     fun onPhotoSelected(photoUri: String, slotIndex: Int = 0) {
         val current = _uiState.value
         if (current.isLockedInActiveMatch || current.isItemLoadFailed || current.isUploadingPhoto || current.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingPhoto = true, errorMessage = null) }
+            if (_uiState.value.currentUserId == null) {
+                val hydratedUserId = authRepository.observeLoggedInUserId().firstOrNull()
+                if (hydratedUserId != null) {
+                    _uiState.update { it.copy(currentUserId = hydratedUserId) }
+                }
+            }
             val isRemoteInput = photoUri.startsWith("http://") || photoUri.startsWith("https://")
             val persistedUri = wardrobeRepository.persistLocalPhoto(photoUri)
             if (persistedUri != null) {
@@ -170,10 +193,13 @@ class AddEditClothingViewModel(
                     }
                 }
             } else {
+                val specificError = (wardrobeRepository as? SupabaseWardrobeRepository)
+                    ?.consumeLastPhotoUploadError()
                 _uiState.update {
                     it.copy(
                         isUploadingPhoto = false,
-                        errorMessage = "Gagal mengunggah foto pakaian. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
+                        errorMessage = specificError
+                            ?: "Gagal mengunggah foto pakaian. Pastikan format JPG/PNG/WebP dan ukuran maksimal 5 MB.",
                         errorScrollTrigger = it.errorScrollTrigger + 1
                     )
                 }
@@ -512,6 +538,9 @@ class AddEditClothingViewModel(
     }
 
     companion object {
+        private const val KEY_PENDING_CAMERA_URI = "pending_camera_uri"
+        private const val KEY_PENDING_CAMERA_SLOT = "pending_camera_slot"
+
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as CloBleApplication)

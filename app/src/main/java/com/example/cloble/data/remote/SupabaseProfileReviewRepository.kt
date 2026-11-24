@@ -32,9 +32,18 @@ class SupabaseProfileReviewRepository(
     @Volatile
     private var lastMutationErrorMessage: String? = null
 
+    @Volatile
+    private var lastPhotoUploadError: String? = null
+
     fun consumeLastMutationError(): String? {
         val message = lastMutationErrorMessage
         lastMutationErrorMessage = null
+        return message
+    }
+
+    fun consumeLastPhotoUploadError(): String? {
+        val message = lastPhotoUploadError
+        lastPhotoUploadError = null
         return message
     }
 
@@ -195,6 +204,7 @@ class SupabaseProfileReviewRepository(
     }
 
     override suspend fun persistAvatarPhoto(sourceUriString: String): String? = withContext(Dispatchers.IO) {
+        lastPhotoUploadError = null
         if (sourceUriString.startsWith("http://") || sourceUriString.startsWith("https://")) {
             return@withContext sourceUriString
         }
@@ -205,14 +215,19 @@ class SupabaseProfileReviewRepository(
                 uri = uri,
                 maxDimensionPx = MAX_AVATAR_PHOTO_DIMENSION_PX,
                 maxBytes = MAX_PHOTO_BYTES
-            ) ?: return@withContext null
-            val uploadedUrl = client.uploadPhoto(bytes, kind = "avatar", mimeType = "image/jpeg")
-            deleteCameraTempFileForUri(context, sourceUriString)
-            uploadedUrl
+            )
+            if (bytes == null) {
+                lastPhotoUploadError = "Gagal memproses foto profil dari perangkat. Coba pilih ulang foto."
+                return@withContext null
+            }
+            client.uploadPhoto(bytes, kind = "avatar", mimeType = "image/jpeg")
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastPhotoUploadError = formatPhotoUploadFailureMessage(e, "foto profil")
             null
+        } finally {
+            deleteCameraTempFileForUri(context, sourceUriString)
         }
     }
 

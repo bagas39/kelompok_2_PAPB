@@ -5,9 +5,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import com.example.cloble.domain.model.ClothingDraft
 import com.example.cloble.domain.model.ClothingItem
 import com.example.cloble.domain.model.WardrobeItemSummary
@@ -38,6 +40,15 @@ class SupabaseWardrobeRepository(
     @Volatile
     var lastMyWardrobeFetchFailed: Boolean = false
         private set
+
+    @Volatile
+    private var lastPhotoUploadError: String? = null
+
+    fun consumeLastPhotoUploadError(): String? {
+        val message = lastPhotoUploadError
+        lastPhotoUploadError = null
+        return message
+    }
 
     fun triggerWardrobeRefresh() {
         invalidator.invalidateWardrobe()
@@ -330,6 +341,7 @@ class SupabaseWardrobeRepository(
     }
 
     override suspend fun persistLocalPhoto(sourceUriString: String): String? = withContext(Dispatchers.IO) {
+        lastPhotoUploadError = null
         if (sourceUriString.startsWith("http://") || sourceUriString.startsWith("https://")) {
             return@withContext sourceUriString
         }
@@ -341,15 +353,20 @@ class SupabaseWardrobeRepository(
                 uri = uri,
                 maxDimensionPx = MAX_CLOTHING_PHOTO_DIMENSION_PX,
                 maxBytes = MAX_PHOTO_BYTES
-            ) ?: return@withContext null
+            )
+            if (bytes == null) {
+                lastPhotoUploadError = "Gagal memproses foto dari perangkat. Coba pilih atau ambil ulang foto."
+                return@withContext null
+            }
 
-            val uploadedUrl = client.uploadPhoto(bytes, kind = "clothing", mimeType = "image/jpeg")
-            deleteCameraTempFileForUri(context, sourceUriString)
-            uploadedUrl
+            client.uploadPhoto(bytes, kind = "clothing", mimeType = "image/jpeg")
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastPhotoUploadError = formatPhotoUploadFailureMessage(e, "foto pakaian")
             null
+        } finally {
+            deleteCameraTempFileForUri(context, sourceUriString)
         }
     }
 
@@ -409,6 +426,50 @@ internal fun calculateInSampleSize(width: Int, height: Int, maxDimensionPx: Int)
     return inSampleSize
 }
 
+internal fun formatPhotoUploadFailureMessage(error: Exception, label: String): String {
+    val msg = error.message.orEmpty()
+    return when {
+        msg.contains("Sesi", ignoreCase = true) || msg.contains("UNAUTHORIZED", ignoreCase = true) ->
+            "Sesi login tidak valid. Silakan keluar dan masuk kembali."
+        msg.contains("5 MB", ignoreCase = true) || msg.contains("PAYLOAD_TOO_LARGE", ignoreCase = true) ->
+            "Ukuran $label terlalu besar. Maksimal 5 MB."
+        msg.contains("Format", ignoreCase = true) || msg.contains("INVALID_FILE_TYPE", ignoreCase = true) ->
+            "Format $label harus JPG, PNG, atau WebP."
+        else ->
+            "Gagal mengunggah $label. Periksa koneksi internet Anda lalu coba lagi."
+    }
+}
+
+private fun decodeScaledSoftwareBitmapApi28(
+    context: Context,
+    uri: Uri,
+    maxDimensionPx: Int
+): Bitmap? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+    return try {
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val srcW = info.size.width
+            val srcH = info.size.height
+            val currentMax = maxOf(srcW, srcH)
+            if (currentMax > maxDimensionPx && srcW > 0 && srcH > 0) {
+                val scale = maxDimensionPx.toFloat() / currentMax.toFloat()
+                decoder.setTargetSize(
+                    (srcW * scale).toInt().coerceAtLeast(1),
+                    (srcH * scale).toInt().coerceAtLeast(1)
+                )
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: OutOfMemoryError) {
+        null
+    } catch (_: Exception) {
+        null
+    }
+}
+
 internal fun compressAndStripExifJpeg(
     context: Context,
     uri: Uri,
@@ -418,66 +479,90 @@ internal fun compressAndStripExifJpeg(
     val boundsOptions = BitmapFactory.Options().apply {
         inJustDecodeBounds = true
     }
-    try {
+    var boundsOk = try {
         context.contentResolver.openInputStream(uri)?.use { stream ->
             BitmapFactory.decodeStream(stream, null, boundsOptions)
-        } ?: return null
+        }
+        true
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
-        return null
+        false
     }
 
     val srcWidth = boundsOptions.outWidth
     val srcHeight = boundsOptions.outHeight
-    if (srcWidth <= 0 || srcHeight <= 0) return null
+    if (!boundsOk || srcWidth <= 0 || srcHeight <= 0) {
+        boundsOk = false
+    }
 
-    val orientation = try {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            ExifInterface(stream).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )
-        } ?: ExifInterface.ORIENTATION_NORMAL
-    } catch (e: CancellationException) {
-        throw e
-    } catch (_: Exception) {
+    var applyExifRotation = true
+    val orientation = if (boundsOk) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+    } else {
         ExifInterface.ORIENTATION_NORMAL
     }
 
-    val decodeOptions = BitmapFactory.Options().apply {
-        inSampleSize = calculateInSampleSize(srcWidth, srcHeight, maxDimensionPx)
-        inPreferredConfig = Bitmap.Config.ARGB_8888
+    var bitmap = if (boundsOk) {
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = calculateInSampleSize(srcWidth, srcHeight, maxDimensionPx)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: OutOfMemoryError) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+    } else {
+        null
     }
 
-    var bitmap = try {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, decodeOptions)
+    if (bitmap == null) {
+        bitmap = decodeScaledSoftwareBitmapApi28(context, uri, maxDimensionPx)
+        if (bitmap != null) {
+            applyExifRotation = false
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (_: OutOfMemoryError) {
-        null
-    } catch (_: Exception) {
-        null
-    } ?: return null
+    }
+
+    if (bitmap == null) {
+        return null
+    }
 
     return try {
         val matrix = Matrix()
-        when (orientation) {
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
-            ExifInterface.ORIENTATION_TRANSPOSE -> {
-                matrix.postRotate(90f)
-                matrix.postScale(-1f, 1f)
+        if (applyExifRotation) {
+            when (orientation) {
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> {
+                    matrix.postRotate(90f)
+                    matrix.postScale(-1f, 1f)
+                }
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_TRANSVERSE -> {
+                    matrix.postRotate(270f)
+                    matrix.postScale(-1f, 1f)
+                }
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
             }
-            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-            ExifInterface.ORIENTATION_TRANSVERSE -> {
-                matrix.postRotate(270f)
-                matrix.postScale(-1f, 1f)
-            }
-            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
         }
 
         val currentMax = maxOf(bitmap.width, bitmap.height)
@@ -521,6 +606,8 @@ internal fun compressAndStripExifJpeg(
         }
         null
     } catch (_: OutOfMemoryError) {
+        null
+    } catch (_: Exception) {
         null
     } finally {
         if (!bitmap.isRecycled) {
